@@ -9,7 +9,8 @@ import {
   X, ClipboardCheck, ImagePlus, Trash2, MapPin as MapIcon, 
   LogOut, Users, Menu, LayoutDashboard, Search, Store, CheckCircle2,
   MoonStar, AlertTriangle, ChevronDown, ChevronUp, Sun, Volume2,
-  Map as MapViewIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut,Image as ImageIcon
+  Map as MapViewIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Image as ImageIcon,
+  PlayCircle, ChefHat, PackageCheck 
 } from 'lucide-react'; 
 import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from '@react-google-maps/api';
 import { User as SupabaseUser } from '@supabase/supabase-js';
@@ -56,24 +57,24 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))); 
 };
 
-// 🌟 เปลี่ยน [...] เป็นคลาสมาตรฐาน
+// สีพาสเทลเดิม สบายตา
 const getColumnColor = (colName: string) => {
   switch (colName) {
-    case 'New': return 'bg-blue-50/40 border-blue-200 shadow-inner';
-    case 'กำลังทำ': return 'bg-amber-50/40 border-amber-200 shadow-inner';
-    case 'รับงาน': return 'bg-indigo-50/40 border-indigo-200 shadow-inner';
-    case 'ส่งแล้ว/เสร็จ': return 'bg-emerald-50/40 border-emerald-200 shadow-inner';
-    default: return 'bg-gray-50/40 border-gray-200';
+    case 'New': return 'bg-blue-50/60 border-blue-200 shadow-sm';
+    case 'กำลังทำ': return 'bg-amber-50/60 border-amber-200 shadow-sm';
+    case 'รับงาน': return 'bg-indigo-50/60 border-indigo-200 shadow-sm';
+    case 'ส่งแล้ว/เสร็จ': return 'bg-emerald-50/60 border-emerald-200 shadow-sm';
+    default: return 'bg-gray-50/60 border-gray-200 shadow-sm';
   }
 };
 
 const getColumnHeaderColor = (colName: string) => {
   switch (colName) {
-    case 'New': return 'text-blue-700 bg-blue-100/70 border-blue-200 shadow-sm';
-    case 'กำลังทำ': return 'text-amber-700 bg-amber-100/70 border-amber-200 shadow-sm';
-    case 'รับงาน': return 'text-indigo-700 bg-indigo-100/70 border-indigo-200 shadow-sm';
-    case 'ส่งแล้ว/เสร็จ': return 'text-emerald-700 bg-emerald-100/70 border-emerald-200 shadow-sm';
-    default: return 'text-gray-700 bg-gray-100/70 border-gray-200 shadow-sm';
+    case 'New': return 'text-blue-700 bg-blue-100 border-blue-200';
+    case 'กำลังทำ': return 'text-amber-700 bg-amber-100 border-amber-200';
+    case 'รับงาน': return 'text-indigo-700 bg-indigo-100 border-indigo-200';
+    case 'ส่งแล้ว/เสร็จ': return 'text-emerald-700 bg-emerald-100 border-emerald-200';
+    default: return 'text-gray-700 bg-gray-100 border-gray-200';
   }
 };
 
@@ -83,6 +84,25 @@ export default function BoardPage() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   
+  // 🌟 State สำหรับจัดการ Custom Alert Modal
+  const [alertModal, setAlertModal] = useState<{
+    isOpen: boolean;
+    type: 'logout' | 'endDay' | null;
+    title: string;
+    message: string;
+    confirmText: string;
+    cancelText: string;
+    icon: React.ReactNode | null;
+  }>({
+    isOpen: false,
+    type: null,
+    title: '',
+    message: '',
+    confirmText: '',
+    cancelText: '',
+    icon: null
+  });
+
   useEffect(() => {
     const t = setTimeout(() => {
       setDebouncedQuery(searchQuery);
@@ -496,6 +516,7 @@ export default function BoardPage() {
     if (data) {
       setOrders(orders.map(o => o.id === orderId ? data[0] as Order : o));
       showToast('ครัวกำลังทำอาหาร! 🍳');
+      setSelectedViewOrder(null); 
     }
   };
 
@@ -515,19 +536,29 @@ export default function BoardPage() {
     if (data) {
       setOrders(orders.map(o => o.id === orderId ? data[0] as Order : o));
       showToast(isShopee ? 'ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦' : 'อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵');
+      setSelectedViewOrder(null); 
     }
   };
 
-  const handleEndDay = async () => {
+  // 🌟 ฟังก์ชันจัดการ Custom Modal สำหรับ ปิดยอด & ออกจากระบบ
+  const handleEndDayRequest = () => {
     if (orders.length === 0) {
       alert('กระดานว่างเปล่าอยู่แล้วครับ ไม่มีออเดอร์ให้ปิดยอด');
       return;
     }
-    const confirmFirst = window.confirm('⚠️ คุณต้องการ "ปิดยอดจบวัน" ใช่หรือไม่?\n\nออเดอร์ทั้งหมดในกระดานจะถูกซ่อน (แต่ยังดูย้อนหลังได้ในหน้าสถิติ)');
-    if (!confirmFirst) return;
-    const confirmSecond = window.confirm('🛑 ยืนยันการปิดยอดอีกครั้ง! เมื่อกดตกลง ออเดอร์ทั้งหมดจะหายไปจากกระดานทันที');
-    if (!confirmSecond) return;
+    setAlertModal({
+      isOpen: true,
+      type: 'endDay',
+      title: 'ยืนยันการปิดยอดจบวัน?',
+      message: 'ออเดอร์ทั้งหมดในกระดานจะถูกซ่อนทันที\n(สามารถดูย้อนหลังได้ในหน้า Dashboard สถิติร้าน)',
+      confirmText: 'ยืนยันปิดยอด',
+      cancelText: 'ยกเลิก',
+      icon: <MoonStar size={44} className="text-rose-500 mb-4 animate-bounce drop-shadow-sm" />
+    });
+  };
 
+  const executeEndDay = async () => {
+    setAlertModal({ ...alertModal, isOpen: false });
     const { error } = await supabase.from('orders').update({ is_archived: true }).neq('is_archived', true); 
 
     if (error) {
@@ -541,19 +572,22 @@ export default function BoardPage() {
     }
   };
 
-  const handleDeleteOrder = async () => {
-    if (!editingId) return;
-    if (window.confirm('ลบออเดอร์นี้ถาวร?')) {
-      const { error } = await supabase.from('orders').delete().eq('id', editingId);
-      if (!error) { setOrders(orders.filter(o => o.id !== editingId)); setIsModalOpen(false); showToast('ลบออเดอร์สำเร็จ 🗑️'); }
-    }
+  const handleLogoutRequest = () => {
+    setAlertModal({
+      isOpen: true,
+      type: 'logout',
+      title: 'ต้องการออกจากระบบ?',
+      message: 'คุณต้องเข้าสู่ระบบใหม่ในครั้งถัดไปที่ต้องการใช้งาน',
+      confirmText: 'ออกจากระบบ',
+      cancelText: 'ยกเลิก',
+      icon: <LogOut size={44} className="text-slate-700 mb-4 ml-1 drop-shadow-sm" style={{ animation: 'wiggle 2s infinite' }} />
+    });
   };
 
-  const handleLogout = async () => {
-    if (window.confirm('คุณต้องการออกจากระบบใช่หรือไม่?')) {
-      await supabase.auth.signOut();
-      window.location.href = '/login';
-    }
+  const executeLogout = async () => {
+    setAlertModal({ ...alertModal, isOpen: false });
+    await supabase.auth.signOut();
+    window.location.href = '/login';
   };
 
   const filteredOrders = useMemo(() => {
@@ -573,6 +607,26 @@ export default function BoardPage() {
 
   if (!currentUser || !isMounted) return <div className="min-h-screen bg-gray-50 flex justify-center items-center font-bold text-gray-400 animate-pulse">กำลังโหลดข้อมูลร้าน...</div>;
 
+  const handleDeleteOrder = async () => {
+    if (!editingId) return;
+    if (!window.confirm('คุณแน่ใจหรือไม่ว่าต้องการลบออเดอร์นี้?')) return;
+
+    const { error } = await supabase.from('orders').delete().eq('id', editingId);
+    if (error) {
+      console.error(error);
+      showToast('เกิดข้อผิดพลาดในการลบออเดอร์');
+      return;
+    }
+
+    setOrders(prev => prev.filter(order => order.id !== editingId));
+    setEditingId(null);
+    setIsModalOpen(false);
+    setImageFiles([]);
+    setImagePreviews([]);
+    setExistingImages([]);
+    showToast('ลบออเดอร์เรียบร้อยแล้ว');
+  };
+
   return (
     <div className="h-screen w-full bg-slate-50 flex flex-col overflow-hidden font-sans relative">
       
@@ -584,24 +638,29 @@ export default function BoardPage() {
         <span className="font-bold text-sm tracking-wide">{toast.message}</span>
       </div>
 
-      <div className="shrink-0 p-3 md:p-2 pb-0 z-20">
-        <div className="flex flex-col lg:flex-row justify-between items-center gap-3 mb-0 bg-white/80 backdrop-blur-xl p-2 rounded-2xl shadow-sm border border-slate-200/60">
-          <div className="flex items-center gap-3 w-full lg:w-auto">
+      <div className="shrink-0 p-2 pb-0 z-20">
+        <div className="flex flex-col lg:flex-row justify-between items-center gap-2 mb-0 bg-white/80 backdrop-blur-xl p-2 rounded-2xl shadow-sm border border-slate-200/60">
+          <div className="flex items-center gap-2 w-full lg:w-auto">
             <button onClick={() => setIsMenuOpen(true)} className="p-2 bg-slate-100 hover:bg-blue-100 rounded-xl transition-all cursor-pointer text-slate-600 hover:text-blue-700 active:scale-95"><Menu size={18} /></button>
-            <h1 className="text-lg font-black text-slate-800 flex items-center whitespace-nowrap tracking-tight">KANBAN <span className="text-blue-600 ml-1.5">BOARD</span></h1>
+            <h1 className="text-base md:text-lg font-black text-slate-800 flex items-center whitespace-nowrap tracking-tight">
+              KANBAN <span className="text-blue-600 ml-1 mr-2 md:mr-3">BOARD</span> 
+              <span className="text-xs md:text-sm text-slate-500 font-bold border-l-2 border-slate-200 pl-2 md:pl-3 py-1">
+                ออเดอร์ทั้งหมด : <span className="text-blue-600 font-black">{orders.length}</span>
+              </span>
+            </h1>
           </div>
           
-          <div className="flex flex-col sm:flex-row items-center w-full lg:w-auto gap-3">
-            <div className="relative w-full sm:w-64">
+          <div className="flex flex-col sm:flex-row items-center w-full lg:w-auto gap-2">
+            <div className="relative w-full sm:w-56">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search size={14} className="text-slate-400" /></div>
-              <input type="text" placeholder="ค้นหาเลขออเดอร์, สถานที่, ไรเดอร์..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:bg-white focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 transition-all font-medium shadow-inner"/>
+              <input type="text" placeholder="ค้นหาออเดอร์, สถานที่..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:bg-white focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 transition-all font-medium shadow-inner"/>
             </div>
             
-            <button onClick={() => setShowRiderMap(true)} className="w-full sm:w-auto px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl hover:bg-indigo-100 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95">
-              <MapViewIcon size={14} className="animate-pulse" /> ดูพิกัดไรเดอร์
+            <button onClick={() => setShowRiderMap(true)} className="w-full sm:w-auto px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl hover:bg-indigo-100 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95">
+              <MapViewIcon size={14} className="animate-pulse" /> พิกัดไรเดอร์
             </button>
 
-            <button onClick={openCreateModal} className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 hover:shadow-lg transition-all duration-300 cursor-pointer active:scale-95 shadow-md">+ สร้างออเดอร์</button>
+            <button onClick={openCreateModal} className="w-full sm:w-auto px-4 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 hover:shadow-lg transition-all duration-300 cursor-pointer active:scale-95 shadow-md">+ สร้างออเดอร์</button>
           </div>
         </div>
       </div>
@@ -622,29 +681,75 @@ export default function BoardPage() {
               <Link href="/board/users" className="w-full flex items-center p-4 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-2xl transition-all font-bold border border-transparent hover:border-indigo-100 group"><div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform"><Users size={20} className="text-indigo-600" /></div>จัดการสมาชิก (พนักงาน)</Link>
               
               <div className="pt-6 border-t border-slate-100 mt-4">
-                <button onClick={() => setShowAdvanced(!showAdvanced)} className="w-full flex items-center justify-between p-4 text-slate-400 hover:bg-slate-50 rounded-2xl transition-all font-bold cursor-pointer border border-transparent hover:border-slate-200">
-                  <span className="flex items-center text-sm"><AlertTriangle size={18} className="mr-3"/> ตั้งค่าขั้นสูง (อันตราย)</span>
+                <button onClick={() => setShowAdvanced(!showAdvanced)} className="w-full flex items-center justify-between p-4 text-slate-400 hover:bg-slate-50 rounded-2xl transition-all font-bold cursor-pointer border border-transparent hover:border-slate-200 group">
+                  <span className="flex items-center text-sm"><AlertTriangle size={18} className="mr-3 group-hover:text-amber-500 transition-colors"/> ตั้งค่าขั้นสูง (อันตราย)</span>
                   {showAdvanced ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                 </button>
                 
                 {showAdvanced && (
-                  <div className="mt-3 p-3 bg-red-50/50 rounded-2xl border border-red-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <button onClick={handleEndDay} className="w-full flex items-center justify-center p-4 text-red-600 bg-white hover:bg-red-50 rounded-xl transition-all font-black border border-red-200 shadow-sm cursor-pointer active:scale-95">
-                      <MoonStar size={20} className="mr-3" /> ปิดยอดจบวัน (ล้างกระดาน)
+                  <div className="mt-3 p-3 bg-red-50/80 rounded-2xl border border-red-100 animate-in fade-in slide-in-from-top-2 duration-300 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-20 h-20 bg-red-100 rounded-full blur-xl -mr-10 -mt-10 pointer-events-none"></div>
+                    <button 
+                      onClick={handleEndDayRequest} 
+                      className="w-full flex items-center justify-center p-4 text-red-600 bg-white hover:bg-red-600 hover:text-white rounded-xl transition-all duration-300 font-black border border-red-200 shadow-sm cursor-pointer active:scale-95 group/end"
+                    >
+                      <MoonStar size={20} className="mr-3 group-hover/end:animate-pulse" /> 
+                      <span className="group-hover/end:animate-[shake_0.5s_ease-in-out]">ปิดยอดจบวัน (ล้างกระดาน)</span>
                     </button>
-                    <p className="text-xs text-red-400 mt-3 text-center px-2 font-bold uppercase tracking-wider">*เมื่อกดปิดยอด ออเดอร์ทั้งหมดจะถูกซ่อนจากกระดานทันที</p>
+                    <p className="text-[10px] text-red-400 mt-3 text-center px-2 font-black uppercase tracking-widest relative z-10">* ออเดอร์ทั้งหมดจะถูกซ่อนทันที</p>
                   </div>
                 )}
               </div>
             </div>
             
             <div className="p-6 border-t border-slate-100 bg-slate-50">
-              <button onClick={() => { setIsMenuOpen(false); handleLogout(); }} className="w-full flex items-center justify-center p-4 text-red-500 bg-white border border-red-100 hover:bg-red-50 hover:text-red-600 rounded-2xl transition-all font-black cursor-pointer shadow-sm active:scale-95"><LogOut size={18} className="mr-2" />ออกจากระบบ</button>
+              <button 
+                onClick={handleLogoutRequest} 
+                className="w-full flex items-center justify-center p-4 text-slate-500 bg-white border border-slate-200 hover:bg-slate-800 hover:text-white hover:border-slate-800 rounded-2xl transition-all duration-300 font-black cursor-pointer shadow-sm active:scale-95 group/logout"
+              >
+                <LogOut size={18} className="mr-2 group-hover/logout:-translate-x-1 transition-transform duration-300" />
+                ออกจากระบบ
+              </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* 🌟 Custom Alert Modal (หน้าต่างยืนยันแบบป๊อปอัปสวยๆ) */}
+      {alertModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 999 }}>
+          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col p-8 text-center relative">
+            
+            <div className="flex justify-center">{alertModal.icon}</div>
+            
+            <h3 className="text-xl font-black text-slate-800 tracking-tight mb-2">
+              {alertModal.title}
+            </h3>
+            <p className="text-sm text-slate-500 font-medium mb-8 whitespace-pre-line leading-relaxed">
+              {alertModal.message}
+            </p>
+            
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setAlertModal({ ...alertModal, isOpen: false })}
+                className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-xs uppercase tracking-widest"
+              >
+                {alertModal.cancelText}
+              </button>
+              <button 
+                onClick={alertModal.type === 'logout' ? executeLogout : executeEndDay}
+                className={`flex-1 py-3.5 text-white font-black rounded-2xl transition-all cursor-pointer shadow-lg active:scale-95 text-xs uppercase tracking-widest ${
+                  alertModal.type === 'logout' ? 'bg-slate-800 hover:bg-slate-900' : 'bg-rose-500 hover:bg-rose-600 shadow-rose-500/30'
+                }`}
+              >
+                {alertModal.confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* แผนที่ ... (คงเดิม) */}
       {showRiderMap && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm" style={{ zIndex: 120 }}>
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col" style={{ height: '85vh' }}>
@@ -682,7 +787,7 @@ export default function BoardPage() {
               )}
             </div>
 
-            <div className="p-4 bg-white shrink-0 border-t border-slate-100 flex gap-2 overflow-x-auto hide-scrollbar">
+            <div className="p-4 bg-white shrink-0 border-t border-slate-100 flex gap-2 overflow-x-auto thin-scrollbar">
               <div className="px-3 py-1.5 bg-red-50 text-red-700 text-xs font-bold rounded-lg border border-red-100 shrink-0 flex items-center gap-1.5"><div className="w-3 h-3 bg-red-500 rounded-full shadow-inner"></div> ร้านของเรา</div>
               <div className="px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg border border-blue-100 shrink-0 flex items-center gap-1.5"><div className="w-3 h-3 bg-blue-500 rounded-full shadow-inner animate-pulse"></div> ไรเดอร์</div>
               <span className="text-xs text-slate-400 my-auto ml-auto pl-4 whitespace-nowrap">*พิกัดอัปเดตทุก 30 วินาที</span>
@@ -691,7 +796,8 @@ export default function BoardPage() {
         </div>
       )}
 
-      <div className="flex-1 p-4 md:p-6 pt-0 overflow-hidden z-10 flex flex-col">
+      {/* บอร์ดหลัก ... (คงเดิม) */}
+      <div className="flex-1 p-2 pt-2 overflow-hidden z-10 flex flex-col">
         {orders.length === 0 && !searchQuery ? (
           <div className="flex flex-col items-center justify-center h-full bg-white/40 backdrop-blur-sm rounded-3xl border-2 border-dashed border-slate-200 shadow-sm animate-in fade-in duration-500">
             <div className="w-28 h-28 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-8 shadow-inner border border-blue-100" style={{ animation: 'spin 10s linear infinite' }}>
@@ -708,52 +814,68 @@ export default function BoardPage() {
             </button>
           </div>
         ) : (
-          <DragDropContext onDragEnd={onDragEnd}>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 flex-1 min-h-0">
-              {COLUMNS.map(col => {
-                const colOrders = filteredOrders.filter(o => o.status === col);
-                return (
-                  <Droppable key={col} droppableId={col}>
-                    {(provided) => (
-                      <div ref={provided.innerRef} {...provided.droppableProps} className={`p-3 rounded-3xl border-2 flex flex-col h-full min-h-0 transition-colors ${getColumnColor(col)}`}>
-                        
-                        <div className="flex items-center justify-between mb-3 px-1 shrink-0">
-                          <h2 className={`font-black text-xs px-3 py-1.5 rounded-lg uppercase tracking-widest border ${getColumnHeaderColor(col)}`}>{col}</h2>
-                          <span className="text-xs font-black text-slate-500 bg-white px-2.5 py-0.5 rounded-lg shadow-sm border border-slate-100">{colOrders.length}</span>
-                        </div>
-                        
-                        <div className="flex-1 overflow-y-auto min-h-0 pb-4 px-1 hide-scrollbar">
-                          {colOrders.map((order, index) => (
-                            <Draggable key={order.id} draggableId={order.id} index={index}>
-                              {(provided, snapshot) => (
-                                <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className={`transition-all duration-300 relative group ${snapshot.isDragging ? 'scale-105 rotate-3 shadow-2xl z-50 ring-4 ring-blue-500/20 rounded-2xl' : ''}`}>
-                                  <OrderCard 
-                                    order={order} 
-                                    onEdit={openEditModal} 
-                                    onStart={handleStartOrder} 
-                                    onFinish={handleFinishOrder} 
-                                    onViewDetails={() => setSelectedViewOrder(order)} 
-                                    onViewImages={(urls, startIndex) => setImageGallery({ urls, startIndex })} 
-                                  />
-                                </div>
-                              )}
-                            </Draggable>
-                          ))}
-                          {provided.placeholder}
-                        </div>
+          <div className="flex-1 overflow-y-auto thin-scrollbar pb-10">
+            <DragDropContext onDragEnd={onDragEnd}>
+              <div className="flex flex-col gap-3 min-h-0">
+                {COLUMNS.map(col => {
+                  const colOrders = filteredOrders.filter(o => o.status === col);
+                  return (
+                    <div key={col} className={`p-2 rounded-2xl border-2 flex flex-col shrink-0 h-[43vh] ${getColumnColor(col)}`}>
+                      
+                      <div className="flex items-center justify-between mb-1.5 px-2 shrink-0">
+                        <h2 className={`font-black text-[10px] px-2 py-0.5 rounded-lg uppercase tracking-widest border ${getColumnHeaderColor(col)}`}>
+                          {col}
+                        </h2>
+                        <span className="text-[10px] font-black text-slate-500 bg-white px-2 py-0.5 rounded-lg shadow-sm border border-slate-200">
+                          {colOrders.length}
+                        </span>
                       </div>
-                    )}
-                  </Droppable>
-                );
-              })}
-            </div>
-          </DragDropContext>
+                      
+                      <Droppable droppableId={col} direction="horizontal">
+                        {(provided) => (
+                          <div 
+                            ref={provided.innerRef} 
+                            {...provided.droppableProps} 
+                            className="flex flex-row overflow-x-auto thin-scrollbar flex-1 items-start gap-3 pb-2 px-1"
+                          >
+                            {colOrders.map((order, index) => (
+                              <Draggable key={order.id} draggableId={order.id} index={index}>
+                                {(provided, snapshot) => (
+                                  <div 
+                                    ref={provided.innerRef} 
+                                    {...provided.draggableProps} 
+                                    {...provided.dragHandleProps} 
+                                    className={`shrink-0 w-60 md:w-70 h-max max-h-full transition-all duration-300 relative group ${snapshot.isDragging ? 'scale-105 rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-2xl' : ''}`}
+                                  >
+                                    <OrderCard 
+                                      order={order} 
+                                      onEdit={openEditModal} 
+                                      onStart={handleStartOrder} 
+                                      onFinish={handleFinishOrder} 
+                                      onViewDetails={() => setSelectedViewOrder(order)} 
+                                      onViewImages={(urls, startIndex) => setImageGallery({ urls, startIndex })} 
+                                    />
+                                  </div>
+                                )}
+                              </Draggable>
+                            ))}
+                            {provided.placeholder}
+                          </div>
+                        )}
+                      </Droppable>
+                    </div>
+                  );
+                })}
+              </div>
+            </DragDropContext>
+          </div>
         )}
       </div>
 
+      {/* Modal สร้างออเดอร์ ... (คงเดิม) */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-gray-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm" style={{ zIndex: 120 }}>
-          <div className="bg-white shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 hide-scrollbar rounded-3xl" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
+          <div className="bg-white shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 thin-scrollbar rounded-3xl" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
             <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white/80 backdrop-blur-xl sticky top-0 z-10">
               <h3 className="text-xl font-black text-slate-800 tracking-tight">{editingId ? 'แก้ไขออเดอร์ 📝' : 'สร้างออเดอร์ใหม่ ✨'}</h3>
               <button type="button" onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-xl transition-all cursor-pointer hover:rotate-90 duration-300 active:scale-90"><X size={20} strokeWidth={3}/></button>
@@ -827,7 +949,7 @@ export default function BoardPage() {
                     />
                     
                     {showSuggestions && unifiedResults.length > 0 && (
-                      <ul className="absolute z-50 bg-white border border-slate-100 rounded-2xl shadow-2xl mt-2 max-h-60 overflow-y-auto divide-y divide-slate-50 hide-scrollbar" style={{ width: 'calc(100% - 2.5rem)' }}>
+                      <ul className="absolute z-50 bg-white border border-slate-100 rounded-2xl shadow-2xl mt-2 max-h-60 overflow-y-auto divide-y divide-slate-50 thin-scrollbar" style={{ width: 'calc(100% - 2.5rem)' }}>
                         {unifiedResults.map((item, idx) => (
                           <li key={idx} className="p-4 hover:bg-blue-50 cursor-pointer text-sm flex justify-between items-center transition-colors group/item" onClick={() => selectUnifiedResult(item)}>
                             <div className="flex flex-col pr-4">
@@ -886,16 +1008,16 @@ export default function BoardPage() {
       {selectedViewOrder && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm" style={{ zIndex: 200 }}>
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col" style={{ maxHeight: '85vh' }}>
-            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white sticky top-0 z-10 shrink-0">
-              <h3 className="text-xl font-black text-slate-800 tracking-tight flex items-center"><ClipboardCheck size={20} className="mr-2 text-blue-600"/> รายละเอียดออเดอร์</h3>
+            <div className="flex justify-between items-center p-5 md:p-6 border-b border-slate-100 bg-white sticky top-0 z-10 shrink-0">
+              <h3 className="text-lg md:text-xl font-black text-slate-800 tracking-tight flex items-center"><ClipboardCheck size={20} className="mr-2 text-blue-600"/> รายละเอียดออเดอร์</h3>
               <button type="button" onClick={() => setSelectedViewOrder(null)} className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-xl transition-all cursor-pointer hover:rotate-90 duration-300 active:scale-90"><X size={20} strokeWidth={3}/></button>
             </div>
             
-            <div className="p-6 space-y-6 overflow-y-auto bg-slate-50/30 hide-scrollbar">
-              <div className="flex justify-between items-end border-b border-slate-100 pb-5">
+            <div className="p-5 md:p-6 space-y-5 overflow-y-auto bg-slate-50/30 thin-scrollbar">
+              <div className="flex justify-between items-end border-b border-slate-100 pb-4">
                 <div>
                   <div className="text-[10px] font-black text-slate-400 mb-1 tracking-wider uppercase">เลขที่ออเดอร์</div>
-                  <div className="text-3xl font-black text-slate-800 tracking-tighter">{selectedViewOrder.order_number}</div>
+                  <div className="text-2xl md:text-3xl font-black text-slate-800 tracking-tighter">{selectedViewOrder.order_number}</div>
                 </div>
                 <div className="text-right mb-1">
                   <span className={`text-[10px] font-black px-3 py-1.5 rounded-lg shadow-sm border ${getRiderStatusDisplay(selectedViewOrder.status).color}`}>
@@ -911,7 +1033,7 @@ export default function BoardPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     {selectedViewOrder.image_url.split(',').filter(Boolean).map((imgUrl, i) => (
-                      <div key={i} onClick={() => setImageGallery({ urls: selectedViewOrder.image_url!.split(',').filter(Boolean), startIndex: i })} className="block relative h-32 rounded-2xl overflow-hidden shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-zoom-in group">
+                      <div key={i} onClick={() => setImageGallery({ urls: selectedViewOrder.image_url!.split(',').filter(Boolean), startIndex: i })} className="block relative h-28 md:h-32 rounded-2xl overflow-hidden shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-zoom-in group">
                         <Image src={imgUrl} fill sizes="(max-width: 768px) 50vw, 33vw" className="object-cover group-hover:scale-105 transition-transform duration-500" alt={`img-${i}`} />
                       </div>
                     ))}
@@ -922,7 +1044,7 @@ export default function BoardPage() {
               {selectedViewOrder.menu && (
                 <div className="space-y-2">
                   <div className="text-xs font-black text-slate-400 uppercase tracking-wider">รายการที่สั่ง</div>
-                  <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50 text-sm text-slate-700 font-bold whitespace-pre-line leading-relaxed">
+                  <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50 text-sm text-slate-700 font-bold whitespace-pre-line leading-relaxed shadow-inner">
                     {selectedViewOrder.menu}
                   </div>
                 </div>
@@ -931,31 +1053,55 @@ export default function BoardPage() {
               {selectedViewOrder.details && (
                 <div className="space-y-2">
                   <div className="text-xs font-black text-slate-400 uppercase tracking-wider">หมายเหตุ (Note)</div>
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm text-slate-600 font-medium whitespace-pre-line leading-relaxed">
+                  <div className="p-4 bg-yellow-50/50 rounded-2xl border border-yellow-100/50 text-xs md:text-sm text-slate-600 font-medium whitespace-pre-line leading-relaxed">
                     {selectedViewOrder.details}
                   </div>
                 </div>
               )}
 
-              <div className="bg-slate-50 rounded-2xl border border-slate-100 p-4 space-y-3 text-sm">
-                <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">ประเภทงาน:</span><span className="font-black text-slate-700 uppercase px-2.5 py-1 bg-white rounded-md shadow-sm border border-slate-100">{selectedViewOrder.job_type}</span></div>
-                <div className="flex justify-between items-center pt-2 border-t border-slate-200/60"><span className="text-slate-500 font-medium">ยอดเรียกเก็บ:</span><span className="font-black text-blue-600 text-lg">฿{selectedViewOrder.total_price || 0}</span></div>
-                <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">การชำระเงิน:</span><span className={`font-black text-[10px] uppercase px-2.5 py-1 rounded-md ${selectedViewOrder.payment_method === 'โอน' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>{selectedViewOrder.payment_method || 'เงินสด'}</span></div>
+              <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-3 text-sm shadow-sm">
+                <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">ประเภทงาน:</span><span className="font-black text-slate-700 uppercase px-2.5 py-1 bg-slate-50 rounded-md border border-slate-200">{selectedViewOrder.job_type}</span></div>
+                <div className="flex justify-between items-center pt-2 border-t border-slate-100"><span className="text-slate-500 font-medium">ยอดเรียกเก็บ:</span><span className="font-black text-blue-600 text-lg">฿{selectedViewOrder.total_price || 0}</span></div>
+                <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">การชำระเงิน:</span><span className={`font-black text-[10px] uppercase px-2.5 py-1 rounded-md ${selectedViewOrder.payment_method === 'โอน' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>{selectedViewOrder.payment_method || 'เงินสด'}</span></div>
               </div>
 
               {selectedViewOrder.address && (
                 <div className="space-y-2">
                   <div className="text-xs font-black text-slate-400 uppercase tracking-wider">สถานที่จัดส่ง</div>
-                  <div className="flex items-start text-sm text-slate-700 bg-red-50/50 p-4 rounded-2xl border border-red-100 font-bold">
-                    <MapIcon size={18} className="mr-2 mt-0.5 text-red-500 shrink-0" />
+                  <div className="flex items-start text-xs md:text-sm text-slate-700 bg-red-50/50 p-4 rounded-2xl border border-red-100 font-bold">
+                    <MapIcon size={16} className="mr-2 mt-0.5 text-red-500 shrink-0" />
                     <span className="leading-relaxed">{selectedViewOrder.address}</span>
                   </div>
                 </div>
               )}
             </div>
             
-            <div className="p-5 pt-0 shrink-0 bg-white border-t border-slate-100 mt-2">
-              <button onClick={() => setSelectedViewOrder(null)} className="w-full py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-slate-800 transition-all cursor-pointer shadow-lg active:scale-95 text-sm uppercase tracking-widest">
+            <div className="p-4 md:p-5 shrink-0 bg-white border-t border-slate-100 mt-0 flex flex-col gap-2 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] z-20">
+              {selectedViewOrder.status === 'New' && selectedViewOrder.job_type !== 'รับหิ้ว' && selectedViewOrder.job_type !== 'รับส่ง' && (
+                <button 
+                  onClick={() => handleStartOrder(selectedViewOrder.id)}
+                  className="w-full py-3.5 md:py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2"
+                >
+                  <PlayCircle size={18} />
+                  {selectedViewOrder.job_type === 'shopee' ? 'เริ่มเตรียมของ (Shopee)' : 'ยืนยัน: ครัวเริ่มทำอาหาร'}
+                </button>
+              )}
+
+              {selectedViewOrder.status === 'กำลังทำ' && selectedViewOrder.job_type !== 'รับหิ้ว' && selectedViewOrder.job_type !== 'รับส่ง' && (
+                <button 
+                  onClick={() => handleFinishOrder(selectedViewOrder.id)}
+                  className={`w-full py-3.5 md:py-4 text-white font-black rounded-2xl transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2 ${
+                    selectedViewOrder.job_type === 'shopee' 
+                    ? 'bg-orange-500 hover:bg-orange-600' 
+                    : 'bg-emerald-500 hover:bg-emerald-600'
+                  }`}
+                >
+                  {selectedViewOrder.job_type === 'shopee' ? <PackageCheck size={18} /> : <ChefHat size={18} />}
+                  {selectedViewOrder.job_type === 'shopee' ? 'ยืนยัน: ส่งมอบให้ขนส่งแล้ว' : 'ยืนยัน: ครัวทำเสร็จแล้ว'}
+                </button>
+              )}
+
+              <button onClick={() => setSelectedViewOrder(null)} className="w-full py-3 md:py-3.5 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-xs uppercase tracking-widest">
                 ปิดหน้าต่าง
               </button>
             </div>
@@ -963,7 +1109,7 @@ export default function BoardPage() {
         </div>
       )}
 
-      {/* 🌟 3. แกลเลอรี่รูปภาพแบบปัดซ้ายขวา และซูมได้ */}
+      {/* แกลเลอรี่รูป ... (คงเดิม) */}
       {imageGallery && (
         <div className="fixed inset-0 bg-gray-900/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200" onClick={() => { setImageGallery(null); setImgScale(1); }} style={{ zIndex: 300 }}>
           <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-50 text-white pointer-events-none">
@@ -986,7 +1132,7 @@ export default function BoardPage() {
           
           <div 
             ref={galleryRef}
-            className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory hide-scrollbar"
+            className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory thin-scrollbar"
           >
             {imageGallery.urls.map((url, i) => (
               <div 
@@ -1034,23 +1180,43 @@ export default function BoardPage() {
       </div>
 
       <style jsx global>{`
-        .hide-scrollbar::-webkit-scrollbar {
-          display: none;
+        .thin-scrollbar::-webkit-scrollbar {
+          height: 6px;
+          width: 6px;
         }
-        .hide-scrollbar {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
+        .thin-scrollbar::-webkit-scrollbar-track {
+          background: rgba(0, 0, 0, 0.02);
+          border-radius: 10px;
+        }
+        .thin-scrollbar::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 10px;
+        }
+        .thin-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #94a3b8;
+        }
+
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(-2px) rotate(-1deg); }
+          50% { transform: translateX(2px) rotate(1deg); }
+          75% { transform: translateX(-2px) rotate(-1deg); }
+        }
+
+        @keyframes wiggle {
+          0%, 100% { transform: rotate(-3deg); }
+          50% { transform: rotate(3deg); }
         }
       `}</style>
       
     </div>
   );
 }
-// 🌟 เติมฟังก์ชันนี้ไว้ล่างสุดของไฟล์ครับ
+
 function getRiderStatusDisplay(status: string) {
-  if (status === 'New') return { color: 'bg-blue-50 text-blue-600 border-blue-200' };
-  if (status === 'กำลังทำ') return { color: 'bg-amber-50 text-amber-600 border-amber-200' };
-  if (status === 'รับงาน') return { color: 'bg-indigo-50 text-indigo-600 border-indigo-200' };
-  if (status === 'ส่งแล้ว/เสร็จ') return { color: 'bg-emerald-50 text-emerald-600 border-emerald-200' };
-  return { color: 'bg-gray-50 text-gray-600 border-gray-200' };
+  if (status === 'New') return { color: 'bg-blue-100 text-blue-800 border-blue-300' };
+  if (status === 'กำลังทำ') return { color: 'bg-amber-100 text-amber-800 border-amber-300' };
+  if (status === 'รับงาน') return { color: 'bg-indigo-100 text-indigo-800 border-indigo-300' };
+  if (status === 'ส่งแล้ว/เสร็จ') return { color: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
+  return { color: 'bg-gray-100 text-gray-800 border-gray-300' };
 }

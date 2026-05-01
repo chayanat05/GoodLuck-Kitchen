@@ -30,6 +30,7 @@ export default function LoginPage() {
           .single();
 
         if (profileError || !profile) {
+          console.log("Supabase Error:", profileError);
           setErrorMsg('ไม่พบชื่อผู้ใช้งานนี้ในระบบ หรือพิมพ์ชื่อผิดครับ 😢');
           setLoading(false);
           return;
