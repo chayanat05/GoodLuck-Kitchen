@@ -26,7 +26,7 @@ export default function LoginPage() {
   const { data: userEmail, error: rpcError } = await supabase
     .rpc('get_email_by_username', { p_username: loginEmail });
 
-  if (rpcError || !userEmail) {
+   if (rpcError || !userEmail) {
     setErrorMsg('ไม่พบชื่อผู้ใช้งานนี้ในระบบ หรือพิมพ์ชื่อผิดครับ 😢');
     setLoading(false);
     return;
