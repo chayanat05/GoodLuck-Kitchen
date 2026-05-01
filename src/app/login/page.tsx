@@ -21,22 +21,20 @@ export default function LoginPage() {
     try {
       let loginEmail = formData.identifier.trim();
 
-      // สูตรโกง: ถ้าไม่มีตัว @ ให้ถือว่าเป็นชื่อเล่น และวิ่งไปหาอีเมลในตาราง profiles
-      if (!loginEmail.includes('@')) {
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('email')
-          .ilike('username', loginEmail) 
-          .single();
+      // เปลี่ยนจาก .from('profiles') มาเป็นเรียกใช้ฟังก์ชัน rpc
+  if (!loginEmail.includes('@')) {
+  const { data: userEmail, error: rpcError } = await supabase
+    .rpc('get_email_by_username', { p_username: loginEmail });
 
-        if (profileError || !profile) {
-          console.log("Supabase Error:", profileError);
-          setErrorMsg('ไม่พบชื่อผู้ใช้งานนี้ในระบบ หรือพิมพ์ชื่อผิดครับ 😢');
-          setLoading(false);
-          return;
-        }
-        loginEmail = profile.email;
-      }
+  if (rpcError || !userEmail) {
+    setErrorMsg('ไม่พบชื่อผู้ใช้งานนี้ในระบบ หรือพิมพ์ชื่อผิดครับ 😢');
+    setLoading(false);
+    return;
+  }
+  
+  // ได้อีเมลมาแล้ว นำไปล็อกอินต่อ
+  loginEmail = userEmail; 
+  }
 
       // 🌟 ส่งล็อกอิน
       const { data: authData, error } = await supabase.auth.signInWithPassword({
