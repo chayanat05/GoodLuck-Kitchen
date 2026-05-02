@@ -1,6 +1,6 @@
 'use client'
-import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, Image as ImageIcon } from "lucide-react";
-import React, { useMemo } from 'react';
+import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, Image as ImageIcon, MoreVertical, ScanSearch, CheckCircle2, AlertCircle, XCircle, Trash2, ArrowRightLeft } from "lucide-react";
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 
 export interface Order {
   id: string;
@@ -20,6 +20,8 @@ export interface Order {
   lat?: number | null;
   lng?: number | null;
   payment_method?: string;
+  slip_status?: "รอตรวจ" | "ผ่าน" | "ไม่ผ่าน" | string; 
+  sort_index?: number; // 🌟 เพิ่มฟิลด์สำหรับจัดเรียง
 }
 
 interface OrderProps {
@@ -29,6 +31,9 @@ interface OrderProps {
   onFinish?: (id: string) => void; 
   onViewDetails?: () => void; 
   onViewImages?: (urls: string[], startIndex: number) => void; 
+  onVerifySlip?: (order: Order) => void; 
+  onDelete?: (id: string) => void; 
+  onChangeStatusRequest?: (order: Order) => void; // 🌟 เปลี่ยนเป็นฟังก์ชันขอเปิด Pop-up
 }
 
 const getCardTheme = (status: string) => {
@@ -41,10 +46,27 @@ const getCardTheme = (status: string) => {
   }
 };
 
-function OrderCard({ order, onEdit, onStart, onFinish, onViewDetails, onViewImages }: OrderProps) {
+function OrderCard({ order, onEdit, onStart, onFinish, onViewDetails, onViewImages, onVerifySlip, onDelete, onChangeStatusRequest }: OrderProps) {
   const isShopee = order.job_type === "shopee";
   const isCustomJob = order.job_type === "รับหิ้ว" || order.job_type === "รับส่ง"; 
   const isLocked = !!order.rider_id;
+
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    };
+    if (isMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.addEventListener('mousedown', handleClickOutside);
+    };
+  }, [isMenuOpen]);
 
   const images = useMemo(() => {
     return order.image_url ? order.image_url.split(',').filter(Boolean) : [];
@@ -52,6 +74,7 @@ function OrderCard({ order, onEdit, onStart, onFinish, onViewDetails, onViewImag
   const hasImages = images.length > 0;
 
   const theme = getCardTheme(order.status);
+  const slipStatus = order.slip_status || 'รอตรวจ'; 
 
   return (
     <div className={`p-4 rounded-3xl shadow-xl border-b-[6px] relative transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:-translate-y-2 flex flex-col h-max min-h-[14rem] ${theme.bg}`}>
@@ -69,15 +92,47 @@ function OrderCard({ order, onEdit, onStart, onFinish, onViewDetails, onViewImag
           </span>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0 relative" ref={menuRef}>
           {onViewDetails && (
-            <button onClick={(e) => { e.stopPropagation(); onViewDetails(); }} className={`p-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/20 ${theme.text}`}>
+            <button onClick={(e) => { e.stopPropagation(); onViewDetails(); }} className={`p-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/20 ${theme.text}`} title="ดูรายละเอียด">
               <Eye size={16} strokeWidth={2.5}/>
             </button>
           )}
-          <button onClick={() => onEdit?.(order)} className={`p-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/20 ${theme.text}`}>
-            <Edit2 size={16} strokeWidth={2.5} />
+          
+          <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(!isMenuOpen); }} className={`p-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/20 ${theme.text} ${isMenuOpen ? 'bg-white/20' : ''}`} title="เมนูเพิ่มเติม">
+            <MoreVertical size={16} strokeWidth={2.5} />
           </button>
+
+          {isMenuOpen && (
+            <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200 origin-top-right flex flex-col">
+              
+              {onVerifySlip && order.payment_method === 'โอน' && order.status !== 'ส่งแล้ว/เสร็จ' && !isShopee && (
+                <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onVerifySlip(order); }} className="w-full text-left px-4 py-3 text-sm font-black text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 border-b border-slate-50 transition-colors">
+                  <ScanSearch size={16} className="animate-pulse" /> ตรวจสลิปด้วย AI
+                </button>
+              )}
+              
+              {/* 🌟 เปลี่ยนสถานะออเดอร์ (เปิด Pop-up แทน) */}
+              {onChangeStatusRequest && (
+                <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onChangeStatusRequest(order); }} className="w-full text-left px-4 py-3 text-sm font-bold text-blue-600 hover:bg-blue-50 flex items-center gap-2 transition-colors border-b border-slate-50">
+                  <ArrowRightLeft size={16} /> เปลี่ยนสถานะออเดอร์
+                </button>
+              )}
+
+              {onEdit && (
+                <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onEdit(order); }} className="w-full text-left px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors border-b border-slate-50">
+                  <Edit2 size={16} /> แก้ไขข้อมูลออเดอร์
+                </button>
+              )}
+
+              {onDelete && (
+                <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onDelete(order.id); }} className="w-full text-left px-4 py-3 text-sm font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-2 transition-colors">
+                  <Trash2 size={16} /> ลบออเดอร์นี้
+                </button>
+              )}
+
+            </div>
+          )}
         </div>
       </div>
 
@@ -115,6 +170,24 @@ function OrderCard({ order, onEdit, onStart, onFinish, onViewDetails, onViewImag
         </div>
         {!isShopee && (
           <div className="flex items-center gap-2">
+            {order.payment_method === 'โอน' && (
+              slipStatus === 'ผ่าน' ? (
+                <span className="flex items-center text-emerald-600 bg-white/95 px-1.5 py-0.5 rounded shadow-sm" title="ตรวจสลิปผ่านแล้ว">
+                  <CheckCircle2 size={12} className="mr-1" />
+                  <span className="text-[9px] font-black uppercase tracking-wider">ผ่าน</span>
+                </span>
+              ) : slipStatus === 'ไม่ผ่าน' ? (
+                <span className="flex items-center text-rose-600 bg-white/95 px-1.5 py-0.5 rounded shadow-sm" title="สลิปมีปัญหา/ยอดไม่ตรง">
+                  <XCircle size={12} className="mr-1" />
+                  <span className="text-[9px] font-black uppercase tracking-wider">ไม่ผ่าน</span>
+                </span>
+              ) : (
+                <span className="flex items-center text-amber-500 bg-white/95 px-1.5 py-0.5 rounded shadow-sm animate-pulse" title="รอการตรวจสอบสลิป">
+                  <AlertCircle size={12} className="mr-1" />
+                  <span className="text-[9px] font-black uppercase tracking-wider">รอตรวจ</span>
+                </span>
+              )
+            )}
             <span className={`font-black text-sm ${theme.text}`}>฿{order.total_price}</span>
             {order.payment_method && (
               <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded shadow-sm border ${theme.badgeBg}`}>

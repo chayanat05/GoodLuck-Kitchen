@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import OrderCard, { Order } from '../../components/OrderCard';
 import JobMap from '../../components/JobMap'; 
+import SlipScanner from '../../components/SlipScanner';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { supabase } from '../../lib/supabase';
 import { 
@@ -11,7 +12,7 @@ import {
   MoonStar, AlertTriangle, ChevronDown, ChevronUp, Sun, Volume2,
   Map as MapViewIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Image as ImageIcon,
   PlayCircle, ChefHat, PackageCheck, 
-  Settings
+  Settings, ArrowRightLeft
 } from 'lucide-react'; 
 import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from '@react-google-maps/api';
 import { User as SupabaseUser } from '@supabase/supabase-js';
@@ -48,14 +49,37 @@ export default function BoardPage() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   
-  // 🌟 State สำหรับธีม
-  const [bgColor, setBgColor] = useState<string>('#f8fafc');
-  const [bgImage, setBgImage] = useState<string | null>(null);
-  const [bgOption, setBgOption] = useState<'cover' | 'contain' | 'repeat'>('cover');
+  // 🌟 แก้ไขการประกาศ State โดยดึงจาก localStorage ตั้งแต่ต้น
+  const [bgColor, setBgColor] = useState<string>(() => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('boardBgColor') || '#f8fafc';
+  }
+  return '#f8fafc';
+});
+
+  const [bgImage, setBgImage] = useState<string | null>(() => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('boardBgImage');
+  }
+  return null;
+});
+
+  const [bgOption, setBgOption] = useState<'cover' | 'contain' | 'repeat'>(() => {
+  if (typeof window !== 'undefined') {
+    return (localStorage.getItem('boardBgOption') as 'cover' | 'contain' | 'repeat') || 'cover';
+  }
+  return 'cover';
+  });
 
   const [alertModal, setAlertModal] = useState<{
     isOpen: boolean; type: 'logout' | 'endDay' | null; title: string; message: string; confirmText: string; cancelText: string; icon: React.ReactNode | null;
   }>({ isOpen: false, type: null, title: '', message: '', confirmText: '', cancelText: '', icon: null });
+
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string | null }>({ isOpen: false, id: null });
+  const [scannerConfig, setScannerConfig] = useState<{ isOpen: boolean; orderId: string; amount: number } | null>(null);
+  
+  // 🌟 State ควบคุม Pop-up เปลี่ยนสถานะ
+  const [statusModal, setStatusModal] = useState<{ isOpen: boolean; order: Order | null }>({ isOpen: false, order: null });
 
   useEffect(() => {
     const t = setTimeout(() => { setDebouncedQuery(searchQuery); }, 300);
@@ -106,7 +130,14 @@ export default function BoardPage() {
   };
 
   const fetchOrdersAndLocations = async () => {
-    const { data: orderData, error: orderError } = await supabase.from('orders').select('*').or('is_archived.is.null,is_archived.eq.false').order('created_at', { ascending: false });
+    // 🌟 อัปเดตให้ดึงข้อมูลโดยเรียงตาม sort_index ด้วย
+    const { data: orderData, error: orderError } = await supabase
+      .from('orders')
+      .select('*')
+      .or('is_archived.is.null,is_archived.eq.false')
+      .order('sort_index', { ascending: true }) // เรียงตามตำแหน่งที่ลากวาง
+      .order('created_at', { ascending: false });
+      
     if (orderError) console.error("Error fetching orders:", orderError);
     if (orderData) setOrders(orderData as Order[]);
 
@@ -123,16 +154,6 @@ export default function BoardPage() {
 
   useEffect(() => {
     notificationAudio.current = new Audio(NOTIFICATION_SOUND_URL);
-    
-    // ดึงธีมทันทีตอนเปิดเว็บ ป้องกันจอกระพริบ
-    if (typeof window !== 'undefined') {
-      const savedColor = localStorage.getItem('boardBgColor');
-      const savedImage = localStorage.getItem('boardBgImage');
-      const savedOption = localStorage.getItem('boardBgOption') as 'cover' | 'contain' | 'repeat';
-      if (savedColor) setBgColor(savedColor);
-      if (savedImage) setBgImage(savedImage);
-      if (savedOption) setBgOption(savedOption);
-    }
 
     const checkAuthAndInit = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -155,7 +176,6 @@ export default function BoardPage() {
 
     const profileChannel = supabase.channel('public:profiles').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, () => { if (showRiderMap) fetchRidersLocation(); }).subscribe();
     return () => { supabase.removeChannel(orderChannel); supabase.removeChannel(profileChannel); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showRiderMap]);
 
   useEffect(() => {
@@ -278,6 +298,30 @@ export default function BoardPage() {
     }
   };
 
+  // 🌟 ฟังก์ชันส่งคำสั่งเปลี่ยนสถานะไปที่ฐานข้อมูล
+  const executeStatusChange = async (newStatus: string) => {
+    if (!statusModal.order) return;
+    const targetOrder = statusModal.order;
+    
+    const updateData: { status: string; end_time?: string } = { status: newStatus };
+    if (newStatus === 'ส่งแล้ว/เสร็จ' && targetOrder.job_type === 'shopee') {
+      updateData.end_time = new Date().toISOString();
+    }
+
+    // ปิด Modal ทันที
+    setStatusModal({ isOpen: false, order: null });
+
+    const { data, error } = await supabase.from('orders').update(updateData).eq('id', targetOrder.id).select();
+    if (error) { 
+      console.error(error); 
+      showToast('เกิดข้อผิดพลาดในการเปลี่ยนสถานะ ❌'); 
+    } else if (data) { 
+      setOrders(orders.map(o => o.id === targetOrder.id ? { ...o, ...data[0] } : o)); 
+      showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`); 
+      setSelectedViewOrder(null); 
+    }
+  };
+
   const handleStartOrder = async (orderId: string) => {
     const { data, error } = await supabase.from('orders').update({ status: 'กำลังทำ' }).eq('id', orderId).select();
     if (error) console.error(error);
@@ -314,20 +358,38 @@ export default function BoardPage() {
     setAlertModal({ ...alertModal, isOpen: false }); await supabase.auth.signOut(); window.location.href = '/login';
   };
 
-  const handleDeleteOrder = async () => {
-    if (!editingId) return; if (!window.confirm('คุณแน่ใจหรือไม่ว่าต้องการลบออเดอร์นี้?')) return;
-    const { error } = await supabase.from('orders').delete().eq('id', editingId);
-    if (error) { console.error(error); showToast('เกิดข้อผิดพลาดในการลบออเดอร์'); return; }
-    setOrders(prev => prev.filter(order => order.id !== editingId)); setEditingId(null); setIsModalOpen(false); showToast('ลบออเดอร์เรียบร้อยแล้ว');
+  const requestDeleteOrder = (id: string) => {
+    setDeleteConfirm({ isOpen: true, id });
   };
 
-  // 🌟 ฟังก์ชันจัดการ Drag and Drop (เอาไว้สลับตำแหน่งออเดอร์ในหน้าจอ)
+  const executeDeleteOrder = async () => {
+    if (!deleteConfirm.id) return;
+    const { error } = await supabase.from('orders').delete().eq('id', deleteConfirm.id);
+    if (error) { console.error(error); showToast('เกิดข้อผิดพลาดในการลบออเดอร์'); return; }
+    setOrders(prev => prev.filter(order => order.id !== deleteConfirm.id)); 
+    setDeleteConfirm({ isOpen: false, id: null });
+    showToast('ลบออเดอร์เรียบร้อยแล้ว 🗑️');
+  };
+
+  // 🌟 ฟังก์ชันจัดการ Drag and Drop พร้อมอัปเดตลง Database ให้จำตำแหน่ง
   const onDragEnd = (result: DropResult) => {
     if (!result.destination) return;
     const items = Array.from(orders);
     const [reorderedItem] = items.splice(result.source.index, 1);
     items.splice(result.destination.index, 0, reorderedItem);
+    
+    // อัปเดตหน้าจอทันทีเพื่อความสมูท
     setOrders(items);
+
+    // 🌟 วนลูปเซฟตำแหน่งใหม่ (sort_index) ลง Database
+    items.forEach((item, index) => {
+      supabase.from('orders')
+        .update({ sort_index: index })
+        .eq('id', item.id)
+        .then(({error}) => {
+          if (error) console.error("Error updating sort index:", error);
+        });
+    });
   };
 
   const filteredOrders = useMemo(() => {
@@ -339,7 +401,6 @@ export default function BoardPage() {
     if (!lastSeen) return false; const diffMins = (new Date().getTime() - new Date(lastSeen).getTime()) / 60000; return diffMins < 5; 
   };
 
-  // 🌟 หน้า Loading แบบใหม่ ดึงพื้นหลังธีมปัจจุบันมาใช้ + ใส่กรอบโปร่งแสง + ลูกเล่น 3 เหลี่ยม
   if (!currentUser || !isMounted) return (
     <div 
       className="min-h-screen w-full flex justify-center items-center relative transition-all duration-500 z-50"
@@ -357,7 +418,6 @@ export default function BoardPage() {
         <p className="text-white text-sm font-bold tracking-widest mt-2 animate-pulse">กำลังเตรียมกระดาน...</p>
       </div>
 
-      {/* สไตล์ของ Loader ที่ส่งมาโดยเฉพาะ */}
       <style jsx global>{`
         .loader,
         .loader:before,
@@ -426,7 +486,7 @@ export default function BoardPage() {
         <div className="fixed inset-0 flex" style={{ zIndex: 110 }}>
           <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setIsMenuOpen(false)}></div>
           <div className="relative w-80 bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-300 z-10 rounded-r-3xl overflow-hidden">
-            <div className="bg-gradient-to-br from-blue-600 to-indigo-800 p-8 text-white relative">
+            <div className="bg-linear-to-br from-blue-600 to-indigo-800 p-8 text-white relative">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-bl-full pointer-events-none"></div>
               <button onClick={() => setIsMenuOpen(false)} className="absolute top-6 right-6 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-all cursor-pointer backdrop-blur-md active:scale-90"><X size={18} /></button>
               <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-5 text-2xl font-black uppercase shadow-inner border border-white/20">{adminName.charAt(0)}</div>
@@ -496,7 +556,7 @@ export default function BoardPage() {
         </div>
       )}
 
-      {/* 🌟 บอร์ดหลัก + นำ Drag & Drop กลับมา */}
+      {/* 🌟 บอร์ดหลัก */}
       <div className="flex-1 p-2 md:p-4 overflow-hidden z-10 flex flex-col">
         {orders.length === 0 && !searchQuery ? (
           <div className="flex flex-col items-center justify-center h-full bg-white/30 backdrop-blur-md rounded-3xl border border-white/40 shadow-xl animate-in fade-in duration-500 m-2">
@@ -525,7 +585,7 @@ export default function BoardPage() {
                           ref={provided.innerRef}
                           {...provided.draggableProps}
                           {...provided.dragHandleProps}
-                          className={`shrink-0 w-[260px] md:w-[320px] h-max transition-all duration-300 ${snapshot.isDragging ? 'scale-105 rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-[1.5rem]' : ''}`}
+                          className={`shrink-0 w-65 md:w-[320px] h-max transition-all duration-300 ${snapshot.isDragging ? 'scale-105 rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-[1.5rem]' : ''}`}
                         >
                           <OrderCard 
                             order={order} 
@@ -534,6 +594,9 @@ export default function BoardPage() {
                             onFinish={handleFinishOrder} 
                             onViewDetails={() => setSelectedViewOrder(order)} 
                             onViewImages={(urls, startIndex) => setImageGallery({ urls, startIndex })} 
+                            onVerifySlip={(orderInfo) => setScannerConfig({ isOpen: true, orderId: orderInfo.id, amount: orderInfo.total_price })}
+                            onDelete={requestDeleteOrder} // ส่งฟังก์ชันขอลบลงไป
+                            onChangeStatusRequest={(orderInfo) => setStatusModal({ isOpen: true, order: orderInfo })} // 🌟 ส่งปุ่มเปิด Pop-up เปลี่ยนสถานะ
                           />
                         </div>
                       )}
@@ -546,6 +609,42 @@ export default function BoardPage() {
           </DragDropContext>
         )}
       </div>
+
+      {/* 🌟 Pop-up เปลี่ยนสถานะออเดอร์ใหม่ */}
+      {statusModal.isOpen && statusModal.order && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 999 }}>
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col relative">
+            <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-white">
+              <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                <ArrowRightLeft className="text-blue-600" size={20} /> เปลี่ยนสถานะออเดอร์
+              </h3>
+              <button onClick={() => setStatusModal({ isOpen: false, order: null })} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6 flex flex-col gap-3">
+              {['New', 'กำลังทำ', 'รับงาน', 'ส่งแล้ว/เสร็จ'].map(st => (
+                <button
+                  key={st}
+                  disabled={statusModal.order?.status === st}
+                  onClick={() => executeStatusChange(st)}
+                  className={`w-full py-4 rounded-xl text-sm font-black transition-all shadow-sm border flex items-center justify-center ${
+                    statusModal.order?.status === st 
+                      ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' 
+                      : st === 'New' ? 'bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 border-blue-200 hover:shadow-lg'
+                      : st === 'กำลังทำ' ? 'bg-yellow-50 hover:bg-yellow-500 hover:text-white text-yellow-700 border-yellow-200 hover:shadow-lg'
+                      : st === 'รับงาน' ? 'bg-purple-50 hover:bg-purple-600 hover:text-white text-purple-700 border-purple-200 hover:shadow-lg'
+                      : 'bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-700 border-emerald-200 hover:shadow-lg'
+                  }`}
+                >
+                  {statusModal.order?.status === st ? `📌 สถานะปัจจุบัน: ${st}` : `เปลี่ยนเป็น: ${st}`}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm" style={{ zIndex: 120 }}>
@@ -654,12 +753,9 @@ export default function BoardPage() {
               )}
 
               <div className="pt-5 flex gap-4 mt-2">
-                <button type="submit" disabled={isUploading} className="bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-blue-600 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-300 flex justify-center items-center cursor-pointer text-sm uppercase tracking-widest disabled:bg-slate-300 disabled:hover:translate-y-0 disabled:hover:shadow-none active:scale-95" style={{ flex: 1.5 }}>
+                <button type="submit" disabled={isUploading} className="w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-blue-600 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-300 flex justify-center items-center cursor-pointer text-sm uppercase tracking-widest disabled:bg-slate-300 disabled:hover:translate-y-0 disabled:hover:shadow-none active:scale-95">
                   {isUploading ? 'กำลังจัดเก็บข้อมูล...' : (editingId ? 'บันทึกการแก้ไข' : 'สร้างออเดอร์')}
                 </button>
-                {editingId && (
-                  <button type="button" onClick={handleDeleteOrder} className="bg-rose-50 text-rose-600 px-6 rounded-2xl hover:bg-rose-500 hover:text-white transition-all duration-300 border border-rose-100 flex items-center justify-center cursor-pointer shadow-sm hover:shadow-lg active:scale-95" style={{ flex: 0.5 }}><Trash2 size={20} /></button>
-                )}
               </div>
             </form>
           </div>
@@ -748,6 +844,49 @@ export default function BoardPage() {
         </div>
       )}
 
+      {/* 🌟 เรียกใช้ SlipScanner Modal */}
+      {scannerConfig?.isOpen && (
+        <SlipScanner
+          orderId={scannerConfig.orderId}
+          expectedAmount={scannerConfig.amount}
+          onClose={() => setScannerConfig(null)}
+          onSuccess={(newImageUrl) => {
+            setScannerConfig(null);
+            setOrders(orders.map(o => {
+              if (o.id === scannerConfig.orderId) {
+                const updatedImages = o.image_url ? `${o.image_url},${newImageUrl}` : newImageUrl;
+                return { ...o, image_url: updatedImages, slip_status: 'ผ่าน' }; 
+              }
+              return o;
+            }));
+            showToast('✅ ตรวจสอบและแนบรูปสลิปเสร็จสมบูรณ์!');
+          }}
+        />
+      )}
+
+      {/* 🌟 Pop-up ยืนยันการลบออเดอร์แบบมีอนิเมชัน */}
+      {deleteConfirm.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 999 }}>
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col p-8 text-center relative">
+            <div className="w-20 h-20 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
+              <Trash2 size={40} />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 tracking-tight mb-2">ยืนยันการลบ?</h3>
+            <p className="text-sm text-slate-500 font-medium mb-8 whitespace-pre-line leading-relaxed">
+              คุณกำลังจะลบออเดอร์นี้ทิ้งแบบถาวร<br/>แน่ใจแล้วใช่ไหมครับ?
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteConfirm({ isOpen: false, id: null })} className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-xs uppercase tracking-widest">
+                ยกเลิก
+              </button>
+              <button onClick={executeDeleteOrder} className="flex-1 py-3.5 text-white font-black rounded-2xl transition-all cursor-pointer shadow-lg active:scale-95 text-xs uppercase tracking-widest bg-rose-500 hover:bg-rose-600 shadow-rose-500/30">
+                ลบทิ้งเลย
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {alertModal.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 999 }}>
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col p-8 text-center relative">
@@ -794,7 +933,6 @@ export default function BoardPage() {
         </div>
       </div>
 
-      {/* 🌟 รวบรวม CSS Animations ที่ใช้ทั้งหมด */}
       <style jsx global>{`
         .thin-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
         .thin-scrollbar::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.05); border-radius: 10px; }
