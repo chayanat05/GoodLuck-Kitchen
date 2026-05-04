@@ -9,7 +9,7 @@ import { supabase } from '../../lib/supabase';
 import { 
   X, ClipboardCheck, ImagePlus, Trash2, MapPin as MapIcon, 
   LogOut, Users, Menu, LayoutDashboard, Search, Store, CheckCircle2,
-  MoonStar, AlertTriangle, ChevronDown, ChevronUp, Sun, Volume2,
+  Sun, Volume2,
   Map as MapViewIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Image as ImageIcon,
   PlayCircle, ChefHat, PackageCheck, 
   Settings, ArrowRightLeft
@@ -49,27 +49,13 @@ export default function BoardPage() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   
-  // 🌟 แก้ไขการประกาศ State โดยดึงจาก localStorage ตั้งแต่ต้น
-  const [bgColor, setBgColor] = useState<string>(() => {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('boardBgColor') || '#f8fafc';
-  }
-  return '#f8fafc';
-});
+  // 🌟 1. ประกาศ State ด้วยค่า Default ไปก่อนเพื่อให้ Server กับ Client ตรงกัน
+  const [bgColor, setBgColor] = useState<string>('#f8fafc');
+  const [bgImage, setBgImage] = useState<string | null>(null);
+  const [bgOption, setBgOption] = useState<'cover' | 'contain' | 'repeat'>('cover');
 
-  const [bgImage, setBgImage] = useState<string | null>(() => {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('boardBgImage');
-  }
-  return null;
-});
-
-  const [bgOption, setBgOption] = useState<'cover' | 'contain' | 'repeat'>(() => {
-  if (typeof window !== 'undefined') {
-    return (localStorage.getItem('boardBgOption') as 'cover' | 'contain' | 'repeat') || 'cover';
-  }
-  return 'cover';
-  });
+  // 🌟 จุดแก้ปัญหาแผนที่เด้งกลับ! จำพิกัดศูนย์กลางไว้และไม่สร้างใหม่ตอน Re-render
+  const defaultMapCenter = useMemo(() => ({ lat: SHOP_LAT, lng: SHOP_LNG }), []);
 
   const [alertModal, setAlertModal] = useState<{
     isOpen: boolean; type: 'logout' | 'endDay' | null; title: string; message: string; confirmText: string; cancelText: string; icon: React.ReactNode | null;
@@ -78,7 +64,6 @@ export default function BoardPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string | null }>({ isOpen: false, id: null });
   const [scannerConfig, setScannerConfig] = useState<{ isOpen: boolean; orderId: string; amount: number } | null>(null);
   
-  // 🌟 State ควบคุม Pop-up เปลี่ยนสถานะ
   const [statusModal, setStatusModal] = useState<{ isOpen: boolean; order: Order | null }>({ isOpen: false, order: null });
 
   useEffect(() => {
@@ -130,12 +115,11 @@ export default function BoardPage() {
   };
 
   const fetchOrdersAndLocations = async () => {
-    // 🌟 อัปเดตให้ดึงข้อมูลโดยเรียงตาม sort_index ด้วย
     const { data: orderData, error: orderError } = await supabase
       .from('orders')
       .select('*')
       .or('is_archived.is.null,is_archived.eq.false')
-      .order('sort_index', { ascending: true }) // เรียงตามตำแหน่งที่ลากวาง
+      .order('sort_index', { ascending: true }) 
       .order('created_at', { ascending: false });
       
     if (orderError) console.error("Error fetching orders:", orderError);
@@ -147,10 +131,28 @@ export default function BoardPage() {
   };
 
   const fetchRidersLocation = async () => {
-    const { data, error } = await supabase.from('profiles').select('id, username, last_lat, last_lng, last_seen').eq('role', 'rider').not('last_lat', 'is', null);
+    // 🌟 ดึงข้อมูลทุก Role ที่มีพิกัด (ลบ .eq('role', 'rider') ออกแล้ว)
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, username, last_lat, last_lng, last_seen')
+      .not('last_lat', 'is', null);
+      
     if (error) console.error(error);
     if (data) setRidersLoc(data as RiderLocation[]);
   };
+
+  // 🌟 จุดแก้ปัญหา Hydration Mismatch! โหลด 1 ครั้งหลัง Client เรนเดอร์
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedColor = localStorage.getItem('boardBgColor');
+      const savedImage = localStorage.getItem('boardBgImage');
+      const savedOption = localStorage.getItem('boardBgOption') as 'cover' | 'contain' | 'repeat';
+      
+      if (savedColor) setBgColor(savedColor);
+      if (savedImage) setBgImage(savedImage);
+      if (savedOption) setBgOption(savedOption);
+    }
+  }, []);
 
   useEffect(() => {
     notificationAudio.current = new Audio(NOTIFICATION_SOUND_URL);
@@ -176,6 +178,7 @@ export default function BoardPage() {
 
     const profileChannel = supabase.channel('public:profiles').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, () => { if (showRiderMap) fetchRidersLocation(); }).subscribe();
     return () => { supabase.removeChannel(orderChannel); supabase.removeChannel(profileChannel); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showRiderMap]);
 
   useEffect(() => {
@@ -298,7 +301,6 @@ export default function BoardPage() {
     }
   };
 
-  // 🌟 ฟังก์ชันส่งคำสั่งเปลี่ยนสถานะไปที่ฐานข้อมูล
   const executeStatusChange = async (newStatus: string) => {
     if (!statusModal.order) return;
     const targetOrder = statusModal.order;
@@ -308,7 +310,6 @@ export default function BoardPage() {
       updateData.end_time = new Date().toISOString();
     }
 
-    // ปิด Modal ทันที
     setStatusModal({ isOpen: false, order: null });
 
     const { data, error } = await supabase.from('orders').update(updateData).eq('id', targetOrder.id).select();
@@ -338,16 +339,17 @@ export default function BoardPage() {
     if (data) { setOrders(orders.map(o => o.id === orderId ? data[0] as Order : o)); showToast(isShopee ? 'ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦' : 'อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵'); setSelectedViewOrder(null); }
   };
 
-  const handleEndDayRequest = () => {
-    if (orders.length === 0) { alert('กระดานว่างเปล่าอยู่แล้วครับ ไม่มีออเดอร์ให้ปิดยอด'); return; }
-    setAlertModal({ isOpen: true, type: 'endDay', title: 'ยืนยันการปิดยอดจบวัน?', message: 'ออเดอร์ทั้งหมดในกระดานจะถูกซ่อนทันที\n(สามารถดูย้อนหลังได้ในหน้า Dashboard สถิติร้าน)', confirmText: 'ยืนยันปิดยอด', cancelText: 'ยกเลิก', icon: <MoonStar size={44} className="text-rose-500 mb-4 animate-bounce drop-shadow-sm" /> });
-  };
-
   const executeEndDay = async () => {
     setAlertModal({ ...alertModal, isOpen: false });
     const { error } = await supabase.from('orders').update({ is_archived: true }).neq('is_archived', true); 
-    if (error) { console.error(error); showToast('เกิดข้อผิดพลาดในการปิดยอด'); } 
-    else { showToast('🌙 ปิดยอดจบวันเรียบร้อย กระดานพร้อมสำหรับวันใหม่!'); setIsMenuOpen(false); fetchOrdersAndLocations(); }
+    if (error) { 
+      console.error(error); 
+      showToast('เกิดข้อผิดพลาดในการปิดยอด'); 
+    } else { 
+      showToast('🌙 ปิดยอดจบวันเรียบร้อย กระดานพร้อมสำหรับวันใหม่!'); 
+      setIsMenuOpen(false); 
+      fetchOrdersAndLocations(); 
+    }
   };
 
   const handleLogoutRequest = () => {
@@ -371,17 +373,14 @@ export default function BoardPage() {
     showToast('ลบออเดอร์เรียบร้อยแล้ว 🗑️');
   };
 
-  // 🌟 ฟังก์ชันจัดการ Drag and Drop พร้อมอัปเดตลง Database ให้จำตำแหน่ง
   const onDragEnd = (result: DropResult) => {
     if (!result.destination) return;
     const items = Array.from(orders);
     const [reorderedItem] = items.splice(result.source.index, 1);
     items.splice(result.destination.index, 0, reorderedItem);
     
-    // อัปเดตหน้าจอทันทีเพื่อความสมูท
     setOrders(items);
 
-    // 🌟 วนลูปเซฟตำแหน่งใหม่ (sort_index) ลง Database
     items.forEach((item, index) => {
       supabase.from('orders')
         .update({ sort_index: index })
@@ -415,7 +414,7 @@ export default function BoardPage() {
     >
       <div className="bg-slate-900/60 backdrop-blur-xl p-10 rounded-3xl shadow-2xl flex flex-col items-center justify-center border border-white/10">
         <div className="loader mb-4" style={{ '--loader-color': '#fff' } as React.CSSProperties}></div>
-        <p className="text-white text-sm font-bold tracking-widest mt-2 animate-pulse">กำลังเตรียมกระดาน...</p>
+        <p className="text-white text-sm font-bold tracking-widest mt-2 animate-pulse">กำลังเตรียมบอร์ด...</p>
       </div>
 
       <style jsx global>{`
@@ -486,7 +485,7 @@ export default function BoardPage() {
         <div className="fixed inset-0 flex" style={{ zIndex: 110 }}>
           <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setIsMenuOpen(false)}></div>
           <div className="relative w-80 bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-300 z-10 rounded-r-3xl overflow-hidden">
-            <div className="bg-linear-to-br from-blue-600 to-indigo-800 p-8 text-white relative">
+            <div className="bg-gradient-to-br from-blue-600 to-indigo-800 p-8 text-white relative">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-bl-full pointer-events-none"></div>
               <button onClick={() => setIsMenuOpen(false)} className="absolute top-6 right-6 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-all cursor-pointer backdrop-blur-md active:scale-90"><X size={18} /></button>
               <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-5 text-2xl font-black uppercase shadow-inner border border-white/20">{adminName.charAt(0)}</div>
@@ -500,7 +499,7 @@ export default function BoardPage() {
                 <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform group-hover:rotate-45">
                   <Settings size={20} className="text-slate-600" />
                 </div>
-                ตั้งค่าระบบ / ธีม
+                ตั้งค่าระบบ
               </Link>
             </div>
             
@@ -523,13 +522,28 @@ export default function BoardPage() {
             
             <div className="flex-1 bg-slate-100 relative">
               {isLoaded ? (
-                <GoogleMap mapContainerStyle={{ width: '100%', height: '100%' }} center={{ lat: SHOP_LAT, lng: SHOP_LNG }} zoom={13} options={{ disableDefaultUI: true, zoomControl: true }}>
-                  <MarkerF position={{ lat: SHOP_LAT, lng: SHOP_LNG }} icon={{ url: 'http://maps.google.com/mapfiles/ms/icons/red-dot.png' }} onClick={() => setSelectedRiderMapInfo({ id: 'shop', username: 'ร้านของเรา', last_lat: SHOP_LAT, last_lng: SHOP_LNG, last_seen: null })} />
+                <GoogleMap mapContainerStyle={{ width: '100%', height: '100%' }} center={defaultMapCenter} zoom={13} options={{ disableDefaultUI: true, zoomControl: true }}>
+                  {/* 🌟 หมุดร้านพร้อมชื่อ */}
+                  <MarkerF 
+                    position={{ lat: SHOP_LAT, lng: SHOP_LNG }} 
+                    icon={{ url: 'http://maps.google.com/mapfiles/ms/icons/red-dot.png' }} 
+                    label={{ text: 'ร้านของเรา', color: '#b91c1c', className: 'bg-white/90 px-2 py-0.5 rounded-full shadow-sm text-xs font-black mt-8 border border-red-200' }}
+                    onClick={() => setSelectedRiderMapInfo({ id: 'shop', username: 'ร้านของเรา', last_lat: SHOP_LAT, last_lng: SHOP_LNG, last_seen: null })} 
+                  />
+                  
+                  {/* 🌟 หมุดไรเดอร์พร้อมชื่อ */}
                   {ridersLoc.map((rider) => (
                     rider.last_lat && rider.last_lng && (
-                      <MarkerF key={rider.id} position={{ lat: rider.last_lat, lng: rider.last_lng }} icon={{ url: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png' }} onClick={() => setSelectedRiderMapInfo(rider)} />
+                      <MarkerF 
+                        key={rider.id} 
+                        position={{ lat: rider.last_lat, lng: rider.last_lng }} 
+                        icon={{ url: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png' }} 
+                        label={{ text: rider.username, color: '#1e293b', className: 'bg-white/80 px-2 py-0.5 rounded-full shadow-sm text-xs font-bold mt-8 border border-slate-200 backdrop-blur-sm' }}
+                        onClick={() => setSelectedRiderMapInfo(rider)} 
+                      />
                     )
                   ))}
+                  
                   {selectedRiderMapInfo && selectedRiderMapInfo.last_lat && selectedRiderMapInfo.last_lng && (
                     <InfoWindowF position={{ lat: selectedRiderMapInfo.last_lat, lng: selectedRiderMapInfo.last_lng }} onCloseClick={() => setSelectedRiderMapInfo(null)}>
                       <div className="p-1 min-w-32 text-center">
@@ -565,7 +579,7 @@ export default function BoardPage() {
             </div>
             <h2 className="text-3xl font-black text-slate-800 mb-3 tracking-tight drop-shadow-sm">เริ่มต้นวันใหม่! 🌤️</h2>
             <p className="text-slate-700 font-bold mb-10 text-center max-w-md leading-relaxed drop-shadow-sm">กระดานว่างเปล่าพร้อมรับออเดอร์สำหรับวันนี้แล้ว<br/>กดปุ่มด้านล่างเพื่อเริ่มเปิดออเดอร์แรกของวันได้เลยครับ</p>
-            <button onClick={openCreateModal} className="px-10 py-5 bg-blue-600 text-white font-black rounded-3xl hover:bg-blue-700 hover:-translate-y-1 transition-all duration-300 flex items-center cursor-pointer tracking-wider uppercase text-sm active:scale-95 shadow-[0_10px_20px_-10px_rgba(37,99,235,0.6)]">
+            <button onClick={openCreateModal} className="px-10 py-5 bg-blue-600 text-white font-black rounded-3xl hover:bg-blue-700 hover:-translate-y-1 transition-all duration-300 flex items-center cursor-pointer tracking-wider uppercase text-sm active:scale-95 shadow-lg shadow-blue-500/50">
               <ClipboardCheck size={22} className="mr-3" /> เปิดร้าน / สร้างออเดอร์แรก
             </button>
           </div>
@@ -585,7 +599,7 @@ export default function BoardPage() {
                           ref={provided.innerRef}
                           {...provided.draggableProps}
                           {...provided.dragHandleProps}
-                          className={`shrink-0 w-65 md:w-[320px] h-max transition-all duration-300 ${snapshot.isDragging ? 'scale-105 rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-[1.5rem]' : ''}`}
+                          className={`shrink-0 w-64 md:w-80 h-max transition-all duration-300 ${snapshot.isDragging ? 'scale-105 rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl' : ''}`}
                         >
                           <OrderCard 
                             order={order} 
@@ -595,8 +609,8 @@ export default function BoardPage() {
                             onViewDetails={() => setSelectedViewOrder(order)} 
                             onViewImages={(urls, startIndex) => setImageGallery({ urls, startIndex })} 
                             onVerifySlip={(orderInfo) => setScannerConfig({ isOpen: true, orderId: orderInfo.id, amount: orderInfo.total_price })}
-                            onDelete={requestDeleteOrder} // ส่งฟังก์ชันขอลบลงไป
-                            onChangeStatusRequest={(orderInfo) => setStatusModal({ isOpen: true, order: orderInfo })} // 🌟 ส่งปุ่มเปิด Pop-up เปลี่ยนสถานะ
+                            onDelete={requestDeleteOrder}
+                            onChangeStatusRequest={(orderInfo) => setStatusModal({ isOpen: true, order: orderInfo })}
                           />
                         </div>
                       )}
@@ -613,7 +627,7 @@ export default function BoardPage() {
       {/* 🌟 Pop-up เปลี่ยนสถานะออเดอร์ใหม่ */}
       {statusModal.isOpen && statusModal.order && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 999 }}>
-          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col relative">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col relative">
             <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-white">
               <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
                 <ArrowRightLeft className="text-blue-600" size={20} /> เปลี่ยนสถานะออเดอร์
@@ -753,7 +767,7 @@ export default function BoardPage() {
               )}
 
               <div className="pt-5 flex gap-4 mt-2">
-                <button type="submit" disabled={isUploading} className="w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-blue-600 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-300 flex justify-center items-center cursor-pointer text-sm uppercase tracking-widest disabled:bg-slate-300 disabled:hover:translate-y-0 disabled:hover:shadow-none active:scale-95">
+                <button type="submit" disabled={isUploading} className="w-full bg-slate-900 text-white font-black py-4 rounded-3xl hover:bg-blue-600 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-300 flex justify-center items-center cursor-pointer text-sm uppercase tracking-widest disabled:bg-slate-300 disabled:hover:translate-y-0 disabled:hover:shadow-none active:scale-95">
                   {isUploading ? 'กำลังจัดเก็บข้อมูล...' : (editingId ? 'บันทึกการแก้ไข' : 'สร้างออเดอร์')}
                 </button>
               </div>
@@ -833,12 +847,12 @@ export default function BoardPage() {
             
             <div className="p-4 md:p-5 shrink-0 bg-white border-t border-slate-100 mt-0 flex flex-col gap-2 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] z-20">
               {selectedViewOrder.status === 'New' && selectedViewOrder.job_type !== 'รับหิ้ว' && selectedViewOrder.job_type !== 'รับส่ง' && (
-                <button onClick={() => handleStartOrder(selectedViewOrder.id)} className="w-full py-3.5 md:py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2"><PlayCircle size={18} /> {selectedViewOrder.job_type === 'shopee' ? 'เริ่มเตรียมของ (Shopee)' : 'ยืนยัน: ครัวเริ่มทำอาหาร'}</button>
+                <button onClick={() => handleStartOrder(selectedViewOrder.id)} className="w-full py-3.5 md:py-4 bg-blue-600 text-white font-black rounded-3xl hover:bg-blue-700 transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2"><PlayCircle size={18} /> {selectedViewOrder.job_type === 'shopee' ? 'เริ่มเตรียมของ (Shopee)' : 'ยืนยัน: ครัวเริ่มทำอาหาร'}</button>
               )}
               {selectedViewOrder.status === 'กำลังทำ' && selectedViewOrder.job_type !== 'รับหิ้ว' && selectedViewOrder.job_type !== 'รับส่ง' && (
-                <button onClick={() => handleFinishOrder(selectedViewOrder.id)} className={`w-full py-3.5 md:py-4 text-white font-black rounded-2xl transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2 ${selectedViewOrder.job_type === 'shopee' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>{selectedViewOrder.job_type === 'shopee' ? <PackageCheck size={18} /> : <ChefHat size={18} />} {selectedViewOrder.job_type === 'shopee' ? 'ยืนยัน: ส่งมอบให้ขนส่งแล้ว' : 'ยืนยัน: ครัวทำเสร็จแล้ว'}</button>
+                <button onClick={() => handleFinishOrder(selectedViewOrder.id)} className={`w-full py-3.5 md:py-4 text-white font-black rounded-3xl transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2 ${selectedViewOrder.job_type === 'shopee' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>{selectedViewOrder.job_type === 'shopee' ? <PackageCheck size={18} /> : <ChefHat size={18} />} {selectedViewOrder.job_type === 'shopee' ? 'ยืนยัน: ส่งมอบให้ขนส่งแล้ว' : 'ยืนยัน: ครัวทำเสร็จแล้ว'}</button>
               )}
-              <button onClick={() => setSelectedViewOrder(null)} className="w-full py-3 md:py-3.5 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-xs uppercase tracking-widest">ปิดหน้าต่าง</button>
+              <button onClick={() => setSelectedViewOrder(null)} className="w-full py-3 md:py-3.5 bg-slate-100 text-slate-600 font-bold rounded-3xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-xs uppercase tracking-widest">ปิดหน้าต่าง</button>
             </div>
           </div>
         </div>
@@ -867,7 +881,7 @@ export default function BoardPage() {
       {/* 🌟 Pop-up ยืนยันการลบออเดอร์แบบมีอนิเมชัน */}
       {deleteConfirm.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 999 }}>
-          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col p-8 text-center relative">
+          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col p-8 text-center relative">
             <div className="w-20 h-20 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
               <Trash2 size={40} />
             </div>
