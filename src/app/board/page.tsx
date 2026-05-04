@@ -9,7 +9,7 @@ import { supabase } from '../../lib/supabase';
 import { 
   X, ClipboardCheck, ImagePlus, Trash2, MapPin as MapIcon, 
   LogOut, Users, Menu, LayoutDashboard, Search, Store, CheckCircle2,
-  Sun, Volume2,
+  Sun, Volume2, Shrink, Expand,
   Map as MapViewIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Image as ImageIcon,
   PlayCircle, ChefHat, PackageCheck, 
   Settings, ArrowRightLeft
@@ -49,12 +49,13 @@ export default function BoardPage() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   
-  // 🌟 1. ประกาศ State ด้วยค่า Default ไปก่อนเพื่อให้ Server กับ Client ตรงกัน
   const [bgColor, setBgColor] = useState<string>('#f8fafc');
   const [bgImage, setBgImage] = useState<string | null>(null);
   const [bgOption, setBgOption] = useState<'cover' | 'contain' | 'repeat'>('cover');
 
-  // 🌟 จุดแก้ปัญหาแผนที่เด้งกลับ! จำพิกัดศูนย์กลางไว้และไม่สร้างใหม่ตอน Re-render
+  // 🌟 State ควบคุมการย่อ/ขยายการ์ด
+  const [isCompact, setIsCompact] = useState<boolean>(false);
+
   const defaultMapCenter = useMemo(() => ({ lat: SHOP_LAT, lng: SHOP_LNG }), []);
 
   const [alertModal, setAlertModal] = useState<{
@@ -131,7 +132,6 @@ export default function BoardPage() {
   };
 
   const fetchRidersLocation = async () => {
-    // 🌟 ดึงข้อมูลทุก Role ที่มีพิกัด (ลบ .eq('role', 'rider') ออกแล้ว)
     const { data, error } = await supabase
       .from('profiles')
       .select('id, username, last_lat, last_lng, last_seen')
@@ -141,7 +141,6 @@ export default function BoardPage() {
     if (data) setRidersLoc(data as RiderLocation[]);
   };
 
-  // 🌟 จุดแก้ปัญหา Hydration Mismatch! โหลด 1 ครั้งหลัง Client เรนเดอร์
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const savedColor = localStorage.getItem('boardBgColor');
@@ -451,12 +450,12 @@ export default function BoardPage() {
       className="h-screen w-full flex flex-col overflow-hidden font-sans relative transition-all duration-500"
       style={{ backgroundColor: bgColor, backgroundImage: bgImage ? `url(${bgImage})` : 'none', backgroundSize: bgOption === 'repeat' ? 'auto' : bgOption, backgroundRepeat: bgOption === 'repeat' ? 'repeat' : 'no-repeat', backgroundPosition: 'center', backgroundAttachment: 'fixed' }}
     >
-      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`} style={{ zIndex: 150 }}>
+      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-50 ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
         <CheckCircle2 size={18} className="text-green-400 mr-2" />
         <span className="font-bold text-sm tracking-wide">{toast.message}</span>
       </div>
 
-      <div className="shrink-0 p-2 pb-0 z-20">
+      <div className="shrink-0 p-2 pb-0 z-40">
         <div className="flex flex-col lg:flex-row justify-between items-center gap-2 mb-0 bg-white/90 backdrop-blur-xl p-2 rounded-2xl shadow-sm border border-slate-200/60">
           <div className="flex items-center gap-2 w-full lg:w-auto">
             <button onClick={() => setIsMenuOpen(true)} className="p-2 bg-slate-100 hover:bg-blue-100 rounded-xl transition-all cursor-pointer text-slate-600 hover:text-blue-700 active:scale-95"><Menu size={18} /></button>
@@ -473,6 +472,13 @@ export default function BoardPage() {
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search size={14} className="text-slate-400" /></div>
               <input type="text" placeholder="ค้นหาออเดอร์, สถานที่..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:bg-white focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 transition-all font-medium shadow-inner"/>
             </div>
+            
+            {/* 🌟 ปุ่มย่อขยายการ์ด */}
+            <button onClick={() => setIsCompact(!isCompact)} className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 text-xs font-bold rounded-xl hover:bg-slate-200 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95">
+              {isCompact ? <Expand size={14} className="text-blue-500" /> : <Shrink size={14} className="text-blue-500" />}
+              {isCompact ? 'ขยายการ์ด' : 'ย่อการ์ด'}
+            </button>
+            
             <button onClick={() => setShowRiderMap(true)} className="w-full sm:w-auto px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl hover:bg-indigo-100 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95">
               <MapViewIcon size={14} className="animate-pulse" /> พิกัดไรเดอร์
             </button>
@@ -482,7 +488,7 @@ export default function BoardPage() {
       </div>
 
       {isMenuOpen && (
-        <div className="fixed inset-0 flex" style={{ zIndex: 110 }}>
+        <div className="fixed inset-0 flex z-50">
           <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setIsMenuOpen(false)}></div>
           <div className="relative w-80 bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-300 z-10 rounded-r-3xl overflow-hidden">
             <div className="bg-gradient-to-br from-blue-600 to-indigo-800 p-8 text-white relative">
@@ -513,8 +519,8 @@ export default function BoardPage() {
       )}
 
       {showRiderMap && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm" style={{ zIndex: 120 }}>
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col" style={{ height: '85vh' }}>
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col h-5/6">
             <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-white sticky top-0 z-10 shrink-0">
               <h3 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2"><MapViewIcon className="text-indigo-600" size={24} /> ติดตามพิกัดไรเดอร์ (Live)</h3>
               <button type="button" onClick={() => setShowRiderMap(false)} className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-xl transition-all cursor-pointer active:scale-90 duration-300"><X size={20} strokeWidth={2.5}/></button>
@@ -523,7 +529,6 @@ export default function BoardPage() {
             <div className="flex-1 bg-slate-100 relative">
               {isLoaded ? (
                 <GoogleMap mapContainerStyle={{ width: '100%', height: '100%' }} center={defaultMapCenter} zoom={13} options={{ disableDefaultUI: true, zoomControl: true }}>
-                  {/* 🌟 หมุดร้านพร้อมชื่อ */}
                   <MarkerF 
                     position={{ lat: SHOP_LAT, lng: SHOP_LNG }} 
                     icon={{ url: 'http://maps.google.com/mapfiles/ms/icons/red-dot.png' }} 
@@ -531,7 +536,6 @@ export default function BoardPage() {
                     onClick={() => setSelectedRiderMapInfo({ id: 'shop', username: 'ร้านของเรา', last_lat: SHOP_LAT, last_lng: SHOP_LNG, last_seen: null })} 
                   />
                   
-                  {/* 🌟 หมุดไรเดอร์พร้อมชื่อ */}
                   {ridersLoc.map((rider) => (
                     rider.last_lat && rider.last_lng && (
                       <MarkerF 
@@ -595,14 +599,17 @@ export default function BoardPage() {
                   {filteredOrders.map((order, index) => (
                     <Draggable key={order.id} draggableId={order.id} index={index}>
                       {(provided, snapshot) => (
+                        // 🌟 ปรับขนาดความกว้างตาม isCompact (ซูมเข้า/ออก)
                         <div 
                           ref={provided.innerRef}
                           {...provided.draggableProps}
                           {...provided.dragHandleProps}
-                          className={`shrink-0 w-64 md:w-80 h-max transition-all duration-300 ${snapshot.isDragging ? 'scale-105 rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl' : ''}`}
+                          className={`shrink-0 max-h-full flex flex-col transition-all duration-300 ${isCompact ? 'w-48 md:w-56' : 'w-72 md:w-80'} ${snapshot.isDragging ? 'scale-[1.02] rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl' : ''}`}
                         >
+                          {/* 🌟 ส่ง isCompact เข้าไปในการ์ด */}
                           <OrderCard 
                             order={order} 
+                            isCompact={isCompact}
                             onEdit={openEditModal} 
                             onStart={handleStartOrder} 
                             onFinish={handleFinishOrder} 
@@ -624,9 +631,9 @@ export default function BoardPage() {
         )}
       </div>
 
-      {/* 🌟 Pop-up เปลี่ยนสถานะออเดอร์ใหม่ */}
+      {/* Pop-up เปลี่ยนสถานะออเดอร์ใหม่ */}
       {statusModal.isOpen && statusModal.order && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 999 }}>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-50">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col relative">
             <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-white">
               <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
@@ -661,8 +668,8 @@ export default function BoardPage() {
       )}
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm" style={{ zIndex: 120 }}>
-          <div className="bg-white shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 thin-scrollbar rounded-3xl" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
+          <div className="bg-white shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 thin-scrollbar rounded-3xl max-h-full pb-10 overflow-y-auto">
             <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white/80 backdrop-blur-xl sticky top-0 z-10">
               <h3 className="text-xl font-black text-slate-800 tracking-tight">{editingId ? 'แก้ไขออเดอร์ 📝' : 'สร้างออเดอร์ใหม่ ✨'}</h3>
               <button type="button" onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-xl transition-all cursor-pointer hover:rotate-90 duration-300 active:scale-90"><X size={20} strokeWidth={3}/></button>
@@ -731,7 +738,7 @@ export default function BoardPage() {
                     />
                     
                     {showSuggestions && unifiedResults.length > 0 && (
-                      <ul className="absolute z-50 bg-white border border-slate-100 rounded-2xl shadow-2xl mt-2 max-h-60 overflow-y-auto divide-y divide-slate-50 thin-scrollbar" style={{ width: 'calc(100% - 2.5rem)' }}>
+                      <ul className="absolute z-50 bg-white border border-slate-100 rounded-2xl shadow-2xl mt-2 max-h-60 overflow-y-auto divide-y divide-slate-50 thin-scrollbar w-11/12 max-w-full">
                         {unifiedResults.map((item, idx) => (
                           <li key={idx} className="p-4 hover:bg-blue-50 cursor-pointer text-sm flex justify-between items-center transition-colors group/item" onClick={() => selectUnifiedResult(item)}>
                             <div className="flex flex-col pr-4">
@@ -777,8 +784,8 @@ export default function BoardPage() {
       )}
 
       {selectedViewOrder && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm" style={{ zIndex: 200 }}>
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col h-5/6">
             <div className="flex justify-between items-center p-5 md:p-6 border-b border-slate-100 bg-white sticky top-0 z-10 shrink-0">
               <h3 className="text-lg md:text-xl font-black text-slate-800 tracking-tight flex items-center"><ClipboardCheck size={20} className="mr-2 text-blue-600"/> รายละเอียดออเดอร์</h3>
               <button type="button" onClick={() => setSelectedViewOrder(null)} className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-xl transition-all cursor-pointer hover:rotate-90 duration-300 active:scale-90"><X size={20} strokeWidth={3}/></button>
@@ -787,28 +794,15 @@ export default function BoardPage() {
             <div className="p-5 md:p-6 space-y-5 overflow-y-auto bg-slate-50/30 thin-scrollbar">
               <div className="flex justify-between items-end border-b border-slate-100 pb-4">
                 <div>
-                  <div className="text-[10px] font-black text-slate-400 mb-1 tracking-wider uppercase">เลขที่ออเดอร์</div>
+                  <div className="text-xs font-black text-slate-400 mb-1 tracking-wider uppercase">เลขที่ออเดอร์</div>
                   <div className="text-2xl md:text-3xl font-black text-slate-800 tracking-tighter">{selectedViewOrder.order_number}</div>
                 </div>
                 <div className="text-right mb-1">
-                  <span className={`text-[10px] font-black px-3 py-1.5 rounded-lg shadow-sm border ${selectedViewOrder.status === 'New' ? 'bg-blue-100 text-blue-800 border-blue-300' : selectedViewOrder.status === 'กำลังทำ' ? 'bg-amber-100 text-amber-800 border-amber-300' : selectedViewOrder.status === 'รับงาน' ? 'bg-indigo-100 text-indigo-800 border-indigo-300' : 'bg-emerald-100 text-emerald-800 border-emerald-300'}`}>
+                  <span className={`text-xs font-black px-3 py-1.5 rounded-lg shadow-sm border ${selectedViewOrder.status === 'New' ? 'bg-blue-100 text-blue-800 border-blue-300' : selectedViewOrder.status === 'กำลังทำ' ? 'bg-amber-100 text-amber-800 border-amber-300' : selectedViewOrder.status === 'รับงาน' ? 'bg-indigo-100 text-indigo-800 border-indigo-300' : 'bg-emerald-100 text-emerald-800 border-emerald-300'}`}>
                     {selectedViewOrder.status}
                   </span>
                 </div>
               </div>
-
-              {selectedViewOrder.image_url && (
-                <div className="space-y-2">
-                  <div className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center"><ImageIcon size={14} className="mr-1.5" /> รูปภาพแนบ</div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {selectedViewOrder.image_url.split(',').filter(Boolean).map((imgUrl, i) => (
-                      <div key={i} onClick={() => setImageGallery({ urls: selectedViewOrder.image_url!.split(',').filter(Boolean), startIndex: i })} className="block relative h-28 md:h-32 rounded-2xl overflow-hidden shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-zoom-in group">
-                        <Image src={imgUrl} fill sizes="(max-width: 768px) 50vw, 33vw" className="object-cover group-hover:scale-105 transition-transform duration-500" alt={`img-${i}`} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
               
               {selectedViewOrder.menu && (
                 <div className="space-y-2">
@@ -828,10 +822,24 @@ export default function BoardPage() {
                 </div>
               )}
 
+              {/* 🌟 รูปภาพจัดเรียงไหลลงมาเต็มใบ */}
+              {selectedViewOrder.image_url && (
+                <div className="space-y-2">
+                  <div className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center"><ImageIcon size={14} className="mr-1.5" /> รูปภาพแนบ</div>
+                  <div className="flex flex-col gap-3">
+                    {selectedViewOrder.image_url.split(',').filter(Boolean).map((imgUrl, i) => (
+                      <div key={i} onClick={() => setImageGallery({ urls: selectedViewOrder.image_url!.split(',').filter(Boolean), startIndex: i })} className="relative w-full h-48 rounded-2xl overflow-hidden shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-zoom-in bg-black/10">
+                        <Image src={imgUrl} fill sizes="(max-width: 768px) 100vw, 33vw" className="object-contain" alt={`img-${i}`} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-3 text-sm shadow-sm">
                 <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">ประเภทงาน:</span><span className="font-black text-slate-700 uppercase px-2.5 py-1 bg-slate-50 rounded-md border border-slate-200">{selectedViewOrder.job_type}</span></div>
                 <div className="flex justify-between items-center pt-2 border-t border-slate-100"><span className="text-slate-500 font-medium">ยอดเรียกเก็บ:</span><span className="font-black text-blue-600 text-lg">฿{selectedViewOrder.total_price || 0}</span></div>
-                <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">การชำระเงิน:</span><span className={`font-black text-[10px] uppercase px-2.5 py-1 rounded-md ${selectedViewOrder.payment_method === 'โอน' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>{selectedViewOrder.payment_method || 'เงินสด'}</span></div>
+                <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">การชำระเงิน:</span><span className={`font-black text-xs uppercase px-2.5 py-1 rounded-md ${selectedViewOrder.payment_method === 'โอน' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>{selectedViewOrder.payment_method || 'เงินสด'}</span></div>
               </div>
 
               {selectedViewOrder.address && (
@@ -845,7 +853,7 @@ export default function BoardPage() {
               )}
             </div>
             
-            <div className="p-4 md:p-5 shrink-0 bg-white border-t border-slate-100 mt-0 flex flex-col gap-2 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] z-20">
+            <div className="p-4 md:p-5 shrink-0 bg-white border-t border-slate-100 mt-0 flex flex-col gap-2 shadow-2xl z-20">
               {selectedViewOrder.status === 'New' && selectedViewOrder.job_type !== 'รับหิ้ว' && selectedViewOrder.job_type !== 'รับส่ง' && (
                 <button onClick={() => handleStartOrder(selectedViewOrder.id)} className="w-full py-3.5 md:py-4 bg-blue-600 text-white font-black rounded-3xl hover:bg-blue-700 transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2"><PlayCircle size={18} /> {selectedViewOrder.job_type === 'shopee' ? 'เริ่มเตรียมของ (Shopee)' : 'ยืนยัน: ครัวเริ่มทำอาหาร'}</button>
               )}
@@ -878,10 +886,10 @@ export default function BoardPage() {
         />
       )}
 
-      {/* 🌟 Pop-up ยืนยันการลบออเดอร์แบบมีอนิเมชัน */}
+      {/* Pop-up ยืนยันการลบออเดอร์ */}
       {deleteConfirm.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 999 }}>
-          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col p-8 text-center relative">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-50">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col p-8 text-center relative">
             <div className="w-20 h-20 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
               <Trash2 size={40} />
             </div>
@@ -902,8 +910,8 @@ export default function BoardPage() {
       )}
 
       {alertModal.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 999 }}>
-          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col p-8 text-center relative">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-50">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col p-8 text-center relative">
             <div className="flex justify-center">{alertModal.icon}</div>
             <h3 className="text-xl font-black text-slate-800 tracking-tight mb-2">{alertModal.title}</h3>
             <p className="text-sm text-slate-500 font-medium mb-8 whitespace-pre-line leading-relaxed">{alertModal.message}</p>
@@ -916,7 +924,7 @@ export default function BoardPage() {
       )}
 
       {imageGallery && (
-        <div className="fixed inset-0 bg-gray-900/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200" onClick={() => { setImageGallery(null); setImgScale(1); }} style={{ zIndex: 300 }}>
+        <div className="fixed inset-0 bg-gray-900/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200 z-50" onClick={() => { setImageGallery(null); setImgScale(1); }}>
           <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-50 text-white pointer-events-none">
             <span className="font-bold text-xs bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm">คลิก 2 ครั้งเพื่อซูม / ใช้ปุ่มลูกศรเลื่อน</span>
             <button type="button" onClick={() => { setImageGallery(null); setImgScale(1); }} className="p-2.5 bg-white/10 hover:bg-white/20 rounded-full transition-colors active:scale-90 pointer-events-auto cursor-pointer"><X size={20} strokeWidth={2.5} /></button>
@@ -940,10 +948,10 @@ export default function BoardPage() {
         </div>
       )}
 
-      <div className="fixed bottom-6 right-6 pointer-events-none" style={{ zIndex: 40 }}>
+      <div className="fixed bottom-6 right-6 pointer-events-none z-40">
         <div className="bg-white/90 backdrop-blur-xl p-2.5 rounded-full shadow-xl border border-slate-100 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-5 duration-500">
           <div className="bg-blue-600 p-2.5 rounded-full text-white shadow-lg shadow-blue-500/40" style={{ animation: 'pulse 2s ease-in-out infinite' }}><Volume2 size={18}/></div>
-          <span className="text-[10px] font-black text-slate-500 pr-3 tracking-widest uppercase">เสียงแจ้งเตือนเปิดแล้ว</span>
+          <span className="text-xs font-black text-slate-500 pr-3 tracking-widest uppercase">เสียงแจ้งเตือนเปิดแล้ว</span>
         </div>
       </div>
 

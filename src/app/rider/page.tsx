@@ -581,8 +581,8 @@ export default function RiderPage() {
                   </div>
                   <div className="flex flex-col gap-2">
                     {selectedViewOrder.image_url.split(',').filter(Boolean).map((url, i) => (
-                      <div key={i} onClick={() => setImageGallery({ urls: selectedViewOrder.image_url!.split(',').filter(Boolean), startIndex: i })} className="relative w-full rounded-xl overflow-hidden border border-indigo-800 cursor-pointer hover:shadow-lg transition-all bg-black/40">
-                        <img src={url} className="w-full h-auto object-contain block" alt={`Detail ${i}`} />
+                      <div key={i} onClick={() => setImageGallery({ urls: selectedViewOrder.image_url!.split(',').filter(Boolean), startIndex: i })} className="relative w-full h-48 rounded-xl overflow-hidden border border-indigo-800 cursor-pointer hover:shadow-lg transition-all bg-black/40">
+                        <Image src={url} fill sizes="(max-width: 768px) 100vw, 33vw" className="object-contain" alt={`Detail ${i}`} />
                       </div>
                     ))}
                   </div>
@@ -639,6 +639,7 @@ export default function RiderPage() {
           <div ref={galleryRef} className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory hide-scrollbar">
             {imageGallery.urls.map((url, i) => (
               <div key={i} className={`w-full h-full shrink-0 snap-center p-2 flex overflow-auto ${imgScale > 1 ? 'items-start justify-start' : 'items-center justify-center'}`} onClick={(e) => e.stopPropagation()}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={url} className={`transition-all duration-300 origin-center cursor-zoom-in shadow-2xl rounded-lg ${imgScale > 1 ? 'm-auto' : ''}`} style={{ width: imgScale > 1 ? `${imgScale * 100}%` : '100%', height: imgScale > 1 ? 'auto' : '100%', objectFit: 'contain', maxWidth: imgScale > 1 ? 'none' : '100%' }} onDoubleClick={(e) => { e.stopPropagation(); setImgScale(prev => prev === 1 ? 2.5 : 1); }} alt={`Gallery ${i}`} />
               </div>
             ))}

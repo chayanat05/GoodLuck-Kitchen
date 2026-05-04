@@ -1,6 +1,7 @@
 'use client'
 import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, Image as ImageIcon, MoreVertical, ScanSearch, CheckCircle2, AlertCircle, XCircle, Trash2, ArrowRightLeft } from "lucide-react";
 import React, { useMemo, useState, useRef, useEffect } from 'react';
+import Image from 'next/image';
 
 export interface Order {
   id: string;
@@ -21,11 +22,12 @@ export interface Order {
   lng?: number | null;
   payment_method?: string;
   slip_status?: "รอตรวจ" | "ผ่าน" | "ไม่ผ่าน" | string; 
-  sort_index?: number; // 🌟 เพิ่มฟิลด์สำหรับจัดเรียง
+  sort_index?: number;
 }
 
 interface OrderProps {
   order: Order;
+  isCompact?: boolean; // 🌟 รับ State การย่อขยายจากการ์ดแม่
   onEdit?: (order: Order) => void; 
   onStart?: (id: string) => void;  
   onFinish?: (id: string) => void; 
@@ -33,7 +35,7 @@ interface OrderProps {
   onViewImages?: (urls: string[], startIndex: number) => void; 
   onVerifySlip?: (order: Order) => void; 
   onDelete?: (id: string) => void; 
-  onChangeStatusRequest?: (order: Order) => void; // 🌟 เปลี่ยนเป็นฟังก์ชันขอเปิด Pop-up
+  onChangeStatusRequest?: (order: Order) => void; 
 }
 
 const getCardTheme = (status: string) => {
@@ -46,7 +48,7 @@ const getCardTheme = (status: string) => {
   }
 };
 
-function OrderCard({ order, onEdit, onStart, onFinish, onViewDetails, onViewImages, onVerifySlip, onDelete, onChangeStatusRequest }: OrderProps) {
+function OrderCard({ order, isCompact, onEdit, onStart, onFinish, onViewDetails, onViewImages, onVerifySlip, onDelete, onChangeStatusRequest }: OrderProps) {
   const isShopee = order.job_type === "shopee";
   const isCustomJob = order.job_type === "รับหิ้ว" || order.job_type === "รับส่ง"; 
   const isLocked = !!order.rider_id;
@@ -77,23 +79,23 @@ function OrderCard({ order, onEdit, onStart, onFinish, onViewDetails, onViewImag
   const slipStatus = order.slip_status || 'รอตรวจ'; 
 
   return (
-    <div className={`p-4 rounded-3xl shadow-xl border-b-[6px] relative transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:-translate-y-2 flex flex-col h-max min-h-[14rem] ${theme.bg}`}>
+    <div className={`${isCompact ? 'p-3' : 'p-4'} rounded-3xl shadow-xl border-b-8 relative transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:-translate-y-1 flex flex-col max-h-full w-full min-h-56 ${theme.bg}`}>
       
-      <div className="flex justify-between items-start mb-4 gap-2 border-b border-white/10 pb-3">
+      <div className={`shrink-0 flex justify-between items-start ${isCompact ? 'mb-3' : 'mb-4'} gap-2 border-b border-white/10 pb-3`}>
         <div className="flex flex-wrap gap-2 items-center">
-          <span className="text-sm font-black px-2.5 py-1 rounded-lg bg-white/90 text-slate-800 tracking-wider shadow-sm">
+          <span className={`${isCompact ? 'text-xs px-2 py-1' : 'text-sm px-2.5 py-1'} font-black rounded-lg bg-white/90 text-slate-800 tracking-wider shadow-sm`}>
             {isShopee ? (order.order_number.startsWith('#') ? order.order_number : `#${order.order_number}`) : order.order_number}
           </span>
-          <span className={`text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider border ${theme.badgeBg}`}>
+          <span className={`text-xs font-black ${isCompact ? 'px-1.5 py-0.5' : 'px-2.5 py-1'} rounded-md uppercase tracking-wider border ${theme.badgeBg}`}>
             {order.job_type}
           </span>
-          <span className={`text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider border ${theme.badgeBg}`}>
+          <span className={`text-xs font-black ${isCompact ? 'px-1.5 py-0.5' : 'px-2.5 py-1'} rounded-md uppercase tracking-wider border ${theme.badgeBg}`}>
             {order.status}
           </span>
         </div>
 
         <div className="flex items-center gap-1 shrink-0 relative" ref={menuRef}>
-          {onViewDetails && (
+          {onViewDetails && !isCompact && (
             <button onClick={(e) => { e.stopPropagation(); onViewDetails(); }} className={`p-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/20 ${theme.text}`} title="ดูรายละเอียด">
               <Eye size={16} strokeWidth={2.5}/>
             </button>
@@ -112,7 +114,6 @@ function OrderCard({ order, onEdit, onStart, onFinish, onViewDetails, onViewImag
                 </button>
               )}
               
-              {/* 🌟 เปลี่ยนสถานะออเดอร์ (เปิด Pop-up แทน) */}
               {onChangeStatusRequest && (
                 <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onChangeStatusRequest(order); }} className="w-full text-left px-4 py-3 text-sm font-bold text-blue-600 hover:bg-blue-50 flex items-center gap-2 transition-colors border-b border-slate-50">
                   <ArrowRightLeft size={16} /> เปลี่ยนสถานะออเดอร์
@@ -130,41 +131,41 @@ function OrderCard({ order, onEdit, onStart, onFinish, onViewDetails, onViewImag
                   <Trash2 size={16} /> ลบออเดอร์นี้
                 </button>
               )}
-
             </div>
           )}
         </div>
       </div>
 
-      {order.menu && (
-        <div className={`mb-3 text-sm font-black whitespace-pre-line leading-relaxed line-clamp-3 ${theme.text}`}>
-          {order.menu}
-        </div>
-      )}
+      <div className="flex-1 overflow-y-auto thin-scrollbar pr-1 flex flex-col mb-3">
+        {order.menu && (
+          <div className={`${isCompact ? 'mb-2 text-xs' : 'mb-3 text-sm'} font-black whitespace-pre-line leading-relaxed shrink-0 ${theme.text}`}>
+            {order.menu}
+          </div>
+        )}
 
-      {order.details && <p className={`text-[11px] font-medium line-clamp-2 leading-relaxed p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm mb-4 ${theme.subText}`}>{order.details}</p>}
+        {order.details && <p className={`text-xs font-medium shrink-0 leading-relaxed p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${isCompact ? 'mb-2' : 'mb-4'} ${theme.subText}`}>{order.details}</p>}
 
-      {hasImages && (
-        <div onClick={(e) => { e.stopPropagation(); if (onViewImages) onViewImages(images, 0); else onViewDetails?.(); }} className="mb-4 relative h-28 w-full rounded-2xl overflow-hidden border border-white/20 shadow-md cursor-pointer group/img shrink-0">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={images[0]} alt="Order attachment" className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500" />
-          {images.length > 1 && (
-            <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[1px] flex items-center justify-center">
-              <span className="text-white font-black text-sm flex items-center drop-shadow-md"><ImageIcon size={16} className="mr-1.5 opacity-90" /> +{images.length - 1}</span>
-            </div>
-          )}
-        </div>
-      )}
+        {/* 🌟 รูปภาพจัดเรียงเป็นแนวตั้ง ไหลลงอัตโนมัติ ห้ามตัดขอบรูป */}
+        {hasImages && (
+          <div className={`flex flex-col gap-2 shrink-0 ${isCompact ? 'mb-3' : 'mb-4'} mt-1 items-center`}>
+            {images.map((url, i) => (
+              <div key={i} onClick={(e) => { e.stopPropagation(); if (onViewImages) onViewImages(images, i); else onViewDetails?.(); }} className="relative w-[65%] aspect-[9/16] rounded-xl overflow-hidden border border-white/20 shadow-sm cursor-pointer group/img bg-black/10">
+                <Image src={url} fill sizes="(max-width: 768px) 100vw, 33vw" alt={`Order attachment ${i}`} className="object-cover block group-hover/img:scale-105 transition-transform duration-500" />
+              </div>
+            ))}
+          </div>
+        )}
 
-      {order.address && (
-        <div className={`flex items-start text-xs mb-4 p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${theme.text}`}>
-          <MapPin size={14} className="mr-1.5 mt-0.5 shrink-0" />
-          <span className="line-clamp-2 leading-relaxed font-medium">{order.address}</span>
-        </div>
-      )}
+        {order.address && (
+          <div className={`flex items-start shrink-0 text-xs ${isCompact ? 'mb-1' : 'mb-1'} p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${theme.text}`}>
+            <MapPin size={14} className="mr-1.5 mt-0.5 shrink-0" />
+            <span className="leading-relaxed font-medium">{order.address}</span>
+          </div>
+        )}
+      </div>
 
-      <div className={`flex flex-wrap items-center justify-between mb-4 border-t border-white/10 pt-3 gap-2 mt-auto ${theme.subText}`}>
-        <div className="flex items-center text-[11px] font-bold tracking-wide shrink-0">
+      <div className={`shrink-0 flex flex-wrap items-center justify-between mb-3 border-t border-white/10 pt-3 gap-2 ${theme.subText}`}>
+        <div className="flex items-center text-xs font-bold tracking-wide shrink-0">
           <Clock size={12} className="mr-1.5" />
           {new Date(order.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
         </div>
@@ -174,23 +175,23 @@ function OrderCard({ order, onEdit, onStart, onFinish, onViewDetails, onViewImag
               slipStatus === 'ผ่าน' ? (
                 <span className="flex items-center text-emerald-600 bg-white/95 px-1.5 py-0.5 rounded shadow-sm" title="ตรวจสลิปผ่านแล้ว">
                   <CheckCircle2 size={12} className="mr-1" />
-                  <span className="text-[9px] font-black uppercase tracking-wider">ผ่าน</span>
+                  <span className="text-xs font-black uppercase tracking-wider">ผ่าน</span>
                 </span>
               ) : slipStatus === 'ไม่ผ่าน' ? (
                 <span className="flex items-center text-rose-600 bg-white/95 px-1.5 py-0.5 rounded shadow-sm" title="สลิปมีปัญหา/ยอดไม่ตรง">
                   <XCircle size={12} className="mr-1" />
-                  <span className="text-[9px] font-black uppercase tracking-wider">ไม่ผ่าน</span>
+                  <span className="text-xs font-black uppercase tracking-wider">ไม่ผ่าน</span>
                 </span>
               ) : (
                 <span className="flex items-center text-amber-500 bg-white/95 px-1.5 py-0.5 rounded shadow-sm animate-pulse" title="รอการตรวจสอบสลิป">
                   <AlertCircle size={12} className="mr-1" />
-                  <span className="text-[9px] font-black uppercase tracking-wider">รอตรวจ</span>
+                  <span className="text-xs font-black uppercase tracking-wider">รอตรวจ</span>
                 </span>
               )
             )}
             <span className={`font-black text-sm ${theme.text}`}>฿{order.total_price}</span>
-            {order.payment_method && (
-              <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded shadow-sm border ${theme.badgeBg}`}>
+            {order.payment_method && !isCompact && (
+              <span className={`text-xs font-black uppercase px-2 py-0.5 rounded shadow-sm border ${theme.badgeBg}`}>
                 {order.payment_method}
               </span>
             )}
@@ -200,33 +201,33 @@ function OrderCard({ order, onEdit, onStart, onFinish, onViewDetails, onViewImag
 
       <div className="flex flex-col gap-2 shrink-0">
         {order.status === 'New' && !isCustomJob && onStart && (
-          <button onClick={() => onStart(order.id)} className={`w-full py-3 rounded-xl text-[11px] font-black transition-all duration-300 flex justify-center items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 uppercase tracking-wide border-b-4 border-transparent active:border-none ${theme.btnBg}`}>
+          <button onClick={() => onStart(order.id)} className={`w-full ${isCompact ? 'py-2.5 text-xs' : 'py-3 text-xs'} rounded-xl font-black transition-all duration-300 flex justify-center items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 uppercase tracking-wide border-b-4 border-transparent active:border-none ${theme.btnBg}`}>
             <PlayCircle size={16} className="shrink-0" />
             <span className="truncate">{isShopee ? 'รับงาน / เตรียมของ' : 'คลิกเพื่อเริ่มทำอาหาร'}</span>
           </button>
         )}
 
         {order.status === 'กำลังทำ' && !isCustomJob && onFinish && (
-          <button onClick={() => onFinish(order.id)} className={`w-full py-3 rounded-xl text-[11px] font-black transition-all duration-300 flex justify-center items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 uppercase tracking-wide border-b-4 border-transparent active:border-none ${theme.btnBg}`}>
+          <button onClick={() => onFinish(order.id)} className={`w-full ${isCompact ? 'py-2.5 text-xs' : 'py-3 text-xs'} rounded-xl font-black transition-all duration-300 flex justify-center items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 uppercase tracking-wide border-b-4 border-transparent active:border-none ${theme.btnBg}`}>
             {isShopee ? <PackageCheck size={16} className="shrink-0"/> : <ChefHat size={16} className="shrink-0" />}
             <span className="truncate">{isShopee ? 'ส่งมอบให้ขนส่งแล้ว' : 'คลิกเมื่อทำอาหารเสร็จ'}</span>
           </button>
         )}
 
         {isCustomJob && order.status !== 'ส่งแล้ว/เสร็จ' && (
-          <div className={`text-center py-2.5 text-[10px] font-black rounded-xl shadow-inner tracking-wide bg-black/10 border border-white/10 ${theme.text}`}>
+          <div className={`text-center py-2.5 text-xs font-black rounded-xl shadow-inner tracking-wide bg-black/10 border border-white/10 ${theme.text}`}>
             🛵 ไรเดอร์ดำเนินการรับส่งเอง
           </div>
         )}
 
         {isLocked && !isCustomJob && (
-          <div className={`flex items-center justify-center py-2.5 rounded-xl text-[10px] font-black shadow-inner tracking-wide bg-black/10 border border-white/10 ${theme.text}`}>
+          <div className={`flex items-center justify-center py-2.5 rounded-xl text-xs font-black shadow-inner tracking-wide bg-black/10 border border-white/10 ${theme.text}`}>
             <Lock size={12} className="mr-1.5 shrink-0" /> <span className="truncate">จองโดย: {order.rider_name || "ไรเดอร์"}</span>
           </div>
         )}
         
         {isShopee && order.status === 'รับงาน' && (
-          <div className={`text-center py-2.5 text-[10px] font-black rounded-xl shadow-inner tracking-wide bg-black/10 border border-white/10 ${theme.text}`}>
+          <div className={`text-center py-2.5 text-xs font-black rounded-xl shadow-inner tracking-wide bg-black/10 border border-white/10 ${theme.text}`}>
             📦 ออเดอร์ Shopee (รอมารับ)
           </div>
         )}
