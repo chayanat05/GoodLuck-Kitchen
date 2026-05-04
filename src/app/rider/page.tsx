@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
 import { 
   MapPin, CheckCircle2, Clock, Map as MapIcon, 
@@ -23,9 +23,11 @@ export default function RiderPage() {
   const [activeTab, setActiveTab] = useState<'available' | 'jobs' | 'history'>('available');
   const [selectedViewOrder, setSelectedViewOrder] = useState<Order | null>(null);
   
-  // 🌟 State จัดการการย่อ/ขยายการ์ด
   const [isCompact, setIsCompact] = useState<boolean>(false);
   
+  // 🌟 State เก็บเวลาตัดยอดของร้าน
+  const [cutOffHour, setCutOffHour] = useState<number>(4);
+
   const [imageGallery, setImageGallery] = useState<{urls: string[], startIndex: number} | null>(null);
   const [imgScale, setImgScale] = useState(1);
   const galleryRef = useRef<HTMLDivElement>(null);
@@ -74,6 +76,12 @@ export default function RiderPage() {
       setCurrentUser(session.user);
       currentUserId = session.user.id;
       setRiderName(profile?.username || 'ไรเดอร์');
+
+      // 🌟 ดึงข้อมูลเวลาตัดยอดของร้านจาก Database มาเตรียมไว้
+      const { data: settings } = await supabase.from('store_settings').select('cut_off_hour').eq('id', 1).single();
+      if (settings && settings.cut_off_hour !== undefined) {
+        setCutOffHour(settings.cut_off_hour);
+      }
 
       fetchOrders(currentUserId);
     };
@@ -210,6 +218,21 @@ export default function RiderPage() {
   const activeOrders = orders.filter(o => o.rider_id === currentUser?.id && o.status !== 'ส่งแล้ว/เสร็จ');
   const completedOrders = orders.filter(o => o.rider_id === currentUser?.id && o.status === 'ส่งแล้ว/เสร็จ');
 
+  // 🌟 ประยุกต์ใช้เวลาตัดยอดสำหรับ "ประวัติรอบวันนี้" ของไรเดอร์โดยเฉพาะ
+  const shiftCompletedOrders = useMemo(() => {
+    const now = new Date();
+    const shiftStart = new Date(now);
+    if (now.getHours() < cutOffHour) {
+      shiftStart.setDate(shiftStart.getDate() - 1);
+    }
+    shiftStart.setHours(cutOffHour, 0, 0, 0);
+
+    return completedOrders.filter(order => {
+      const orderDate = new Date(order.end_time || order.created_at);
+      return orderDate >= shiftStart;
+    });
+  }, [completedOrders, cutOffHour]);
+
   const getRiderStatusDisplay = (status: string) => {
     if (status === 'New') return { text: 'ออเดอร์เข้าใหม่', color: 'bg-blue-500/20 text-blue-300 border-blue-400/30' };
     if (status === 'กำลังทำ') return { text: 'ครัวกำลังทำอาหาร', color: 'bg-amber-500/20 text-amber-300 border-amber-400/30', icon: <ChefHat size={12} className="mr-1" /> };
@@ -226,24 +249,26 @@ export default function RiderPage() {
     }
   };
 
-  // 🌟 Thumbnail รูปแบบใหม่: ปล่อยไหลตามสัดส่วนจริง (h-auto) และไร้ขอบดำ
-  const renderThumbnail = (order: Order, compact: boolean) => {
+  const renderThumbnail = (order: Order) => {
     const images = order.image_url ? order.image_url.split(',').filter(Boolean) : [];
     if (images.length === 0) return null;
 
     return (
-      <div className="flex flex-col gap-2 shrink-0 mb-3 mt-1">
+      <div className="flex flex-col gap-2 shrink-0 mb-3 mt-1 items-center">
         {images.map((url, i) => (
           <div 
             key={i} 
             onClick={(e) => { e.stopPropagation(); setImageGallery({ urls: images, startIndex: i }); }}
-            className="w-full rounded-xl overflow-hidden border border-indigo-500/20 shadow-sm cursor-pointer group/img"
+            className="relative w-[65%] rounded-xl overflow-hidden border border-indigo-500/20 shadow-sm cursor-pointer group/img bg-black/10"
+            style={{ aspectRatio: '9/16' }}
           >
-            {/* ใช้ <img> มาตรฐานร่วมกับ h-auto เพื่อให้ครอบสัดส่วนเป๊ะๆ ไม่มีขอบดำ */}
-            <img
+            <Image
               src={url}
+              fill
+              sizes="(max-width: 768px) 100vw, 33vw"
               alt="Order Evidence"
-              className="w-full h-auto object-contain group-hover/img:scale-105 transition-transform duration-500 block"
+              className="object-cover group-hover/img:scale-105 transition-transform duration-500 block"
+              priority={i === 0}
             />
           </div>
         ))}
@@ -252,7 +277,7 @@ export default function RiderPage() {
   };
 
   if (!currentUser) return (
-    <div className="h-[100dvh] bg-indigo-950 flex flex-col items-center justify-center text-white overflow-hidden">
+    <div className="h-dvh bg-indigo-950 flex flex-col items-center justify-center text-white overflow-hidden">
       <div className="w-12 h-12 border-4 border-indigo-800 border-t-blue-400 rounded-full animate-spin mb-4"></div>
       <h2 className="font-bold text-sm tracking-wider text-indigo-300 animate-pulse">กำลังเตรียมระบบ...</h2>
     </div>
@@ -260,7 +285,7 @@ export default function RiderPage() {
 
   if (gpsEnabled === false) {
     return (
-      <div className="h-[100dvh] bg-indigo-950 flex flex-col items-center justify-center p-6 text-center relative overflow-hidden text-white" style={{ zIndex: 50 }}>
+      <div className="h-dvh bg-indigo-950 flex flex-col items-center justify-center p-6 text-center relative overflow-hidden text-white" style={{ zIndex: 50 }}>
         <div className="absolute inset-0 flex items-center justify-center opacity-20 pointer-events-none">
           <div className="absolute w-64 h-64 border border-blue-500 rounded-full" style={{ animation: 'ping 3s ease-in-out infinite' }}></div>
         </div>
@@ -281,7 +306,7 @@ export default function RiderPage() {
   }
 
   return (
-    <div className="h-[100dvh] bg-indigo-950 text-indigo-100 font-sans flex flex-col overflow-hidden transition-colors duration-500">
+    <div className="h-dvh bg-indigo-950 text-indigo-100 font-sans flex flex-col overflow-hidden transition-colors duration-500">
       
       {/* Header */}
       <div className="shrink-0 bg-indigo-950/90 backdrop-blur-xl text-white p-3.5 shadow-md flex justify-between items-center border-b border-indigo-900 z-30">
@@ -294,7 +319,7 @@ export default function RiderPage() {
             </div>
           </div>
         </div>
-        <div className="bg-indigo-900 border border-indigo-800 px-3 py-1.5 rounded-full text-[10px] font-black tracking-wide text-blue-300 shadow-inner truncate max-w-[100px]">{riderName}</div>
+        <div className="bg-indigo-900 border border-indigo-800 px-3 py-1.5 rounded-full text-[10px] font-black tracking-wide text-blue-300 shadow-inner truncate max-w-25">{riderName}</div>
       </div>
 
       {/* Main Content Area */}
@@ -302,14 +327,12 @@ export default function RiderPage() {
         
         {/* Available Tab */}
         {activeTab === 'available' && (
-          // 🌟 ลดพื้นที่เว้นล่างให้การ์ดไหลลึกลงมาอีก (pb-24)
           <div className="flex-1 flex flex-col overflow-hidden w-full pt-4 px-3 sm:px-5 pb-24 animate-in fade-in duration-500">
             <div className="flex justify-between items-center mb-3 shrink-0">
               <h2 className="font-black text-white text-lg flex items-center">
                 งานว่าง 
                 <span className="ml-2 px-2 py-0.5 bg-blue-500/20 border border-blue-500/30 text-blue-300 text-[10px] rounded-md shadow-sm">{availableOrders.length}</span>
               </h2>
-              {/* ปุ่ม ย่อ/ขยาย */}
               <button onClick={() => setIsCompact(!isCompact)} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-900 border border-indigo-800 rounded-lg text-[10px] font-black text-indigo-300 hover:text-white transition-all active:scale-95 shadow-sm">
                 {isCompact ? <ZoomIn size={12} className="text-blue-400"/> : <ZoomOut size={12} className="text-blue-400"/>}
                 {isCompact ? 'ซูมเข้า' : 'ซูมออก'}
@@ -317,7 +340,7 @@ export default function RiderPage() {
             </div>
             
             {availableOrders.length === 0 ? (
-              <div className="text-center bg-indigo-900/40 rounded-[2rem] border border-indigo-800/50 shadow-sm flex flex-col items-center justify-center mx-auto max-w-xs w-full flex-1 p-6">
+              <div className="text-center bg-indigo-900/40 rounded-4xl border border-indigo-800/50 shadow-sm flex flex-col items-center justify-center mx-auto max-w-xs w-full flex-1 p-6">
                 <div className="w-20 h-20 bg-indigo-900/80 rounded-full flex items-center justify-center mb-4 shadow-inner">
                   <PackageCheck size={36} className="text-indigo-400" />
                 </div>
@@ -327,8 +350,7 @@ export default function RiderPage() {
             ) : (
               <div className="flex-1 overflow-x-auto overflow-y-hidden snap-x snap-mandatory flex gap-3 items-stretch hide-scrollbar -mx-3 px-3 sm:mx-0 sm:px-0">
                 {availableOrders.map((order, index) => (
-                  // 🌟 ปรับความกว้างการ์ดให้เรียวบาง (w-[42vw] หรือกว้าง w-[82vw]) และสูงเต็มพื้นที่
-                  <div key={order.id} className={`${isCompact ? 'w-[42vw] sm:w-[170px]' : 'w-[82vw] sm:w-[320px]'} h-full shrink-0 snap-center bg-indigo-900/60 backdrop-blur-sm rounded-[1.5rem] shadow-xl border border-indigo-800 overflow-hidden flex flex-col transition-all duration-300 hover:border-blue-500/50`} style={{ animation: `fadeIn 0.5s ease-out ${index * 0.05}s both` }}>
+                  <div key={order.id} className={`${isCompact ? 'w-[42vw] sm:w-42.5' : 'w-[82vw] sm:w-[320px]'} h-full shrink-0 snap-center bg-indigo-900/60 rounded-3xl shadow-xl border border-indigo-800 overflow-hidden flex flex-col transition-all duration-300 hover:border-blue-500/50`} style={{ animation: `fadeIn 0.5s ease-out ${index * 0.05}s both` }}>
                     <div className="flex-1 overflow-y-auto hide-scrollbar p-3 sm:p-4 relative border-b border-indigo-800/50 flex flex-col">
                       <div className={`absolute top-0 left-0 w-full h-1 ${isCustomJob(order) ? 'bg-purple-500' : 'bg-blue-500'}`}></div>
                       
@@ -348,6 +370,9 @@ export default function RiderPage() {
                       {/* Menu */}
                       {order.menu && <div className={`mb-3 ${isCompact ? 'p-2.5 text-[10px]' : 'p-3 text-sm'} bg-indigo-950/50 rounded-xl border border-indigo-800/80 text-indigo-200 font-bold whitespace-pre-line leading-relaxed shrink-0`}>{order.menu}</div>}
                       
+                      {/* Thumbnail */}
+                      {renderThumbnail(order)}
+                      
                       {/* Details */}
                       {order.details && (
                         <div className={`${isCompact ? 'text-[9px]' : 'text-xs'} text-indigo-300 font-medium mb-3 flex items-start gap-2 shrink-0`}>
@@ -356,10 +381,7 @@ export default function RiderPage() {
                         </div>
                       )}
 
-                      {/* 🌟 Thumbnail รูปภาพมาอยู่เกือบล่างสุดแล้วครับ */}
-                      {renderThumbnail(order, isCompact)}
-                      
-                      {/* Address & Price (ดันลงล่างสุด) */}
+                      {/* Address & Price */}
                       <div className="mt-auto shrink-0 space-y-2.5">
                         {order.address && (
                           <div className={`flex items-start ${isCompact ? 'text-[9px] p-2.5' : 'text-[11px] p-3'} text-red-200 bg-red-500/10 border border-red-500/20 rounded-xl shadow-inner`}>
@@ -400,7 +422,7 @@ export default function RiderPage() {
             </div>
             
             {activeOrders.length === 0 ? (
-              <div className="text-center bg-indigo-900/40 rounded-[2rem] border border-indigo-800/50 shadow-sm flex flex-col items-center justify-center mx-auto max-w-xs w-full flex-1 p-6">
+              <div className="text-center bg-indigo-900/40 rounded-4xl border border-indigo-800/50 shadow-sm flex flex-col items-center justify-center mx-auto max-w-xs w-full flex-1 p-6">
                 <div className="w-20 h-20 bg-indigo-900/80 rounded-full flex items-center justify-center mb-4">
                   <CheckCircle2 size={36} className="text-indigo-400" />
                 </div>
@@ -410,7 +432,7 @@ export default function RiderPage() {
             ) : (
               <div className="flex-1 overflow-x-auto overflow-y-hidden snap-x snap-mandatory flex gap-3 items-stretch hide-scrollbar -mx-3 px-3 sm:mx-0 sm:px-0">
                 {activeOrders.map((order, index) => (
-                  <div key={order.id} className={`${isCompact ? 'w-[42vw] sm:w-[170px]' : 'w-[82vw] sm:w-[320px]'} h-full shrink-0 snap-center bg-indigo-900/60 backdrop-blur-sm rounded-[1.5rem] shadow-lg border overflow-hidden flex flex-col transition-all duration-300 ${order.status === 'รับงาน' ? 'border-emerald-500/50 ring-1 ring-emerald-500/30 shadow-emerald-900/20' : 'border-indigo-800'}`} style={{ animation: `fadeIn 0.5s ease-out ${index * 0.05}s both` }}>
+                  <div key={order.id} className={`${isCompact ? 'w-[42vw] sm:w-42.5' : 'w-[82vw] sm:w-[320px]'} h-full shrink-0 snap-center bg-indigo-900/60 rounded-3xl shadow-lg border overflow-hidden flex flex-col transition-all duration-300 ${order.status === 'รับงาน' ? 'border-emerald-500/50 ring-1 ring-emerald-500/30 shadow-emerald-900/20' : 'border-indigo-800'}`} style={{ animation: `fadeIn 0.5s ease-out ${index * 0.05}s both` }}>
                     
                     <div className="flex-1 overflow-y-auto hide-scrollbar p-3 sm:p-4 border-b border-indigo-800/50 flex flex-col">
                       <div className="flex justify-between items-center mb-3 shrink-0">
@@ -425,8 +447,8 @@ export default function RiderPage() {
                       
                       {order.menu && <div className={`mb-3 ${isCompact ? 'p-2.5 text-[10px]' : 'p-3 text-sm'} bg-indigo-950/50 rounded-xl border border-indigo-800/80 text-indigo-200 font-bold whitespace-pre-line leading-relaxed shrink-0`}>{order.menu}</div>}
                       
-                      {/* 🌟 Thumbnail */}
-                      {renderThumbnail(order, isCompact)}
+                      {/* Thumbnail */}
+                      {renderThumbnail(order)}
 
                       <div className="mt-auto shrink-0 space-y-2.5">
                         {order.address && <div className={`flex items-start ${isCompact ? 'text-[9px] p-2.5' : 'text-[11px] p-3'} text-indigo-200 bg-indigo-950 border border-indigo-800 rounded-xl font-bold shadow-inner`}><MapPin size={isCompact ? 12 : 14} className="mr-1.5 mt-0.5 text-red-400 shrink-0" /><span className={`leading-relaxed ${isCompact ? 'line-clamp-2' : 'line-clamp-3'}`}>{order.address}</span></div>}
@@ -459,23 +481,23 @@ export default function RiderPage() {
           </div>
         )}
 
-        {/* History Tab */}
+        {/* 🌟 History Tab: ดึงค่าจาก shiftCompletedOrders เท่านั้น (เวลาตัดยอด) */}
         {activeTab === 'history' && (
           <div className="flex-1 overflow-y-auto hide-scrollbar pb-36 pt-4 px-3 sm:px-5 w-full animate-in fade-in duration-500 mx-auto max-w-2xl">
             <h2 className="font-black text-white mb-4 text-lg flex items-center">
               ประวัติรอบวันนี้ 
-              <span className="ml-2 px-2 py-0.5 bg-indigo-900 border border-indigo-800 text-indigo-300 text-[10px] rounded-md shadow-sm">{completedOrders.length}</span>
+              <span className="ml-2 px-2 py-0.5 bg-indigo-900 border border-indigo-800 text-indigo-300 text-[10px] rounded-md shadow-sm">{shiftCompletedOrders.length}</span>
             </h2>
             <div className="space-y-3">
-              {completedOrders.length === 0 ? (
+              {shiftCompletedOrders.length === 0 ? (
                 <div className="text-center py-16 bg-indigo-900/40 rounded-3xl border border-indigo-800/50 shadow-sm">
                   <History size={40} className="mx-auto mb-3 text-indigo-500" />
                   <p className="text-indigo-300 font-bold text-base">ยังไม่มีงานที่สำเร็จ</p>
                 </div>
-              ) : completedOrders.map((order, idx) => (
-                <div key={order.id} onClick={() => setSelectedViewOrder(order)} className="bg-indigo-900/60 backdrop-blur-sm p-4 rounded-2xl shadow-sm border border-indigo-800 flex justify-between items-center cursor-pointer active:scale-95 transition-all hover:border-blue-500/50 group animate-in slide-in-from-bottom-2" style={{ animationDelay: `${idx * 30}ms`, animationFillMode: 'both' }}>
+              ) : shiftCompletedOrders.map((order, idx) => (
+                <div key={order.id} onClick={() => setSelectedViewOrder(order)} className="bg-indigo-900/60 p-4 rounded-2xl shadow-sm border border-indigo-800 flex justify-between items-center cursor-pointer active:scale-95 transition-all hover:border-blue-500/50 group animate-in slide-in-from-bottom-2" style={{ animationDelay: `${idx * 30}ms`, animationFillMode: 'both' }}>
                   <div className="flex items-center">
-                    <div className="w-8 h-8 rounded-full bg-indigo-950 group-hover:bg-blue-500/20 group-hover:text-blue-300 transition-colors text-indigo-400 text-xs font-black flex items-center justify-center mr-3 border border-indigo-800">{completedOrders.length - idx}</div>
+                    <div className="w-8 h-8 rounded-full bg-indigo-950 group-hover:bg-blue-500/20 group-hover:text-blue-300 transition-colors text-indigo-400 text-xs font-black flex items-center justify-center mr-3 border border-indigo-800">{shiftCompletedOrders.length - idx}</div>
                     <div>
                       <div className="font-black text-white text-base group-hover:text-blue-300 transition-colors">{order.order_number}</div>
                       <div className="text-[10px] text-indigo-300 font-medium mt-1 flex items-center">
@@ -513,8 +535,8 @@ export default function RiderPage() {
       {isMenuOpen && (
         <div className="fixed inset-0 flex" style={{ zIndex: 110 }}>
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setIsMenuOpen(false)}></div>
-          <div className="relative w-4/5 max-w-xs bg-indigo-950 border-l border-indigo-900 h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-300 z-10 rounded-r-[2rem] overflow-hidden">
-            <div className="bg-gradient-to-br from-indigo-900 to-indigo-950 p-6 text-white relative border-b border-indigo-800">
+          <div className="relative w-4/5 max-w-xs bg-indigo-950 border-l border-indigo-900 h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-300 z-10 rounded-r-4xl overflow-hidden">
+            <div className="bg-linear-to-brrom-indigo-900 to-indigo-950 p-6 text-white relative border-b border-indigo-800">
               <button onClick={() => setIsMenuOpen(false)} className="absolute top-5 right-5 p-1.5 bg-indigo-950 rounded-full hover:bg-indigo-800 transition-all cursor-pointer active:scale-90 border border-indigo-800"><X size={16} /></button>
               <div className="w-14 h-14 bg-indigo-950 rounded-xl flex items-center justify-center mb-4 text-xl font-black shadow-inner border border-indigo-800 text-blue-400">{riderName.charAt(0)}</div>
               <h2 className="font-black text-xl mb-1 tracking-tight text-white">{riderName}</h2>
@@ -536,7 +558,7 @@ export default function RiderPage() {
       {/* View Detail Modal */}
       {selectedViewOrder && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm" style={{ zIndex: 200 }}>
-          <div className="bg-indigo-950 rounded-[1.5rem] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-300 border border-indigo-800 flex flex-col" style={{ maxHeight: '85vh' }}>
+          <div className="bg-indigo-950 rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-300 border border-indigo-800 flex flex-col" style={{ maxHeight: '85vh' }}>
             <div className="bg-indigo-900 border-b border-indigo-800 p-5 flex justify-between items-center text-white shrink-0">
               <h3 className="font-black flex items-center text-base tracking-tight"><ClipboardList size={18} className="mr-2 text-blue-400"/> รายละเอียดออเดอร์</h3>
               <button onClick={() => setSelectedViewOrder(null)} className="p-1.5 bg-indigo-800 hover:bg-indigo-700 rounded-full transition-all cursor-pointer active:scale-90 hover:rotate-90 duration-300"><X size={16} strokeWidth={3} className="text-indigo-200"/></button>
@@ -573,7 +595,6 @@ export default function RiderPage() {
                 </div>
               )}
 
-              {/* รูปภาพในการดูรายละเอียดจัดเรียงลงมาเต็มใบ */}
               {selectedViewOrder.image_url && (
                 <div className="space-y-2">
                   <div className="text-[10px] font-black text-indigo-400 uppercase tracking-wider flex items-center">
@@ -656,7 +677,7 @@ export default function RiderPage() {
       {/* Popup Notifications */}
       {popup.isOpen && (
         <div className="fixed inset-0 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200" style={{ zIndex: 350 }}>
-          <div className="bg-indigo-950 rounded-[2rem] shadow-2xl w-full max-w-sm p-6 text-center animate-in zoom-in-95 slide-in-from-bottom-5 duration-300 border border-indigo-800">
+          <div className="bg-indigo-950 rounded-4xl shadow-2xl w-full max-w-sm p-6 text-center animate-in zoom-in-95 slide-in-from-bottom-5 duration-300 border border-indigo-800">
             {renderPopupIcon(popup.icon || 'info')}
             <h3 className="text-lg font-black text-white mb-2 tracking-tight">{popup.title}</h3>
             <p className="text-indigo-300 text-xs mb-6 font-medium leading-relaxed">{popup.message}</p>

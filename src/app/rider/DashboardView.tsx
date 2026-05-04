@@ -1,9 +1,11 @@
 'use client'
 import { useState, useEffect, useRef } from 'react';
+import { supabase } from '../../lib/supabase';
 import { 
   ArrowLeft, LayoutDashboard, CheckCircle2, 
   MapPinned, Navigation, X, ClipboardList,
-  ImageIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Calendar, CalendarDays
+  ImageIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Calendar, CalendarDays,
+  Banknote // 🌟 นำเข้า Icon เพิ่มสำหรับฟีเจอร์สรุปเงิน
 } from 'lucide-react';
 import { Order } from '../../components/OrderCard';
 import Image from 'next/image';
@@ -40,11 +42,25 @@ export default function DashboardView({
   const [filterMonth, setFilterMonth] = useState<string>(new Date().toISOString().slice(0, 7)); 
   const [jobTypeFilter, setJobTypeFilter] = useState<string>('all'); 
   
+  // 🌟 State เก็บเวลาตัดยอดของร้าน
+  const [cutOffHour, setCutOffHour] = useState<number>(4);
+
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
   const [imageGallery, setImageGallery] = useState<{urls: string[], startIndex: number} | null>(null);
   const [imgScale, setImgScale] = useState(1);
   const galleryRef = useRef<HTMLDivElement>(null);
+
+  // 🌟 ดึงข้อมูลเวลาตัดยอดของร้านจาก Database
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const { data } = await supabase.from('store_settings').select('cut_off_hour').eq('id', 1).single();
+      if (data && data.cut_off_hour !== undefined) {
+        setCutOffHour(data.cut_off_hour);
+      }
+    };
+    fetchSettings();
+  }, []);
 
   useEffect(() => {
     if (
@@ -78,15 +94,29 @@ export default function DashboardView({
 
       let timeMatch = true;
       if (filterMode === 'today') {
-        const today = new Date();
-        timeMatch = orderDate.getDate() === today.getDate() &&
-          orderDate.getMonth() === today.getMonth() &&
-          orderDate.getFullYear() === today.getFullYear();
+        // 🌟 ประยุกต์ใช้ Cut-off Time กับฟิลเตอร์ "วันนี้"
+        const now = new Date();
+        const shiftStart = new Date(now);
+        if (now.getHours() < cutOffHour) {
+          shiftStart.setDate(shiftStart.getDate() - 1);
+        }
+        shiftStart.setHours(cutOffHour, 0, 0, 0);
+
+        const shiftEnd = new Date(shiftStart);
+        shiftEnd.setDate(shiftEnd.getDate() + 1);
+
+        timeMatch = orderDate >= shiftStart && orderDate < shiftEnd;
+
       } else if (filterMode === 'date' && filterDate) {
+        // 🌟 ประยุกต์ใช้ Cut-off Time กับฟิลเตอร์ "ระบุวัน"
         const target = new Date(filterDate);
-        timeMatch = orderDate.getDate() === target.getDate() &&
-          orderDate.getMonth() === target.getMonth() &&
-          orderDate.getFullYear() === target.getFullYear();
+        target.setHours(cutOffHour, 0, 0, 0);
+        
+        const targetEnd = new Date(target);
+        targetEnd.setDate(targetEnd.getDate() + 1);
+
+        timeMatch = orderDate >= target && orderDate < targetEnd;
+
       } else if (filterMode === 'month' && filterMonth) {
         const [year, month] = filterMonth.split('-');
         timeMatch = orderDate.getFullYear() === parseInt(year) &&
@@ -120,6 +150,11 @@ export default function DashboardView({
     });
     return Number.isFinite(totalDist) ? totalDist.toFixed(1) : "0.0";
   };
+
+  // 🌟 ฟีเจอร์ใหม่: คำนวณยอดเงินสดและเงินโอน
+  const totalCash = displayOrders.filter(o => o.payment_method === 'เงินสด' || !o.payment_method).reduce((sum, o) => sum + (o.total_price || 0), 0);
+  const totalTransfer = displayOrders.filter(o => o.payment_method === 'โอน').reduce((sum, o) => sum + (o.total_price || 0), 0);
+  const totalValue = totalCash + totalTransfer;
 
   return (
     <div className="min-h-screen bg-slate-50 pb-safe animate-in fade-in slide-in-from-bottom-4 duration-300 relative font-sans">
@@ -204,7 +239,7 @@ export default function DashboardView({
           )}
 
           <div className="flex overflow-x-auto gap-2 pb-2 pt-1 hide-scrollbar">
-            {['all', 'ร้าน', 'รับหิ้ว', 'รับส่ง', 'shopee'].map(type => (
+            {['all', 'ร้าน', 'รับหิ้ว', 'รับส่ง'].map(type => (
               <button
                 key={type}
                 onClick={() => setJobTypeFilter(type)}
@@ -217,6 +252,25 @@ export default function DashboardView({
                 {type === 'all' ? 'ทุกประเภทงาน' : type}
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* 🌟 ฟีเจอร์ใหม่: สรุปยอดเงินของไรเดอร์แยกตามช่องทาง */}
+        <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 flex flex-col gap-3">
+          <div className="flex items-center text-slate-700 font-black text-sm mb-1"><Banknote size={18} className="mr-2 text-emerald-500" /> สรุปยอดเงิน (บิลที่สำเร็จ)</div>
+          <div className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-100 shadow-inner">
+            <span className="text-sm font-bold text-slate-500">รวมทุกช่องทาง</span>
+            <span className="text-xl font-black text-blue-600">฿{totalValue.toLocaleString()}</span>
+          </div>
+          <div className="flex gap-3">
+            <div className="flex-1 bg-amber-50 p-3.5 rounded-2xl border border-amber-100">
+              <div className="text-[10px] font-black text-amber-600 mb-1.5 uppercase tracking-wider">เงินสด (ต้องส่งร้าน)</div>
+              <div className="text-lg font-black text-amber-700">฿{totalCash.toLocaleString()}</div>
+            </div>
+            <div className="flex-1 bg-blue-50 p-3.5 rounded-2xl border border-blue-100">
+              <div className="text-[10px] font-black text-blue-600 mb-1.5 uppercase tracking-wider">ลูกค้าโอนแล้ว</div>
+              <div className="text-lg font-black text-blue-700">฿{totalTransfer.toLocaleString()}</div>
+            </div>
           </div>
         </div>
 
@@ -317,7 +371,7 @@ export default function DashboardView({
                   <div className="grid grid-cols-2 gap-3">
                     {selectedOrder.image_url.split(',').filter(Boolean).map((imgUrl, i) => (
                       <div key={i} onClick={() => setImageGallery({ urls: selectedOrder.image_url!.split(',').filter(Boolean), startIndex: i })} className="relative h-32 rounded-2xl overflow-hidden border border-slate-200 cursor-pointer hover:shadow-md transition-all active:scale-95 group/img">
-                        <Image src={imgUrl} fill className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500" alt={`Slip ${i}`} sizes="256px" />
+                        <Image src={imgUrl} fill className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500" alt={`Slip ${i}`} sizes="256px"  />
                       </div>
                     ))}
                   </div>
@@ -375,7 +429,7 @@ export default function DashboardView({
       {imageGallery && (
         <div className="fixed inset-0 z-300 bg-black/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200" onClick={() => { setImageGallery(null); setImgScale(1); }}>
           <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-50 text-white pointer-events-none">
-            <span className="font-bold text-xs bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm">แตะ 2 ครั้งเพื่อซูม</span>
+            <span className="font-bold text-xs bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm">แตะ 2 ครั้งเพื่อซูม / ใช้ปุ่มลูกศรเลื่อน</span>
             <button type="button" onClick={() => { setImageGallery(null); setImgScale(1); }} className="p-2.5 bg-white/10 hover:bg-white/20 rounded-full transition-colors active:scale-90 pointer-events-auto cursor-pointer">
               <X size={20} strokeWidth={2.5} />
             </button>

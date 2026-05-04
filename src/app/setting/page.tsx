@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { supabase } from '../../lib/supabase';
 import { 
-  ArrowLeft, PaintBucket, Image as ImageIcon, Trash2, MoonStar, Settings, CheckCircle2, ChevronRight, AlertTriangle, Palette, ImagePlus, Maximize, Minimize, LayoutGrid
+  ArrowLeft, PaintBucket, Image as ImageIcon, Trash2, MoonStar, Settings, CheckCircle2, ChevronRight, AlertTriangle, Palette, ImagePlus, Maximize, Minimize, LayoutGrid, Clock
 } from 'lucide-react';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 
@@ -24,11 +24,11 @@ const COLORS = [
   '#faf4ed', '#f5eae1', '#eaddcf', '#e4d4c8', '#d6d3d1', '#a8a29e', '#57534e', '#292524'
 ];
 
-type SettingView = 'menu' | 'theme' | 'advanced';
+type SettingView = 'menu' | 'theme' | 'advanced' | 'store';
 type BgOption = 'cover' | 'contain' | 'repeat';
 
 export default function SettingPage() {
-  const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
+  const [, setCurrentUser] = useState<SupabaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   
   const [activeView, setActiveView] = useState<SettingView>('menu');
@@ -48,6 +48,10 @@ export default function SettingPage() {
     return 'cover';
   });
 
+  // 🌟 State จัดการเวลาตัดยอดร้าน
+  const [cutOffHour, setCutOffHour] = useState<number>(4);
+  const [isSavingTime, setIsSavingTime] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [toast, setToast] = useState<{show: boolean, message: string}>({ show: false, message: '' });
 
@@ -57,7 +61,7 @@ export default function SettingPage() {
   };
 
   useEffect(() => {
-    const checkAuth = async () => {
+    const checkAuthAndSettings = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { window.location.href = '/login'; return; }
       
@@ -65,13 +69,20 @@ export default function SettingPage() {
       if (profile?.role !== 'admin') { window.location.href = '/rider'; return; }
       
       setCurrentUser(session.user);
+
+      // 🌟 ดึงค่าตั้งค่าเวลาตัดยอดจาก Database
+      const { data: settings } = await supabase.from('store_settings').select('cut_off_hour').eq('id', 1).single();
+      if (settings && settings.cut_off_hour !== undefined) {
+        setCutOffHour(settings.cut_off_hour);
+      }
+
       setLoading(false);
     };
 
-    checkAuth();
+    checkAuthAndSettings();
   }, []);
 
-  // 🌟 รวมฟังก์ชันจัดการไฟล์รูปภาพ (อ่านไฟล์เป็น Base64)
+  // 🌟 ฟังก์ชันจัดการไฟล์รูปภาพ (อ่านไฟล์เป็น Base64)
   const processImageFile = (file: File) => {
     if (!file.type.startsWith('image/')) {
       alert('กรุณาอัปโหลดไฟล์รูปภาพเท่านั้นครับ');
@@ -149,6 +160,20 @@ export default function SettingPage() {
     showToast('เปลี่ยนรูปแบบการจัดวางสำเร็จ!');
   };
 
+  // 🌟 ฟังก์ชันบันทึกเวลาตัดยอดร้าน
+  const handleSaveCutOffTime = async () => {
+    setIsSavingTime(true);
+    const { error } = await supabase.from('store_settings').upsert({ id: 1, cut_off_hour: cutOffHour });
+    setIsSavingTime(false);
+    
+    if (error) {
+      console.error(error);
+      alert('เกิดข้อผิดพลาดในการบันทึกเวลาตัดยอด รบกวนตรวจสอบตาราง store_settings ในระบบหลังบ้าน');
+    } else {
+      showToast('บันทึกเวลาตัดยอดสำเร็จ!');
+    }
+  };
+
   const handleEndDay = async () => {
     const confirmFirst = window.confirm('⚠️ คุณต้องการ "ปิดยอดจบวัน" ใช่หรือไม่?\n\nออเดอร์ทั้งหมดในกระดานจะถูกซ่อน (แต่ยังดูย้อนหลังได้ในหน้าสถิติ)');
     if (!confirmFirst) return;
@@ -202,6 +227,7 @@ export default function SettingPage() {
           <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center">
             {activeView === 'menu' && <><Settings className="mr-2 text-slate-600" size={24} /> ตั้งค่าระบบ</>}
             {activeView === 'theme' && <><PaintBucket className="mr-2 text-blue-500" size={24} /> ตั้งค่าธีม / พื้นหลัง</>}
+            {activeView === 'store' && <><Clock className="mr-2 text-emerald-500" size={24} /> ตั้งค่าเวลาร้าน</>}
             {activeView === 'advanced' && <><AlertTriangle className="mr-2 text-red-500" size={24} /> ตั้งค่าขั้นสูง</>}
           </h1>
         </div>
@@ -209,7 +235,7 @@ export default function SettingPage() {
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
-        <div className="bg-white/95 backdrop-blur-md rounded-[2rem] p-6 md:p-8 shadow-xl border border-white/50 min-h-[50vh] relative overflow-hidden">
+        <div className="bg-white/95 backdrop-blur-md rounded-4xl p-6 md:p-8 shadow-xl border border-white/50 min-h-[50vh] relative overflow-hidden">
           
           {/* เมนูหลัก */}
           {activeView === 'menu' && (
@@ -230,6 +256,23 @@ export default function SettingPage() {
                 <ChevronRight size={24} className="text-slate-300 group-hover:text-blue-500 transition-colors" />
               </button>
 
+              {/* 🌟 ปุ่มเข้าหน้าตั้งค่าเวลาร้าน */}
+              <button 
+                onClick={() => setActiveView('store')}
+                className="w-full flex items-center justify-between p-5 bg-white border border-slate-100 hover:border-emerald-200 hover:bg-emerald-50/50 hover:shadow-md rounded-2xl transition-all cursor-pointer group"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-500 group-hover:scale-110 transition-transform">
+                    <Clock size={24} />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="font-black text-slate-800 text-lg">ตั้งค่าเวลาตัดยอด (กะดึก)</h3>
+                    <p className="text-xs font-medium text-slate-500 mt-0.5">กำหนดเวลาเปลี่ยนวันสำหรับสถิติ Dashboard</p>
+                  </div>
+                </div>
+                <ChevronRight size={24} className="text-slate-300 group-hover:text-emerald-500 transition-colors" />
+              </button>
+
               <button 
                 onClick={() => setActiveView('advanced')}
                 className="w-full flex items-center justify-between p-5 bg-white border border-slate-100 hover:border-red-200 hover:bg-red-50/50 hover:shadow-md rounded-2xl transition-all cursor-pointer group"
@@ -245,6 +288,52 @@ export default function SettingPage() {
                 </div>
                 <ChevronRight size={24} className="text-slate-300 group-hover:text-red-500 transition-colors" />
               </button>
+            </div>
+          )}
+
+          {/* 🌟 หน้าตั้งค่าเวลาตัดยอดร้าน */}
+          {activeView === 'store' && (
+            <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-6 py-4">
+              <div className="bg-emerald-50/50 rounded-4xl6 md:p-8 border border-emerald-100 relative overflow-hidden">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm text-emerald-500 shrink-0">
+                    <Clock size={32} />
+                  </div>
+                  <div>
+                    <h4 className="font-black text-slate-800 text-xl">เวลาตัดยอดจบวัน</h4>
+                    <p className="text-sm font-medium text-slate-500 mt-1">
+                      ระบบจะใช้นับสถิติ (Dashboard) และประวัติของไรเดอร์ (แนะนำให้ตั้งหลังร้านปิด 2 ชั่วโมง)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-2xl border border-emerald-100 shadow-sm space-y-4">
+                  <label className="block text-sm font-black text-slate-700">
+                    ระบุเวลาตัดยอด (ระบุเป็นตัวเลข 0 - 23)
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="number" 
+                      min="0" max="23"
+                      value={cutOffHour}
+                      onChange={(e) => setCutOffHour(Number(e.target.value))}
+                      className="w-24 text-center bg-slate-50 border border-slate-200 p-4 rounded-xl text-xl outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all font-black text-emerald-600 shadow-inner"
+                    />
+                    <span className="text-lg font-black text-slate-500">: 00 น.</span>
+                  </div>
+                  <p className="text-xs text-slate-400 font-bold">
+                    * เช่น ถ้าร้านปิด 02:00 น. แนะนำให้ใส่เลข 4 (ตี 4)
+                  </p>
+                </div>
+
+                <button 
+                  onClick={handleSaveCutOffTime}
+                  disabled={isSavingTime}
+                  className="mt-6 w-full flex items-center justify-center py-4 text-white bg-emerald-600 hover:bg-emerald-700 rounded-2xl transition-all font-black shadow-lg cursor-pointer active:scale-95 disabled:bg-slate-300 disabled:cursor-not-allowed text-base"
+                >
+                  {isSavingTime ? 'กำลังบันทึก...' : 'บันทึกเวลาตัดยอด'}
+                </button>
+              </div>
             </div>
           )}
 
@@ -311,7 +400,7 @@ export default function SettingPage() {
                       </button>
                     </div>
 
-                    {/* 🌟 เพิ่มออปชันตั้งค่าการแสดงผลรูปภาพ */}
+                    {/* ออปชันตั้งค่าการแสดงผลรูปภาพ */}
                     <div className="grid grid-cols-3 gap-2 mx-2">
                       <button onClick={() => handleBgOptionSelect('cover')} className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all cursor-pointer ${bgOption === 'cover' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'}`}>
                         <Maximize size={18} className="mb-1" />
@@ -328,14 +417,14 @@ export default function SettingPage() {
                     </div>
                   </div>
                 ) : (
-                  // 🌟 เพิ่ม Drag & Drop และรองรับ Paste
+                  // Drag & Drop
                   <div 
                     onClick={() => fileInputRef.current?.click()}
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
                     onPaste={handlePaste}
-                    tabIndex={0} // เพื่อให้ element นี้รับ event onPaste ได้เวลากดคลิก
+                    tabIndex={0}
                     className={`h-40 mx-2 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center transition-all cursor-pointer shadow-sm outline-none
                       ${isDragOver ? 'border-blue-500 bg-blue-100 text-blue-600 scale-105' : 'border-slate-300 bg-slate-50/50 text-slate-400 hover:border-purple-500 hover:bg-purple-50 hover:text-purple-500'}
                     `}
@@ -354,7 +443,7 @@ export default function SettingPage() {
           {/* ตั้งค่าขั้นสูง */}
           {activeView === 'advanced' && (
             <div className="animate-in fade-in slide-in-from-right-4 duration-300 h-full flex flex-col justify-center py-10">
-              <div className="bg-red-50/90 rounded-[2rem] p-6 md:p-8 border border-red-100 relative overflow-hidden">
+              <div className="bg-red-50/90 rounded-4xl p-6 md:p-8 border border-red-100 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-red-100 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
                 
                 <div className="relative z-10 text-center mb-8">

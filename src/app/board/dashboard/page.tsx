@@ -80,22 +80,44 @@ export default function DashboardPage() {
 
     const fetchStats = async () => {
       setIsLoading(true);
+
+      // 🌟 ดึงค่าเวลาตัดยอดจาก Database (ถ้ายังไม่ได้ตั้งค่า จะใช้เลข 4 (ตี 4) เป็นค่าเริ่มต้น)
+      const { data: settings } = await supabase.from('store_settings').select('cut_off_hour').eq('id', 1).single();
+      const CUT_OFF_HOUR = settings?.cut_off_hour ?? 4;
+
       let query = supabase.from('orders').select('id, order_number, job_type, status, total_price, created_at, is_archived, rider_name, menu, details, address, payment_method, image_url');
 
       const now = new Date();
       const startDate = new Date();
 
       if (dateFilter === 'today') {
-        startDate.setHours(0, 0, 0, 0);
+        // ถ้าเวลาปัจจุบันยังไม่ถึงเวลาตัดยอด ให้ถือว่าเป็นกะของเมื่อวาน
+        if (now.getHours() < CUT_OFF_HOUR) {
+          startDate.setDate(now.getDate() - 1);
+        }
+        startDate.setHours(CUT_OFF_HOUR, 0, 0, 0);
         query = query.gte('created_at', startDate.toISOString());
+
       } else if (dateFilter === '7days') {
         startDate.setDate(now.getDate() - 7);
+        startDate.setHours(CUT_OFF_HOUR, 0, 0, 0);
         query = query.gte('created_at', startDate.toISOString());
+
       } else if (dateFilter === 'month') {
         startDate.setDate(1); 
+        startDate.setHours(CUT_OFF_HOUR, 0, 0, 0);
         query = query.gte('created_at', startDate.toISOString());
+
       } else if (dateFilter === 'custom' && customStart && customEnd) {
-        query = query.gte('created_at', `${customStart}T00:00:00.000Z`).lte('created_at', `${customEnd}T23:59:59.999Z`);
+        // คลุมตั้งแต่เวลาตัดยอดของวันเริ่ม ไปจนถึงก่อนเวลาตัดยอดของอีกวัน
+        const start = new Date(customStart);
+        start.setHours(CUT_OFF_HOUR, 0, 0, 0);
+        
+        const end = new Date(customEnd);
+        end.setDate(end.getDate() + 1); 
+        end.setHours(CUT_OFF_HOUR - 1, 59, 59, 999);
+
+        query = query.gte('created_at', start.toISOString()).lte('created_at', end.toISOString());
       }
 
       if (selectedRider !== 'all') {
@@ -183,7 +205,7 @@ export default function DashboardPage() {
 
           <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
             {/* กรองตามพนักงาน */}
-            <div className="relative flex-1 md:flex-none min-w-[150px]">
+            <div className="relative flex-1 md:flex-none min-w-37.5">
               <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
               <select 
                 className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-4 focus:ring-blue-500/10 cursor-pointer appearance-none"
@@ -198,7 +220,7 @@ export default function DashboardPage() {
             </div>
 
             {/* กรองวันที่ */}
-            <div className="relative flex-1 md:flex-none min-w-[150px]">
+            <div className="relative flex-1 md:flex-none min-w-37.5">
               <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
               <select 
                 className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-4 focus:ring-blue-500/10 cursor-pointer appearance-none"
@@ -289,7 +311,7 @@ export default function DashboardPage() {
               {/* Bar Chart: ยอดขาย (มีลูกเล่น Gradient) */}
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 lg:col-span-2">
                 <h3 className="text-lg font-black text-slate-800 mb-6">📈 แนวโน้มยอดขาย (สำเร็จ)</h3>
-                <div className="h-[300px] w-full">
+                <div className="h-75 w-full">
                   {stats.barChartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={stats.barChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -315,7 +337,7 @@ export default function DashboardPage() {
               {/* Pie Chart */}
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
                 <h3 className="text-lg font-black text-slate-800 mb-6">📊 สัดส่วนออเดอร์</h3>
-                <div className="h-[300px] w-full">
+                <div className="h-75 w-full">
                   {stats.pieChartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>

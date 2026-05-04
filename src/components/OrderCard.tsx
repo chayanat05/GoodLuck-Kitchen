@@ -1,9 +1,10 @@
 'use client'
-import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, Image as ImageIcon, MoreVertical, ScanSearch, CheckCircle2, AlertCircle, XCircle, Trash2, ArrowRightLeft } from "lucide-react";
+import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, MoreVertical, ScanSearch, CheckCircle2, AlertCircle, XCircle, Trash2, ArrowRightLeft } from "lucide-react";
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
 
 export interface Order {
+  slip_image?: string | null;
   id: string;
   order_number: string;
   job_type: "ร้าน" | "รับหิ้ว" | "รับส่ง" | "shopee" | string;
@@ -109,8 +110,15 @@ function OrderCard({ order, isCompact, onEdit, onStart, onFinish, onViewDetails,
             <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200 origin-top-right flex flex-col">
               
               {onVerifySlip && order.payment_method === 'โอน' && order.status !== 'ส่งแล้ว/เสร็จ' && !isShopee && (
-                <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onVerifySlip(order); }} className="w-full text-left px-4 py-3 text-sm font-black text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 border-b border-slate-50 transition-colors">
-                  <ScanSearch size={16} className="animate-pulse" /> ตรวจสลิปด้วย AI
+                <button 
+                  onClick={(e) => { 
+                  e.stopPropagation(); 
+                  setIsMenuOpen(false); 
+                  onVerifySlip(order); 
+                }} 
+            className="w-full text-left px-4 py-3 text-sm font-black text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 border-b border-slate-50 transition-colors cursor-pointer"
+                >
+                <ScanSearch size={16} className="animate-pulse" /> ตรวจสลิปด้วย AI
                 </button>
               )}
               
@@ -143,18 +151,18 @@ function OrderCard({ order, isCompact, onEdit, onStart, onFinish, onViewDetails,
           </div>
         )}
 
-        {order.details && <p className={`text-xs font-medium shrink-0 leading-relaxed p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${isCompact ? 'mb-2' : 'mb-4'} ${theme.subText}`}>{order.details}</p>}
-
         {/* 🌟 รูปภาพจัดเรียงเป็นแนวตั้ง ไหลลงอัตโนมัติ ห้ามตัดขอบรูป */}
         {hasImages && (
           <div className={`flex flex-col gap-2 shrink-0 ${isCompact ? 'mb-3' : 'mb-4'} mt-1 items-center`}>
             {images.map((url, i) => (
-              <div key={i} onClick={(e) => { e.stopPropagation(); if (onViewImages) onViewImages(images, i); else onViewDetails?.(); }} className="relative w-[65%] aspect-[9/16] rounded-xl overflow-hidden border border-white/20 shadow-sm cursor-pointer group/img bg-black/10">
+              <div key={i} onClick={(e) => { e.stopPropagation(); if (onViewImages) onViewImages(images, i); else onViewDetails?.(); }} className="relative w-[65%] rounded-xl overflow-hidden border border-white/20 shadow-sm cursor-pointer group/img bg-black/10" style={{ aspectRatio: '9/16' }}>
                 <Image src={url} fill sizes="(max-width: 768px) 100vw, 33vw" alt={`Order attachment ${i}`} className="object-cover block group-hover/img:scale-105 transition-transform duration-500" />
               </div>
             ))}
           </div>
         )}
+
+        {order.details && <p className={`text-xs font-medium shrink-0 leading-relaxed p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${isCompact ? 'mb-2' : 'mb-4'} ${theme.subText}`}>{order.details}</p>}
 
         {order.address && (
           <div className={`flex items-start shrink-0 text-xs ${isCompact ? 'mb-1' : 'mb-1'} p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${theme.text}`}>
