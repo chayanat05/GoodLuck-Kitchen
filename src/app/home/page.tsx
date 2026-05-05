@@ -106,7 +106,7 @@ export default function BranchSelectorPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-500 slide-in-from-bottom-4">
             {branches.map((branch) => (
               <Link 
-                href={`/board/${branch.id}`} 
+                href={`/Home/${branch.id}`} 
                 key={branch.id}
                 className="bg-white rounded-[2rem] p-6 shadow-sm hover:shadow-xl border border-slate-100 hover:border-indigo-200 transition-all duration-300 group cursor-pointer relative overflow-hidden block"
               >
