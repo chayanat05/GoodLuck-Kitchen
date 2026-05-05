@@ -55,7 +55,7 @@ export default function LoginPage() {
 
         // ตรวจสอบสิทธิ์แล้วส่งไปหน้าที่ถูกต้อง
         if (userProfile?.role === 'admin') {
-          window.location.href = '/board'; // แอดมินไปห้องคุมการบิน
+          window.location.href = '/home'; // แอดมินไปห้องคุมการบิน
         } else {
           window.location.href = '/rider'; // ไรเดอร์ไปหน้าลงพื้นที่
         }
