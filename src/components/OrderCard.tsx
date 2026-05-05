@@ -115,7 +115,7 @@ function OrderCard({ order, isCompact, onEdit, onStart, onFinish, onViewDetails,
                   e.stopPropagation(); 
                   setIsMenuOpen(false); 
                   onVerifySlip(order); 
-                }} 
+                }}
             className="w-full text-left px-4 py-3 text-sm font-black text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 border-b border-slate-50 transition-colors cursor-pointer"
                 >
                 <ScanSearch size={16} className="animate-pulse" /> ตรวจสลิปด้วย AI

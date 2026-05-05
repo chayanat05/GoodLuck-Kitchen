@@ -1,16 +1,16 @@
 "use client";
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback,use } from "react";
 import Link from "next/link";
-import OrderCard, { Order } from "../../components/OrderCard";
-import JobMap from "../../components/JobMap";
-import SlipScanner from "../../components/SlipScanner";
+import OrderCard, { Order } from "../../../components/OrderCard";
+import JobMap from "../../../components/JobMap";
+import SlipScanner from "../../../components/SlipScanner";
 import {
   DragDropContext,
   Droppable,
   Draggable,
   DropResult,
 } from "@hello-pangea/dnd";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "../../../lib/supabase";
 import {
   X,
   ClipboardCheck,
@@ -99,7 +99,10 @@ const calculateDistance = (
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 };
 
-export default function BoardPage() {
+export default function BoardPage({ params }: { params: Promise<{ board_home: string }> }) {
+  const resolvedParams = use(params);
+  const currentBranchId = resolvedParams.board_home;
+
   const [isMounted, setIsMounted] = useState<boolean>(false);
   const [orders, setOrders] = useState<Order[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -232,6 +235,7 @@ export default function BoardPage() {
     const { data: orderData, error: orderError } = await supabase
       .from("orders")
       .select("*")
+      .eq("branch_id", currentBranchId)
       .or("is_archived.is.null,is_archived.eq.false")
       .order("sort_index", { ascending: true })
       .order("created_at", { ascending: false });
@@ -241,20 +245,22 @@ export default function BoardPage() {
 
     const { data: locData, error: locError } = await supabase
       .from("saved_locations")
-      .select("*");
+      .select("*")
+      .order("name", { ascending: true }); // 🌟 เรียงตามตัวอักษรให้แอดมินหาง่ายๆ
     if (locError) console.error("Error fetching locations:", locError);
     if (locData) setSavedLocations(locData as SavedLocation[]);
-  }, []);
+  }, [currentBranchId]);
 
   const fetchRidersLocation = useCallback(async () => {
     const { data, error } = await supabase
       .from("profiles")
       .select("id, username, last_lat, last_lng, last_seen")
+      .eq("branch_id", currentBranchId)
       .not("last_lat", "is", null);
 
     if (error) console.error(error);
     if (data) setRidersLoc(data as RiderLocation[]);
-  }, []);
+  }, [currentBranchId]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -411,6 +417,7 @@ export default function BoardPage() {
       const { data: storeData } = await supabase
         .from("saved_locations")
         .select("*")
+        .eq("branch_id", currentBranchId)
         .ilike("name", `%${text}%`)
         .limit(5);
       let storeResults: UnifiedSearchResult[] = [];
@@ -615,6 +622,7 @@ export default function BoardPage() {
       const { data } = await supabase
         .from("orders")
         .update(orderData)
+        .eq("branch_id", currentBranchId)
         .eq("id", editingId)
         .select();
       if (data)
@@ -624,7 +632,7 @@ export default function BoardPage() {
     } else {
       const { data } = await supabase
         .from("orders")
-        .insert([{ ...orderData, status: "New" }])
+        .insert([{ ...orderData, branch_id: currentBranchId, status: "New" }])
         .select();
       if (data && data.length > 0) {
         targetId = data[0].id;
@@ -653,6 +661,7 @@ export default function BoardPage() {
           address: formData.location_name,
           lat: formData.lat,
           lng: formData.lng,
+          branch_id: currentBranchId,
         },
         { onConflict: "name" },
       );
@@ -669,6 +678,7 @@ export default function BoardPage() {
         await supabase
           .from("orders")
           .update({ image_url: finalUrls })
+          .eq("branch_id", currentBranchId)
           .eq("id", targetId);
         showToast("อัปโหลดรูปภาพทั้งหมดเสร็จสิ้น! 📸");
         fetchOrdersAndLocations();
@@ -692,6 +702,7 @@ export default function BoardPage() {
     const { data, error } = await supabase
       .from("orders")
       .update(updateData)
+      .eq("branch_id", currentBranchId)
       .eq("id", targetOrder.id)
       .select();
     if (error) {
@@ -710,6 +721,7 @@ export default function BoardPage() {
     const { data, error } = await supabase
       .from("orders")
       .update({ status: "กำลังทำ" })
+      .eq("branch_id", currentBranchId)
       .eq("id", orderId)
       .select();
     if (error) console.error(error);
@@ -732,6 +744,7 @@ export default function BoardPage() {
     const { data, error } = await supabase
       .from("orders")
       .update(updateData)
+      .eq("branch_id", currentBranchId)
       .eq("id", orderId)
       .select();
     if (error) console.error(error);
@@ -751,6 +764,7 @@ export default function BoardPage() {
     const { error } = await supabase
       .from("orders")
       .update({ is_archived: true })
+      .eq("branch_id", currentBranchId)
       .neq("is_archived", true);
     if (error) {
       console.error(error);
@@ -795,6 +809,7 @@ export default function BoardPage() {
     const { error } = await supabase
       .from("orders")
       .delete()
+      .eq("branch_id", currentBranchId)
       .eq("id", deleteConfirm.id);
     if (error) {
       console.error(error);
@@ -818,6 +833,7 @@ export default function BoardPage() {
       supabase
         .from("orders")
         .update({ sort_index: index })
+        .eq("branch_id", currentBranchId)
         .eq("id", item.id)
         .then(({ error }) => {
           if (error) console.error("Error updating sort index:", error);
@@ -1524,7 +1540,7 @@ export default function BoardPage() {
                           })
                         }
                       >
-                        <option value="โอน">📱 โอนผ่านบัญชีแล้ว</option>
+                        <option value="โอน">📱 เงินโอน</option>
                         <option value="เงินสด">💵 เงินสด (เก็บปลายทาง)</option>
                       </select>
                     </div>
@@ -1857,6 +1873,7 @@ export default function BoardPage() {
             supabase
               .from("orders")
               .update({ slip_image: newImageUrl, slip_status: "ผ่าน" })
+              .eq("branch_id", currentBranchId)
               .eq("id", scannerConfig.orderId)
               .then(({ error }) => {
                 if (error) console.error("Update slip error:", error);

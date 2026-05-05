@@ -293,13 +293,6 @@ export default function SlipsManagementPage() {
               >
                 <ImageIcon size={16} className="mr-1.5" /> ล้างรูปทิ้ง
               </button>
-
-              <button 
-                onClick={() => setPopup({ isOpen: true, type: 'delete_order', title: 'ลบออเดอร์ออกจากระบบ?', message: `คำเตือน! การลบออเดอร์ ${selectedIds.size} รายการนี้จะลบข้อมูลออกจากฐานข้อมูลถาวร กู้คืนไม่ได้!`, targetIds: Array.from(selectedIds), action: 'delete_order' })}
-                className="px-4 py-2 bg-red-900 border border-red-500 hover:bg-red-700 text-red-100 text-xs font-black uppercase rounded-xl transition-all shadow-lg active:scale-95 flex items-center"
-              >
-                <Trash2 size={16} className="mr-1.5" /> ลบบิลทิ้ง
-              </button>
             </div>
           </div>
         </div>
