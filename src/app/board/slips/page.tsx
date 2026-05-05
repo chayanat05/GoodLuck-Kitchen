@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabase";
 import {
-  ArrowLeft,
+  ChevronLeft,
   Search,
   CheckCircle2,
   XCircle,
@@ -20,6 +20,7 @@ import {
   ScanLine
 } from "lucide-react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 
 type SlipStatus = "รอตรวจ" | "ผ่าน" | "ไม่ผ่าน";
 
@@ -51,6 +52,7 @@ export default function SlipsManagementPage() {
 
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const router = useRouter();
 
   const [popup, setPopup] = useState<PopupConfig>({
     isOpen: false,
@@ -203,9 +205,12 @@ export default function SlipsManagementPage() {
         {/* Header */}
         <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-4 w-full md:w-auto">
-            <Link href="/board" className="p-3 bg-slate-100 text-slate-600 hover:bg-emerald-100 hover:text-emerald-700 rounded-2xl transition-all active:scale-95 shrink-0">
-              <ArrowLeft size={20} />
-            </Link>
+            <button 
+        onClick={() => router.back()} 
+        className="flex items-center text-slate-500 hover:text-slate-800 transition-colors cursor-pointer active:scale-95"
+          >
+          <ChevronLeft size={20} className="mr-1" /> ย้อนกลับ
+          </button>
             <div>
               <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
                 <ShieldCheck className="text-emerald-500" size={28} /> จัดการสลิปโอนเงิน

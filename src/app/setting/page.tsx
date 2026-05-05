@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation'; // 🌟 เพิ่มบรรทัดนี้
 import { supabase } from '../../lib/supabase';
 import { 
   ArrowLeft, PaintBucket, Image as ImageIcon, Trash2, MoonStar, Settings, CheckCircle2, ChevronRight, AlertTriangle, Palette, ImagePlus, Maximize, Minimize, LayoutGrid, Clock
@@ -28,6 +28,7 @@ type SettingView = 'menu' | 'theme' | 'advanced' | 'store';
 type BgOption = 'cover' | 'contain' | 'repeat';
 
 export default function SettingPage() {
+  const router = useRouter(); // 🌟 เพิ่มบรรทัดนี้เข้ามา
   const [, setCurrentUser] = useState<SupabaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   
@@ -215,15 +216,17 @@ export default function SettingPage() {
       <div className="bg-white/90 backdrop-blur-md border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
           {activeView === 'menu' ? (
-            <Link href="/board" className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500 bg-white shadow-sm border border-gray-100">
+            <button 
+              onClick={() => router.back()} 
+              className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500 bg-white shadow-sm border border-gray-100 cursor-pointer active:scale-95"
+            >
               <ArrowLeft size={20} />
-            </Link>
+            </button>
           ) : (
             <button onClick={() => setActiveView('menu')} className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500 bg-white shadow-sm border border-gray-100 cursor-pointer">
               <ArrowLeft size={20} />
             </button>
           )}
-          
           <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center">
             {activeView === 'menu' && <><Settings className="mr-2 text-slate-600" size={24} /> ตั้งค่าระบบ</>}
             {activeView === 'theme' && <><PaintBucket className="mr-2 text-blue-500" size={24} /> ตั้งค่าธีม / พื้นหลัง</>}

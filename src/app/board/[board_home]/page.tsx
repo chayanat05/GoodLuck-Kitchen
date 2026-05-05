@@ -1,3 +1,4 @@
+// [board_home]
 "use client";
 import { useState, useEffect, useRef, useMemo, useCallback,use } from "react";
 import Link from "next/link";
@@ -312,7 +313,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       .channel("public:orders")
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "orders" },
+        { event: "INSERT", schema: "public", table: "orders",filter: `branch_id=eq.${currentBranchId}`},
         (payload) => {
           if (!payload.new.is_archived) {
             notificationAudio.current?.play().catch(() => {});
@@ -325,14 +326,14 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       )
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "orders" },
+        { event: "UPDATE", schema: "public", table: "orders",filter: `branch_id=eq.${currentBranchId}` },
         () => {
           fetchOrdersAndLocations();
         },
       )
       .on(
         "postgres_changes",
-        { event: "DELETE", schema: "public", table: "orders" },
+        { event: "DELETE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` },
         () => {
           fetchOrdersAndLocations();
         },
@@ -342,7 +343,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     return () => {
       supabase.removeChannel(orderChannel);
     };
-  }, [fetchOrdersAndLocations, showToast]);
+  }, [fetchOrdersAndLocations, showToast, currentBranchId]);
 
   useEffect(() => {
     if (showRiderMap) {
@@ -417,7 +418,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       const { data: storeData } = await supabase
         .from("saved_locations")
         .select("*")
-        .eq("branch_id", currentBranchId)
         .ilike("name", `%${text}%`)
         .limit(5);
       let storeResults: UnifiedSearchResult[] = [];
@@ -661,7 +661,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
           address: formData.location_name,
           lat: formData.lat,
           lng: formData.lng,
-          branch_id: currentBranchId,
         },
         { onConflict: "name" },
       );
@@ -1027,8 +1026,22 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
               </p>
             </div>
             <div className="flex-1 p-5 space-y-3 overflow-y-auto">
+              
+              {/* 🌟 1. เพิ่มปุ่มกลับหน้าเลือกสาขาตรงนี้ครับ */}
+              <Link
+                href="/home"
+                prefetch={false}
+                className="w-full flex items-center p-4 text-slate-600 hover:bg-rose-50 hover:text-rose-700 rounded-2xl transition-all font-bold border border-transparent hover:border-rose-100 group"
+              >
+                <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                  <Store size={20} className="text-rose-600" />
+                </div>
+                กลับหน้าเลือกสาขา
+              </Link>
+
               <Link
                 href="/board/dashboard"
+                prefetch={false}
                 className="w-full flex items-center p-4 text-slate-600 hover:bg-blue-50 hover:text-blue-700 rounded-2xl transition-all font-bold border border-transparent hover:border-blue-100 group"
               >
                 <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
@@ -1038,6 +1051,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
               </Link>
               <Link
                 href="/board/users"
+                prefetch={false}
                 className="w-full flex items-center p-4 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-2xl transition-all font-bold border border-transparent hover:border-indigo-100 group"
               >
                 <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
@@ -1045,9 +1059,9 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 </div>
                 จัดการสมาชิก (พนักงาน)
               </Link>
-              {/* 🌟 เพิ่มเมนูจัดการสลิปตรงนี้ครับ 🌟 */}
               <Link
                 href="/board/slips"
+                prefetch={false}
                 className="w-full flex items-center p-4 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 rounded-2xl transition-all font-bold border border-transparent hover:border-emerald-100 group"
               >
                 <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
@@ -1055,9 +1069,11 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 </div>
                 ประวัติการโอน / จัดการสลิป
               </Link>
-              {/* 🌟 สิ้นสุดเมนูจัดการสลิป 🌟 */}
+
+              {/* 🌟 2. แก้ลิงก์ Setting ให้ชี้ไปที่ /setting ตามโครงสร้างไฟล์จริง */}
               <Link
                 href="/setting"
+                prefetch={false}
                 className="w-full flex items-center p-4 text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-2xl transition-all font-bold cursor-pointer border border-transparent hover:border-slate-200 group"
               >
                 <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform group-hover:rotate-45">

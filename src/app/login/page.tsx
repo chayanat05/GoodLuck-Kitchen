@@ -1,6 +1,8 @@
 'use client'
 import { useState } from 'react';
 import Link from 'next/link';
+// 🌟 1. Import useRouter เข้ามา
+import { useRouter } from 'next/navigation'; 
 import { User, Lock, LogIn, AlertCircle, Eye, EyeOff, Sparkles } from 'lucide-react';
 import { supabase } from '../../lib/supabase'; 
 
@@ -12,6 +14,9 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  
+  // 🌟 2. เรียกใช้งาน useRouter
+  const router = useRouter(); 
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,19 +27,19 @@ export default function LoginPage() {
       let loginEmail = formData.identifier.trim();
 
       // เปลี่ยนจาก .from('profiles') มาเป็นเรียกใช้ฟังก์ชัน rpc
-  if (!loginEmail.includes('@')) {
-  const { data: userEmail, error: rpcError } = await supabase
-    .rpc('get_email_by_username', { p_username: loginEmail });
+      if (!loginEmail.includes('@')) {
+        const { data: userEmail, error: rpcError } = await supabase
+          .rpc('get_email_by_username', { p_username: loginEmail });
 
-   if (rpcError || !userEmail) {
-    setErrorMsg('ไม่พบชื่อผู้ใช้งานนี้ในระบบ หรือพิมพ์ชื่อผิดครับ 😢');
-    setLoading(false);
-    return;
-  }
-  
-  // ได้อีเมลมาแล้ว นำไปล็อกอินต่อ
-  loginEmail = userEmail; 
-  }
+        if (rpcError || !userEmail) {
+          setErrorMsg('ไม่พบชื่อผู้ใช้งานนี้ในระบบ หรือพิมพ์ชื่อผิดครับ 😢');
+          setLoading(false);
+          return;
+        }
+        
+        // ได้อีเมลมาแล้ว นำไปล็อกอินต่อ
+        loginEmail = userEmail; 
+      }
 
       // 🌟 ส่งล็อกอิน
       const { data: authData, error } = await supabase.auth.signInWithPassword({
@@ -53,13 +58,12 @@ export default function LoginPage() {
           .eq('id', authData.user.id)
           .single();
 
-        // ตรวจสอบสิทธิ์แล้วส่งไปหน้าที่ถูกต้อง
+        // ตรวจสอบสิทธิ์แล้วส่งไปหน้าที่ถูกต้องด้วย router.push
         if (userProfile?.role === 'admin') {
-          window.location.href = '/home'; // แอดมินไปห้องคุมการบิน
+          router.push('/home'); // 🌟 แอดมินไปหน้าเลือกสาขา
         } else {
-          window.location.href = '/rider'; // ไรเดอร์ไปหน้าลงพื้นที่
+          router.push('/rider'); // 🌟 ไรเดอร์ไปหน้าลงพื้นที่
         }
-        
       }
     } catch (err: unknown) {
       if (err instanceof Error) setErrorMsg(err.message);

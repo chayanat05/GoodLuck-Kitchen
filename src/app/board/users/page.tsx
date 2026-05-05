@@ -1,12 +1,12 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react';
-import Link from 'next/link';
 import { supabase } from '../../../lib/supabase';
 import { 
-  ArrowLeft, Users, Search, ShieldCheck, Navigation, 
-  Mail, Calendar, CheckCircle2, X, AlertTriangle, Info, UserCheck
+  ChevronLeft, Users, Search, ShieldCheck, Navigation, 
+  Mail, Calendar, CheckCircle2, X, AlertTriangle, Info, UserCheck 
 } from 'lucide-react';
 import { User as SupabaseUser } from '@supabase/supabase-js';
+import { useRouter } from "next/navigation";
 
 interface UserProfile {
   id: string;
@@ -32,6 +32,7 @@ export default function UsersManagementPage() {
   const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const router = useRouter();
   
   const [popup, setPopup] = useState<PopupConfig>({ isOpen: false, type: 'alert', title: '', message: '' });
 
@@ -149,9 +150,12 @@ export default function UsersManagementPage() {
       <div className="bg-white border-b border-gray-200 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="flex items-center gap-4">
-            <Link href="/board" className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500">
-              <ArrowLeft size={20} />
-            </Link>
+            <button 
+        onClick={() => router.back()} 
+        className="flex items-center text-slate-500 hover:text-slate-800 transition-colors cursor-pointer active:scale-95"
+      >
+        <ChevronLeft size={20} className="mr-1" /> ย้อนกลับ
+      </button>
             <h1 className="text-xl font-bold text-gray-900 tracking-tight flex items-center">
               <Users className="mr-2 text-blue-600" size={24} />
               จัดการสมาชิกในระบบ

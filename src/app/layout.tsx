@@ -1,10 +1,12 @@
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 // 🌟 1. สร้างตัวแปร viewport แยกออกมาต่างหาก
-export const viewport = {
+export const viewport: Viewport = {
     themeColor: '#2563eb',
-    };
-export const metadata = {
+};
+
+export const metadata: Metadata = {
     title: 'Rider App',
     description: 'ระบบจัดการออเดอร์',
     appleWebApp: {

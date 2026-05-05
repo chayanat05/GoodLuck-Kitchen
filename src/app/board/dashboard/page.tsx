@@ -1,17 +1,17 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react';
-import Link from 'next/link';
 import { supabase } from '../../../lib/supabase';
 import { 
-  ArrowLeft, TrendingUp, ShoppingBag, CheckCircle, Clock, 
+  TrendingUp, ShoppingBag, CheckCircle, Clock, 
   Download, Calendar, LayoutDashboard, Loader2, Users, X,
-  MapPin as MapIcon, Image as ImageIcon, ClipboardCheck
+  MapPin as MapIcon, Image as ImageIcon, ClipboardCheck, ChevronLeft
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, Legend
 } from 'recharts';
 import Image from 'next/image';
+import { useRouter } from "next/navigation";
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#f43f5e'];
 
@@ -64,6 +64,7 @@ export default function DashboardPage() {
 
   // 🌟 State สำหรับ Modal ดูรายละเอียด
   const [selectedViewOrder, setSelectedViewOrder] = useState<Order | null>(null);
+  const router = useRouter();
 
   // ดึงรายชื่อพนักงานทั้งหมดมาไว้ทำฟิลเตอร์
   useEffect(() => {
@@ -192,9 +193,12 @@ export default function DashboardPage() {
         {/* Header & Filter */}
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center bg-white p-5 rounded-3xl shadow-sm border border-slate-100 gap-4">
           <div className="flex items-center gap-4">
-            <Link href="/board" className="p-2 bg-slate-100 text-slate-600 hover:bg-blue-100 hover:text-blue-700 rounded-xl transition-all active:scale-95">
-              <ArrowLeft size={20} />
-            </Link>
+            <button 
+        onClick={() => router.back()} 
+        className="flex items-center text-slate-500 hover:text-slate-800 transition-colors cursor-pointer active:scale-95"
+      >
+        <ChevronLeft size={20} className="mr-1" /> ย้อนกลับ
+      </button>
             <div>
               <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
                 <LayoutDashboard className="text-blue-600" /> สถิติร้าน (Dashboard)
