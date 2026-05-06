@@ -1,6 +1,6 @@
 // [board_home]
 "use client";
-import { useState, useEffect, useRef, useMemo, useCallback,use } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, use } from "react";
 import Link from "next/link";
 import OrderCard, { Order } from "../../../components/OrderCard";
 import JobMap from "../../../components/JobMap";
@@ -19,7 +19,6 @@ import {
   Trash2,
   MapPin as MapIcon,
   LogOut,
-  Users,
   Menu,
   LayoutDashboard,
   Search,
@@ -40,7 +39,7 @@ import {
   PackageCheck,
   Settings,
   ArrowRightLeft,
-  ScanSearch,
+  Lock
 } from "lucide-react";
 import {
   useJsApiLoader,
@@ -102,7 +101,9 @@ const calculateDistance = (
 
 export default function BoardPage({ params }: { params: Promise<{ board_home: string }> }) {
   const resolvedParams = use(params);
-  const currentBranchId = resolvedParams.board_home;
+  const branchSlug = resolvedParams.board_home; 
+  
+  const [currentBranchId, setCurrentBranchId] = useState<string>("");
 
   const [isMounted, setIsMounted] = useState<boolean>(false);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -111,21 +112,15 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
   const [bgColor, setBgColor] = useState<string>("#f8fafc");
   const [bgImage, setBgImage] = useState<string | null>(null);
-  const [bgOption, setBgOption] = useState<"cover" | "contain" | "repeat">(
-    "cover",
-  );
+  const [bgOption, setBgOption] = useState<"cover" | "contain" | "repeat">("cover");
 
-  // 🌟 State ควบคุมการย่อ/ขยายการ์ด
   const [isCompact, setIsCompact] = useState<boolean>(false);
 
-  const defaultMapCenter = useMemo(
-    () => ({ lat: SHOP_LAT, lng: SHOP_LNG }),
-    [],
-  );
+  const defaultMapCenter = useMemo(() => ({ lat: SHOP_LAT, lng: SHOP_LNG }), []);
 
   const [alertModal, setAlertModal] = useState<{
     isOpen: boolean;
-    type: "logout" | "endDay" | null;
+    type: "logout" | null; 
     title: string;
     message: string;
     confirmText: string;
@@ -145,6 +140,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     isOpen: boolean;
     id: string | null;
   }>({ isOpen: false, id: null });
+
   const [scannerConfig, setScannerConfig] = useState<{
     isOpen: boolean;
     orderId: string;
@@ -156,6 +152,25 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     order: Order | null;
   }>({ isOpen: false, order: null });
 
+  const [showContactInfo, setShowContactInfo] = useState(false);
+
+  useEffect(() => {
+    const fetchBranchId = async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .eq("slug", branchSlug)
+        .single();
+        
+      if (data) {
+        setCurrentBranchId(data.id);
+      } else {
+        setCurrentBranchId(branchSlug);
+      }
+    };
+    fetchBranchId();
+  }, [branchSlug]);
+
   useEffect(() => {
     const t = setTimeout(() => {
       setDebouncedQuery(searchQuery);
@@ -166,25 +181,15 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const [selectedViewOrder, setSelectedViewOrder] = useState<Order | null>(
-    null,
-  );
-  const [imageGallery, setImageGallery] = useState<{
-    urls: string[];
-    startIndex: number;
-  } | null>(null);
+  const [selectedViewOrder, setSelectedViewOrder] = useState<Order | null>(null);
+  const [imageGallery, setImageGallery] = useState<{ urls: string[]; startIndex: number; } | null>(null);
   const [imgScale, setImgScale] = useState(1);
   const galleryRef = useRef<HTMLDivElement>(null);
 
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>([]);
-  const [unifiedResults, setUnifiedResults] = useState<UnifiedSearchResult[]>(
-    [],
-  );
+  const [unifiedResults, setUnifiedResults] = useState<UnifiedSearchResult[]>([]);
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
-  const [toast, setToast] = useState<{ show: boolean; message: string }>({
-    show: false,
-    message: "",
-  });
+  const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: "" });
 
   const dbTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const googleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -202,8 +207,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
   const [showRiderMap, setShowRiderMap] = useState<boolean>(false);
   const [ridersLoc, setRidersLoc] = useState<RiderLocation[]>([]);
-  const [selectedRiderMapInfo, setSelectedRiderMapInfo] =
-    useState<RiderLocation | null>(null);
+  const [selectedRiderMapInfo, setSelectedRiderMapInfo] = useState<RiderLocation | null>(null);
 
   const { isLoaded } = useJsApiLoader({
     id: "google-map-script",
@@ -225,6 +229,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     payment_method: "โอน",
     lat: null as number | null,
     lng: null as number | null,
+    contact_link: "",
   });
 
   const showToast = useCallback((msg: string) => {
@@ -233,6 +238,8 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
   }, []);
 
   const fetchOrdersAndLocations = useCallback(async () => {
+    if (!currentBranchId) return;
+
     const { data: orderData, error: orderError } = await supabase
       .from("orders")
       .select("*")
@@ -247,12 +254,14 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     const { data: locData, error: locError } = await supabase
       .from("saved_locations")
       .select("*")
-      .order("name", { ascending: true }); // 🌟 เรียงตามตัวอักษรให้แอดมินหาง่ายๆ
+      .order("name", { ascending: true });
     if (locError) console.error("Error fetching locations:", locError);
     if (locData) setSavedLocations(locData as SavedLocation[]);
   }, [currentBranchId]);
 
   const fetchRidersLocation = useCallback(async () => {
+    if (!currentBranchId) return;
+
     const { data, error } = await supabase
       .from("profiles")
       .select("id, username, last_lat, last_lng, last_seen")
@@ -268,11 +277,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       setTimeout(() => {
         const savedColor = localStorage.getItem("boardBgColor");
         const savedImage = localStorage.getItem("boardBgImage");
-        const savedOption = localStorage.getItem("boardBgOption") as
-          | "cover"
-          | "contain"
-          | "repeat";
-
+        const savedOption = localStorage.getItem("boardBgOption") as "cover" | "contain" | "repeat";
         if (savedColor) setBgColor(savedColor);
         if (savedImage) setBgImage(savedImage);
         if (savedOption) setBgOption(savedOption);
@@ -281,12 +286,12 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
   }, []);
 
   useEffect(() => {
+    if (!currentBranchId) return;
+
     notificationAudio.current = new Audio(NOTIFICATION_SOUND_URL);
 
     const checkAuthAndInit = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         window.location.href = "/login";
         return;
@@ -317,9 +322,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         (payload) => {
           if (!payload.new.is_archived) {
             notificationAudio.current?.play().catch(() => {});
-            showToast(
-              `🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`,
-            );
+            showToast(`🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`);
           }
           fetchOrdersAndLocations();
         },
@@ -327,26 +330,20 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "orders",filter: `branch_id=eq.${currentBranchId}` },
-        () => {
-          fetchOrdersAndLocations();
-        },
+        () => fetchOrdersAndLocations(),
       )
       .on(
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` },
-        () => {
-          fetchOrdersAndLocations();
-        },
+        () => fetchOrdersAndLocations(),
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(orderChannel);
-    };
+    return () => { supabase.removeChannel(orderChannel); };
   }, [fetchOrdersAndLocations, showToast, currentBranchId]);
 
   useEffect(() => {
-    if (showRiderMap) {
+    if (showRiderMap && currentBranchId) {
       const getInitialLocation = async () => {
         await fetchRidersLocation();
       };
@@ -354,26 +351,18 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       const interval = setInterval(fetchRidersLocation, 10000);
       const profileChannel = supabase
         .channel("public:profiles")
-        .on(
-          "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "profiles" },
-          () => {
-            fetchRidersLocation();
-          },
-        )
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles" }, () => fetchRidersLocation())
         .subscribe();
       return () => {
         clearInterval(interval);
         supabase.removeChannel(profileChannel);
       };
     }
-  }, [showRiderMap, fetchRidersLocation]);
+  }, [showRiderMap, fetchRidersLocation, currentBranchId]);
 
   useEffect(() => {
     if (imageGallery && galleryRef.current) {
-      const target = galleryRef.current.children[
-        imageGallery.startIndex
-      ] as HTMLElement;
+      const target = galleryRef.current.children[imageGallery.startIndex] as HTMLElement;
       if (target) galleryRef.current.scrollLeft = target.offsetLeft;
     }
   }, [imageGallery]);
@@ -391,16 +380,12 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     const fileExt = file.name.split(".").pop();
     const fileName = `${Math.random()}.${fileExt}`;
     const filePath = `order-photos/${fileName}`;
-    const { error: uploadError } = await supabase.storage
-      .from("order-images")
-      .upload(filePath, file);
+    const { error: uploadError } = await supabase.storage.from("order-images").upload(filePath, file);
     if (uploadError) {
       console.error("Upload error:", uploadError);
       return null;
     }
-    const { data } = supabase.storage
-      .from("order-images")
-      .getPublicUrl(filePath);
+    const { data } = supabase.storage.from("order-images").getPublicUrl(filePath);
     return data.publicUrl;
   };
 
@@ -442,22 +427,15 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
           {
             input: text,
             componentRestrictions: { country: "th" },
-            locationBias: {
-              radius: 20000,
-              center: { lat: SHOP_LAT, lng: SHOP_LNG },
-            },
+            locationBias: { radius: 20000, center: { lat: SHOP_LAT, lng: SHOP_LNG } },
           },
           (predictions, status) => {
-            if (
-              status === window.google.maps.places.PlacesServiceStatus.OK &&
-              predictions
-            ) {
+            if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
               const googleResults = predictions.slice(0, 3).map((p) => ({
                 type: "google" as const,
                 place_id: p.place_id,
                 name: p.structured_formatting.main_text,
-                address:
-                  p.structured_formatting.secondary_text || "Google Maps",
+                address: p.structured_formatting.secondary_text || "Google Maps",
               }));
               setUnifiedResults((prev) => {
                 const combined = [...prev, ...googleResults];
@@ -513,6 +491,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       payment_method: "โอน",
       lat: null,
       lng: null,
+      contact_link: "", 
     });
     setImageFiles([]);
     setImagePreviews([]);
@@ -521,12 +500,12 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     setIsModalOpen(true);
   };
 
-  const openEditModal = (order: Order) => {
+  const openEditModal = (order: Order & { contact_link?: string }) => {
     setEditingId(order.id);
     setFormData({
       order_number: order.order_number,
       job_type: order.job_type,
-      menu: (order as Order & { menu?: string }).menu || "",
+      menu: order.menu || "",
       details: order.details || "",
       location_name: order.address || "",
       new_pin_name: "",
@@ -535,6 +514,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       payment_method: order.payment_method || "โอน",
       lat: order.lat || null,
       lng: order.lng || null,
+      contact_link: order.contact_link || "", 
     });
     if (order.image_url) {
       setExistingImages(order.image_url.split(",").filter(Boolean));
@@ -548,15 +528,12 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
   };
 
   const handleAddFiles = (files: FileList | File[]) => {
-    const validFiles = Array.from(files).filter((f) =>
-      f.type.startsWith("image/"),
-    );
+    const validFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
     if (validFiles.length === 0) return;
     setImageFiles((prev) => [...prev, ...validFiles]);
     validFiles.forEach((file) => {
       const reader = new FileReader();
-      reader.onloadend = () =>
-        setImagePreviews((prev) => [...prev, reader.result as string]);
+      reader.onloadend = () => setImagePreviews((prev) => [...prev, reader.result as string]);
       reader.readAsDataURL(file);
     });
   };
@@ -609,10 +586,10 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       address: formData.job_type === "shopee" ? null : formData.location_name,
       image_url: currentExisting.join(","),
       total_price: cleanPrice,
-      payment_method:
-        formData.job_type === "shopee" ? "โอน" : formData.payment_method,
+      payment_method: formData.job_type === "shopee" ? "โอน" : formData.payment_method,
       lat: formData.job_type === "shopee" ? null : formData.lat,
       lng: formData.job_type === "shopee" ? null : formData.lng,
+      contact_link: formData.contact_link.trim(), 
     };
 
     let targetId = editingId;
@@ -625,10 +602,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         .eq("branch_id", currentBranchId)
         .eq("id", editingId)
         .select();
-      if (data)
-        setOrders(
-          orders.map((o) => (o.id === editingId ? (data[0] as Order) : o)),
-        );
+      if (data) setOrders(orders.map((o) => (o.id === editingId ? (data[0] as Order) : o)));
     } else {
       const { data } = await supabase
         .from("orders")
@@ -648,13 +622,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     if (isEdit) showToast("อัปเดตข้อมูลสำเร็จ! 📝");
     else showToast("สร้างออเดอร์สำเร็จ! 🚀");
 
-    if (
-      !isEdit &&
-      formData.new_pin_name.trim() &&
-      formData.lat &&
-      formData.lng &&
-      formData.job_type !== "shopee"
-    ) {
+    if (!isEdit && formData.new_pin_name.trim() && formData.lat && formData.lng && formData.job_type !== "shopee") {
       await supabase.from("saved_locations").upsert(
         {
           name: formData.new_pin_name.trim(),
@@ -689,9 +657,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     if (!statusModal.order) return;
     const targetOrder = statusModal.order;
 
-    const updateData: { status: string; end_time?: string } = {
-      status: newStatus,
-    };
+    const updateData: { status: string; end_time?: string } = { status: newStatus };
     if (newStatus === "ส่งแล้ว/เสร็จ" && targetOrder.job_type === "shopee") {
       updateData.end_time = new Date().toISOString();
     }
@@ -708,9 +674,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       console.error(error);
       showToast("เกิดข้อผิดพลาดในการเปลี่ยนสถานะ ❌");
     } else if (data) {
-      setOrders(
-        orders.map((o) => (o.id === targetOrder.id ? { ...o, ...data[0] } : o)),
-      );
+      setOrders(orders.map((o) => (o.id === targetOrder.id ? { ...o, ...data[0] } : o)));
       showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`);
       setSelectedViewOrder(null);
     }
@@ -735,9 +699,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     const targetOrder = orders.find((o) => o.id === orderId);
     const isShopee = targetOrder?.job_type === "shopee";
     const nextStatus = isShopee ? "ส่งแล้ว/เสร็จ" : "รับงาน";
-    const updateData: { status: string; end_time?: string } = {
-      status: nextStatus,
-    };
+    const updateData: { status: string; end_time?: string } = { status: nextStatus };
     if (isShopee) updateData.end_time = new Date().toISOString();
 
     const { data, error } = await supabase
@@ -749,29 +711,8 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     if (error) console.error(error);
     if (data) {
       setOrders(orders.map((o) => (o.id === orderId ? (data[0] as Order) : o)));
-      showToast(
-        isShopee
-          ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦"
-          : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵",
-      );
+      showToast(isShopee ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦" : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵");
       setSelectedViewOrder(null);
-    }
-  };
-
-  const executeEndDay = async () => {
-    setAlertModal({ ...alertModal, isOpen: false });
-    const { error } = await supabase
-      .from("orders")
-      .update({ is_archived: true })
-      .eq("branch_id", currentBranchId)
-      .neq("is_archived", true);
-    if (error) {
-      console.error(error);
-      showToast("เกิดข้อผิดพลาดในการปิดยอด");
-    } else {
-      showToast("🌙 ปิดยอดจบวันเรียบร้อย กระดานพร้อมสำหรับวันใหม่!");
-      setIsMenuOpen(false);
-      fetchOrdersAndLocations();
     }
   };
 
@@ -857,7 +798,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     return diffMins < 5;
   };
 
-  if (!currentUser || !isMounted)
+  if (!currentUser || !isMounted || !currentBranchId) 
     return (
       <div
         className="min-h-screen w-full flex justify-center items-center relative transition-all duration-500 z-50"
@@ -940,7 +881,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
           <div className="flex items-center gap-2 w-full lg:w-auto">
             <button
               onClick={() => setIsMenuOpen(true)}
-              className="p-2 bg-slate-100 hover:bg-blue-100 rounded-xl transition-all cursor-pointer text-slate-600 hover:text-blue-700 active:scale-95"
+              className="p-2 bg-slate-100 hover:bg-blue-100 rounded-xl transition-all cursor-pointer text-slate-600 hover:text-indigo-700 active:scale-95"
             >
               <Menu size={18} />
             </button>
@@ -970,7 +911,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
               />
             </div>
 
-            {/* 🌟 ปุ่มย่อขยายการ์ด */}
             <button
               onClick={() => setIsCompact(!isCompact)}
               className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 text-xs font-bold rounded-xl hover:bg-slate-200 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
@@ -1027,7 +967,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
             </div>
             <div className="flex-1 p-5 space-y-3 overflow-y-auto">
               
-              {/* 🌟 1. เพิ่มปุ่มกลับหน้าเลือกสาขาตรงนี้ครับ */}
               <Link
                 href="/home"
                 prefetch={false}
@@ -1049,28 +988,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 </div>
                 Dashboard สถิติร้าน
               </Link>
-              <Link
-                href="/board/users"
-                prefetch={false}
-                className="w-full flex items-center p-4 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-2xl transition-all font-bold border border-transparent hover:border-indigo-100 group"
-              >
-                <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
-                  <Users size={20} className="text-indigo-600" />
-                </div>
-                จัดการสมาชิก (พนักงาน)
-              </Link>
-              <Link
-                href="/board/slips"
-                prefetch={false}
-                className="w-full flex items-center p-4 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 rounded-2xl transition-all font-bold border border-transparent hover:border-emerald-100 group"
-              >
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
-                  <ScanSearch size={20} className="text-emerald-600" />
-                </div>
-                ประวัติการโอน / จัดการสลิป
-              </Link>
 
-              {/* 🌟 2. แก้ลิงก์ Setting ให้ชี้ไปที่ /setting ตามโครงสร้างไฟล์จริง */}
               <Link
                 href="/setting"
                 prefetch={false}
@@ -1262,21 +1180,22 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                       index={index}
                     >
                       {(provided, snapshot) => (
-                        // 🌟 ปรับขนาดความกว้างตาม isCompact (ซูมเข้า/ออก)
                         <div
                           ref={provided.innerRef}
                           {...provided.draggableProps}
                           {...provided.dragHandleProps}
                           className={`shrink-0 max-h-full flex flex-col transition-all duration-300 ${isCompact ? "w-48 md:w-56" : "w-72 md:w-80"} ${snapshot.isDragging ? "scale-[1.02] rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl" : ""}`}
                         >
-                          {/* 🌟 ส่ง isCompact เข้าไปในการ์ด */}
                           <OrderCard
                             order={order}
                             isCompact={isCompact}
                             onEdit={openEditModal}
                             onStart={handleStartOrder}
                             onFinish={handleFinishOrder}
-                            onViewDetails={() => setSelectedViewOrder(order)}
+                            onViewDetails={() => {
+                              setSelectedViewOrder(order);
+                              setShowContactInfo(false); 
+                            }}
                             onViewImages={(urls, startIndex) =>
                               setImageGallery({ urls, startIndex })
                             }
@@ -1304,7 +1223,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         )}
       </div>
 
-      {/* Pop-up เปลี่ยนสถานะออเดอร์ใหม่ */}
       {statusModal.isOpen && statusModal.order && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-50">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col relative">
@@ -1417,6 +1335,20 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                   placeholder={"เช่น\n- กะเพราหมูกรอบ 2\n- ชาเขียว 1"}
                 />
               </div>
+              
+              <div>
+                <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
+                  ลิ้งค์ติดต่อลูกค้า (Facebook/Line) *ซ่อนเป็นความลับ
+                </label>
+                <input
+                  type="text"
+                  className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-bold text-slate-800 shadow-sm"
+                  value={formData.contact_link}
+                  onChange={(e) => setFormData({ ...formData, contact_link: e.target.value })}
+                  placeholder="เช่น https://www.facebook.com/customer"
+                />
+              </div>
+
               <div>
                 <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
                   รายละเอียดเพิ่มเติม (Note)
@@ -1712,6 +1644,44 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 </div>
               </div>
 
+              {/* 🌟 แสดงข้อมูลติดต่อลูกค้าลับ */}
+              {(selectedViewOrder as Order & { contact_link?: string }).contact_link && (
+                <div className="space-y-2">
+                  <div className="text-xs font-black text-indigo-500 uppercase tracking-wider flex items-center">
+                    <Lock size={14} className="mr-1.5" /> ช่องทางติดต่อลูกค้า (ลับ)
+                  </div>
+                  <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 flex justify-between items-center shadow-inner">
+                    {showContactInfo ? (
+                      <a 
+                        href={(selectedViewOrder as Order & { contact_link?: string }).contact_link!.startsWith('http') ? (selectedViewOrder as Order & { contact_link?: string }).contact_link : `https://${(selectedViewOrder as Order & { contact_link?: string }).contact_link}`} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="text-blue-600 font-bold text-xs underline break-all"
+                      >
+                        {(selectedViewOrder as Order & { contact_link?: string }).contact_link}
+                      </a>
+                    ) : (
+                      <div className="text-xs text-indigo-300 blur-sm select-none font-black tracking-widest">
+                        https://facebook.com/hidden-data...
+                      </div>
+                    )}
+                    
+                    {!showContactInfo && (
+                      <button
+                        onClick={() => {
+                          const pin = window.prompt("กรุณาใส่รหัส PIN เพื่อดูข้อมูลลูกค้า (ค่าเริ่มต้น: 9999):");
+                          if (pin === "9999") setShowContactInfo(true);
+                          else if (pin) alert("รหัสผ่านไม่ถูกต้อง ❌");
+                        }}
+                        className="ml-3 px-3 py-1.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-[10px] font-black transition-colors shrink-0 shadow-sm"
+                      >
+                        ปลดล็อก
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {selectedViewOrder.menu && (
                 <div className="space-y-2">
                   <div className="text-xs font-black text-slate-400 uppercase tracking-wider">
@@ -1734,7 +1704,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 </div>
               )}
 
-              {/* 🌟 รูปภาพจัดเรียงไหลลงมาเต็มใบ */}
               {selectedViewOrder.image_url && (
                 <div className="space-y-2">
                   <div className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center">
@@ -1857,7 +1826,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         </div>
       )}
 
-      {/* 🌟 เรียกใช้ SlipScanner Modal */}
+      {/* เรียกใช้ SlipScanner Modal */}
       {scannerConfig?.isOpen && (
         <SlipScanner
           orderId={scannerConfig.orderId}
@@ -1866,11 +1835,9 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
           onSuccess={(newImageUrl) => {
             setScannerConfig(null);
 
-            // 🌟 เปลี่ยนมาบันทึกและอัปเดตใส่ slip_image แทน!
             setOrders(
               orders.map((o) => {
                 if (o.id === scannerConfig.orderId) {
-                  // ถ้ามีสลิปเดิมอยู่แล้ว เอามาต่อกันด้วยลูกน้ำ (รองรับโอนหลายรอบ)
                   const updatedImages = o.slip_image
                     ? `${o.slip_image},${newImageUrl}`
                     : newImageUrl;
@@ -1884,8 +1851,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
               }),
             );
 
-            // อย่าลืม! คุณปลั๊กต้องยิงคำสั่ง Update ลง Supabase ด้วยนะครับ
-            // เพื่อบันทึก slip_image ลง Database ทันที
             supabase
               .from("orders")
               .update({ slip_image: newImageUrl, slip_status: "ผ่าน" })
@@ -1951,10 +1916,8 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 {alertModal.cancelText}
               </button>
               <button
-                onClick={
-                  alertModal.type === "logout" ? executeLogout : executeEndDay
-                }
-                className={`flex-1 py-3.5 text-white font-black rounded-2xl transition-all cursor-pointer shadow-lg active:scale-95 text-xs uppercase tracking-widest ${alertModal.type === "logout" ? "bg-slate-800 hover:bg-slate-900" : "bg-rose-500 hover:bg-rose-600 shadow-rose-500/30"}`}
+                onClick={executeLogout}
+                className={`flex-1 py-3.5 text-white font-black rounded-2xl transition-all cursor-pointer shadow-lg active:scale-95 text-xs uppercase tracking-widest bg-slate-800 hover:bg-slate-900`}
               >
                 {alertModal.confirmText}
               </button>
@@ -2077,45 +2040,20 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       </div>
 
       <style jsx global>{`
-        .thin-scrollbar::-webkit-scrollbar {
-          height: 6px;
-          width: 6px;
-        }
-        .thin-scrollbar::-webkit-scrollbar-track {
-          background: rgba(0, 0, 0, 0.05);
-          border-radius: 10px;
-        }
-        .thin-scrollbar::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.4);
-          border-radius: 10px;
-        }
-        .thin-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: rgba(255, 255, 255, 0.8);
-        }
+        .thin-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
+        .thin-scrollbar::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.05); border-radius: 10px; }
+        .thin-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.4); border-radius: 10px; }
+        .thin-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.8); }
 
         @keyframes shake {
-          0%,
-          100% {
-            transform: translateX(0);
-          }
-          25% {
-            transform: translateX(-2px) rotate(-1deg);
-          }
-          50% {
-            transform: translateX(2px) rotate(1deg);
-          }
-          75% {
-            transform: translateX(-2px) rotate(-1deg);
-          }
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(-2px) rotate(-1deg); }
+          50% { transform: translateX(2px) rotate(1deg); }
+          75% { transform: translateX(-2px) rotate(-1deg); }
         }
         @keyframes wiggle {
-          0%,
-          100% {
-            transform: rotate(-3deg);
-          }
-          50% {
-            transform: rotate(3deg);
-          }
+          0%, 100% { transform: rotate(-3deg); }
+          50% { transform: rotate(3deg); }
         }
       `}</style>
     </div>

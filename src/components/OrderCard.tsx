@@ -24,11 +24,12 @@ export interface Order {
   payment_method?: string;
   slip_status?: "รอตรวจ" | "ผ่าน" | "ไม่ผ่าน" | string; 
   sort_index?: number;
+  contact_link?: string; // 🌟 เพิ่มบรรทัดนี้เข้ามาครับ!
 }
 
 interface OrderProps {
   order: Order;
-  isCompact?: boolean; // 🌟 รับ State การย่อขยายจากการ์ดแม่
+  isCompact?: boolean;
   onEdit?: (order: Order) => void; 
   onStart?: (id: string) => void;  
   onFinish?: (id: string) => void; 
@@ -151,7 +152,6 @@ function OrderCard({ order, isCompact, onEdit, onStart, onFinish, onViewDetails,
           </div>
         )}
 
-        {/* 🌟 รูปภาพจัดเรียงเป็นแนวตั้ง ไหลลงอัตโนมัติ ห้ามตัดขอบรูป */}
         {hasImages && (
           <div className={`flex flex-col gap-2 shrink-0 ${isCompact ? 'mb-3' : 'mb-4'} mt-1 items-center`}>
             {images.map((url, i) => (

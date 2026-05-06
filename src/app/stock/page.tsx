@@ -4,12 +4,18 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { 
   ArrowLeft, Package, Plus, Search, Filter, AlertTriangle, 
-  Layers, Store, X, CheckCircle2, PackagePlus, Box 
+  Layers, Store, X, CheckCircle2, PackagePlus, Box, ShoppingCart, Target, Edit,
+  Trash2, RefreshCw, PlusCircle, MinusCircle, Settings2
 } from "lucide-react";
 
 interface Branch {
   id: string;
   name: string;
+}
+
+interface RawBalance {
+  branch_id: string;
+  quantity: number;
 }
 
 interface StockItem {
@@ -18,7 +24,9 @@ interface StockItem {
   category: string;
   unit: string;
   min_alert: number;
-  current_quantity: number; // 🌟 คอลัมน์พิเศษที่เราจะคำนวณบวกเลขมาใส่
+  target_quantity: number;
+  current_quantity: number; 
+  raw_balances: RawBalance[]; // 🌟 เก็บข้อมูลสต๊อกดิบของทุกสาขาไว้คำนวณ
 }
 
 export default function StockPage() {
@@ -27,21 +35,35 @@ export default function StockPage() {
   const [selectedBranch, setSelectedBranch] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // 🌟 State สำหรับข้อมูลสต๊อก
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 🌟 State สำหรับ Modal เพิ่มสินค้า
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  // 🌟 Modal State (แก้ไขข้อมูลสินค้า)
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  
   const [formData, setFormData] = useState({
     name: "",
     category: "แพคเกจจิ้ง",
     unit: "ชิ้น",
-    min_alert: 10
+    min_alert: 10,
+    target_quantity: 50,
+    initial_qty: 0,
+    initial_branch: ""
   });
 
-  // 🌟 State สำหรับแจ้งเตือน (Toast)
+  // 🌟 Modal State (ปรับยอดสต๊อก)
+  const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
+  const [adjustData, setAdjustData] = useState({
+    itemId: "",
+    itemName: "",
+    unit: "",
+    branchId: "",
+    type: "add", // 'add', 'deduct', 'set'
+    amount: 0
+  });
+
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
 
   const showToast = (message: string, type = "success") => {
@@ -49,11 +71,10 @@ export default function StockPage() {
     setTimeout(() => setToast({ show: false, message: "", type: "success" }), 3000);
   };
 
-  // 🌟 ฟังก์ชันดึงข้อมูลสินค้าและยอดคงเหลือ
+  // 🌟 ฟังก์ชันดึงข้อมูล (ฉลาดขึ้น: ดึงมาทั้งหมดแล้วค่อยกรอง)
   const fetchStockData = useCallback(async () => {
     setIsLoading(true);
     try {
-      // 1. ดึงรายการสินค้าทั้งหมดที่เป็น Master Data
       const { data: itemsData, error: itemsError } = await supabase
         .from("stock_items")
         .select("*")
@@ -61,23 +82,28 @@ export default function StockPage() {
 
       if (itemsError) throw itemsError;
 
-      // 2. ดึงยอดคงเหลือตามสาขาที่เลือก
-      let balancesQuery = supabase.from("stock_balances").select("*");
-      if (selectedBranch !== "ALL") {
-        balancesQuery = balancesQuery.eq("branch_id", selectedBranch);
-      }
-      const { data: balancesData, error: balancesError } = await balancesQuery;
+      // ดึง Balance ทั้งหมดมาเลย เพื่อให้เปิด Modal ปรับยอดแล้วรู้ยอดปัจจุบันทันที
+      const { data: balancesData, error: balancesError } = await supabase
+        .from("stock_balances")
+        .select("*");
 
       if (balancesError) throw balancesError;
 
-      // 3. จับคู่ข้อมูล (คำนวณยอดรวม ถ้ารวมสาขาก็บวกเลขเข้าด้วยกัน)
       const mergedData = (itemsData || []).map((item) => {
         const itemBalances = (balancesData || []).filter((b) => b.item_id === item.id);
-        const totalQty = itemBalances.reduce((sum, b) => sum + (b.quantity || 0), 0);
+        
+        // ถ้าเลือกสาขาเดียว ก็บวกเลขแค่สาขานั้น ถ้ารวม ก็บวกทั้งหมด
+        const filteredBalances = selectedBranch === "ALL" 
+          ? itemBalances 
+          : itemBalances.filter(b => b.branch_id === selectedBranch);
+          
+        const totalQty = filteredBalances.reduce((sum, b) => sum + (b.quantity || 0), 0);
         
         return {
           ...item,
-          current_quantity: totalQty
+          target_quantity: item.target_quantity || 0,
+          current_quantity: totalQty,
+          raw_balances: itemBalances
         };
       });
 
@@ -93,7 +119,12 @@ export default function StockPage() {
   useEffect(() => {
     const fetchBranches = async () => {
       const { data } = await supabase.from("branches").select("id, name").order("created_at");
-      if (data) setBranches(data);
+      if (data) {
+        setBranches(data);
+        if (data.length > 0) {
+          setFormData(prev => ({ ...prev, initial_branch: data[0].id }));
+        }
+      }
     };
     fetchBranches();
   }, []);
@@ -102,53 +133,172 @@ export default function StockPage() {
     fetchStockData();
   }, [fetchStockData]);
 
-  // 🌟 ฟังก์ชันบันทึกสินค้าใหม่ลง Database
-  const handleAddItem = async (e: React.FormEvent) => {
+  // 🌟 เปิด Modal สำหรับ "เพิ่มสินค้าใหม่"
+  const openAddModal = () => {
+    setEditingId(null);
+    setFormData({
+      name: "",
+      category: "แพคเกจจิ้ง",
+      unit: "ชิ้น",
+      min_alert: 10,
+      target_quantity: 50,
+      initial_qty: 0,
+      initial_branch: selectedBranch !== "ALL" ? selectedBranch : (branches[0]?.id || "")
+    });
+    setIsModalOpen(true);
+  };
+
+  // 🌟 เปิด Modal สำหรับ "แก้ไขข้อมูล Master"
+  const openEditModal = (item: StockItem) => {
+    setEditingId(item.id);
+    setFormData({
+      name: item.name,
+      category: item.category,
+      unit: item.unit,
+      min_alert: item.min_alert,
+      target_quantity: item.target_quantity,
+      initial_qty: 0, 
+      initial_branch: ""
+    });
+    setIsModalOpen(true);
+  };
+
+  // 🌟 เปิด Modal สำหรับ "ปรับยอดสต๊อก"
+  const openAdjustModal = (item: StockItem) => {
+    setAdjustData({
+      itemId: item.id,
+      itemName: item.name,
+      unit: item.unit,
+      branchId: selectedBranch !== "ALL" ? selectedBranch : (branches[0]?.id || ""),
+      type: "add",
+      amount: 0
+    });
+    setIsAdjustModalOpen(true);
+  };
+
+  // 🌟 บันทึก ข้อมูลสินค้าหลัก (เพิ่ม/แก้ไข)
+  const handleSubmitItem = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     
     try {
-      const { error } = await supabase.from("stock_items").insert([{
+      const itemData = {
         name: formData.name.trim(),
         category: formData.category,
         unit: formData.unit.trim(),
-        min_alert: formData.min_alert
-      }]);
+        min_alert: formData.min_alert,
+        target_quantity: formData.target_quantity
+      };
 
-      if (error) throw error;
+      if (editingId) {
+        const { error } = await supabase.from("stock_items").update(itemData).eq("id", editingId);
+        if (error) throw error;
+        showToast("บันทึกการแก้ไขสำเร็จ!");
+      } else {
+        const { data: newItemData, error: itemError } = await supabase
+          .from("stock_items")
+          .insert([itemData])
+          .select();
 
-      showToast("เพิ่มรายการสินค้าใหม่สำเร็จ!");
-      setIsAddModalOpen(false);
-      setFormData({ name: "", category: "แพคเกจจิ้ง", unit: "ชิ้น", min_alert: 10 });
-      fetchStockData(); // ดึงข้อมูลใหม่มาแสดง
+        if (itemError) throw itemError;
+
+        if (formData.initial_qty > 0 && formData.initial_branch && newItemData && newItemData.length > 0) {
+          const { error: balanceError } = await supabase
+            .from("stock_balances")
+            .insert([{
+              item_id: newItemData[0].id,
+              branch_id: formData.initial_branch,
+              quantity: formData.initial_qty
+            }]);
+            
+          if (balanceError) throw balanceError;
+        }
+        showToast("เพิ่มรายการสินค้าใหม่สำเร็จ!");
+      }
+
+      setIsModalOpen(false);
+      fetchStockData(); 
     } catch (error) {
-      console.error("Error adding item:", error);
+      console.error("Error saving item:", error);
       showToast("เกิดข้อผิดพลาดในการบันทึก", "error");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // 🌟 ตัวกรองสำหรับช่องค้นหา
+  // 🌟 ฟังก์ชันลบสินค้าแบบปลอดภัย (มี Confirm)
+  const handleDeleteItem = async (id: string, name: string) => {
+    const isConfirmed = window.confirm(`⚠️ คำเตือน: คุณกำลังจะลบสินค้า "${name}"\n\nข้อมูลสต๊อกของสินค้านี้ใน "ทุกสาขา" จะถูกลบทิ้งถาวร แน่ใจหรือไม่?`);
+    if (!isConfirmed) return;
+
+    try {
+      const { error } = await supabase.from("stock_items").delete().eq("id", id);
+      if (error) throw error;
+      showToast("ลบสินค้าสำเร็จ!");
+      fetchStockData();
+    } catch (error) {
+      console.error("Error deleting item:", error);
+      showToast("เกิดข้อผิดพลาดในการลบ", "error");
+    }
+  };
+
+  // 🌟 ฟังก์ชันบันทึกการปรับยอดสต๊อก
+  const handleAdjustStock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      // 1. หายอดปัจจุบันของสาขาที่เลือกก่อน
+      const currentItem = stockItems.find(i => i.id === adjustData.itemId);
+      const currentBalance = currentItem?.raw_balances.find(b => b.branch_id === adjustData.branchId)?.quantity || 0;
+
+      // 2. คำนวณยอดใหม่
+      let newQuantity = currentBalance;
+      const adjustVal = Number(adjustData.amount);
+
+      if (adjustData.type === "add") newQuantity += adjustVal;
+      else if (adjustData.type === "deduct") newQuantity = Math.max(0, newQuantity - adjustVal); // ห้ามติดลบ
+      else if (adjustData.type === "set") newQuantity = Math.max(0, adjustVal);
+
+      // 3. อัปเดตลง Database
+      const { error } = await supabase.from("stock_balances").upsert(
+        { item_id: adjustData.itemId, branch_id: adjustData.branchId, quantity: newQuantity },
+        { onConflict: 'item_id, branch_id' }
+      );
+
+      if (error) throw error;
+
+      showToast("อัปเดตยอดสต๊อกเรียบร้อยแล้ว!");
+      setIsAdjustModalOpen(false);
+      fetchStockData();
+    } catch (error) {
+      console.error("Error adjusting stock:", error);
+      showToast("เกิดข้อผิดพลาดในการอัปเดตสต๊อก", "error");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const filteredItems = stockItems.filter(item => 
     item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     item.category.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // 🌟 คำนวณสถิติ
   const totalItems = stockItems.length;
   const lowStockItems = stockItems.filter(item => item.current_quantity <= item.min_alert).length;
+
+  // คำนวณยอดคงเหลือที่จะโชว์ใน Modal ปรับยอด
+  const activeAdjustItem = stockItems.find(i => i.id === adjustData.itemId);
+  const activeAdjustBalance = activeAdjustItem?.raw_balances.find(b => b.branch_id === adjustData.branchId)?.quantity || 0;
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans pb-20">
       
-      {/* 🌟 Toast Notification */}
       <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-50 ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
         {toast.type === 'error' ? <AlertTriangle size={18} className="text-rose-400 mr-2" /> : <CheckCircle2 size={18} className="text-emerald-400 mr-2" />}
         <span className="font-bold text-sm tracking-wide">{toast.message}</span>
       </div>
 
-      {/* 🌟 Header */}
       <div className="bg-white/90 backdrop-blur-xl border-b border-slate-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -164,17 +314,16 @@ export default function StockPage() {
             </h1>
           </div>
           <button 
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={openAddModal}
             className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all active:scale-95 shadow-lg shadow-slate-900/20 text-sm cursor-pointer"
           >
-            <Plus size={16} /> <span className="hidden sm:inline">เพิ่มสินค้าใหม่</span>
+            <Plus size={16} /> <span className="hidden sm:inline">เพิ่มสินค้า</span>
           </button>
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 py-8">
+      <div className="max-w-6xl mx-auto px-4 py-8">
         
-        {/* 🌟 ตัวกรองสาขา */}
         <div className="bg-white p-2 rounded-2xl shadow-sm border border-slate-100 mb-8 flex overflow-x-auto thin-scrollbar gap-2">
           <button
             onClick={() => setSelectedBranch("ALL")}
@@ -204,7 +353,6 @@ export default function StockPage() {
           ))}
         </div>
 
-        {/* 🌟 การ์ดสรุปยอด */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
           <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center justify-between">
             <div>
@@ -217,18 +365,17 @@ export default function StockPage() {
           </div>
           <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center justify-between">
             <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">แจ้งเตือนใกล้หมด / หมด</p>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">แจ้งเตือนต้องซื้อเพิ่ม</p>
               <h2 className={`text-3xl font-black ${lowStockItems > 0 ? 'text-rose-600' : 'text-emerald-500'}`}>
                 {lowStockItems}
               </h2>
             </div>
             <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${lowStockItems > 0 ? 'bg-rose-50 text-rose-500 animate-pulse' : 'bg-emerald-50 text-emerald-500'}`}>
-              {lowStockItems > 0 ? <AlertTriangle size={28} /> : <CheckCircle2 size={28} />}
+              {lowStockItems > 0 ? <ShoppingCart size={28} /> : <CheckCircle2 size={28} />}
             </div>
           </div>
         </div>
 
-        {/* 🌟 พื้นที่รายการสินค้า */}
         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row gap-4">
             <div className="relative flex-1">
@@ -241,9 +388,6 @@ export default function StockPage() {
                 className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:bg-white focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 font-bold"
               />
             </div>
-            <button className="px-4 py-3 bg-slate-50 text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-100 font-bold text-sm flex items-center justify-center gap-2 cursor-pointer transition-colors">
-              <Filter size={18} /> หมวดหมู่
-            </button>
           </div>
 
           {isLoading ? (
@@ -257,55 +401,115 @@ export default function StockPage() {
               </div>
               <h3 className="text-lg font-black text-slate-700 mb-2">ไม่พบข้อมูลสินค้า</h3>
               <p className="text-slate-500 font-medium text-sm max-w-xs">
-                กดปุ่ม &quot;เพิ่มสินค้าใหม่&quot; ด้านบนเพื่อเริ่มจัดทำรายการวัตถุดิบและแพคเกจจิ้ง
+                กดปุ่ม &quot;เพิ่มสินค้า&quot; ด้านบนเพื่อเริ่มจัดทำรายการวัตถุดิบ
               </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse min-w-[900px]">
                 <thead>
-                  <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                  <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-100">
+                    {/* 🌟 ย้ายปุ่มลบมาไว้คอลัมน์แรกสุด ไกลจากปุ่มแก้ไขที่สุด */}
+                    <th className="p-4 font-black w-16 text-center border-r border-slate-100">ลบ</th>
                     <th className="p-4 font-black">ชื่อสินค้า / หมวดหมู่</th>
-                    <th className="p-4 font-black text-center">ยอดคงเหลือ</th>
-                    <th className="p-4 font-black text-center">จุดแจ้งเตือน</th>
-                    <th className="p-4 font-black text-center">สถานะ</th>
+                    <th className="p-4 font-black text-center border-l border-slate-100">ปริมาณคงเหลือ</th>
+                    <th className="p-4 font-black text-center text-slate-600 border-l border-slate-100">เป้าหมาย (ควรมี)</th>
+                    <th className="p-4 font-black text-center text-rose-500 border-l border-slate-100">ต้องซื้อเพิ่ม</th>
+                    <th className="p-4 font-black text-center border-l border-slate-100">สถานะ</th>
+                    <th className="p-4 font-black text-center border-l border-slate-100 w-32">จัดการ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
-                  {filteredItems.map(item => (
-                    <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="p-4">
-                        <div className="font-black text-slate-800">{item.name}</div>
-                        <div className="text-xs text-slate-500 font-medium mt-1 bg-slate-100 inline-block px-2 py-0.5 rounded-md">
-                          {item.category}
-                        </div>
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className="text-lg font-black text-slate-800">{item.current_quantity}</span>
-                        <span className="text-xs text-slate-500 font-bold ml-1">{item.unit}</span>
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className="text-slate-500 font-bold text-xs border border-slate-200 px-2 py-1 rounded-lg">
-                          &lt;= {item.min_alert}
-                        </span>
-                      </td>
-                      <td className="p-4 text-center">
-                        {item.current_quantity === 0 ? (
-                          <span className="inline-flex items-center gap-1.5 bg-rose-100 text-rose-700 px-3 py-1.5 rounded-xl text-xs font-black">
-                            <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div> หมดสต๊อก
+                  {filteredItems.map(item => {
+                    const needToBuy = item.current_quantity < item.target_quantity 
+                      ? item.target_quantity - item.current_quantity 
+                      : 0;
+
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                        
+                        {/* 🌟 ปุ่มลบ (ไกลจากแก้ไขสุดๆ) */}
+                        <td className="p-4 text-center border-r border-slate-50">
+                          <button 
+                            onClick={() => handleDeleteItem(item.id, item.name)}
+                            className="p-2 text-rose-300 hover:text-white hover:bg-rose-500 rounded-xl transition-all cursor-pointer active:scale-95"
+                            title="ลบสินค้านี้"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </td>
+
+                        <td className="p-4">
+                          <div className="font-black text-slate-800 text-base">{item.name}</div>
+                          <div className="text-xs text-slate-500 font-medium mt-1 bg-slate-100 inline-block px-2 py-0.5 rounded-md">
+                            {item.category}
+                          </div>
+                        </td>
+                        
+                        <td className="p-4 text-center border-l border-slate-50">
+                          <span className={`text-xl font-black ${item.current_quantity <= item.min_alert ? 'text-rose-600' : 'text-slate-800'}`}>
+                            {item.current_quantity}
                           </span>
-                        ) : item.current_quantity <= item.min_alert ? (
-                          <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-700 px-3 py-1.5 rounded-xl text-xs font-black">
-                            <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></div> ใกล้หมด
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-3 py-1.5 rounded-xl text-xs font-bold border border-emerald-100">
-                            ปกติ
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                          <span className="text-xs text-slate-500 font-bold ml-1">{item.unit}</span>
+                          <div className="text-[10px] text-slate-400 mt-1 font-bold">(เตือนเมื่อต่ำกว่า {item.min_alert})</div>
+                        </td>
+
+                        <td className="p-4 text-center border-l border-slate-50">
+                          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200">
+                            <Target size={14} className="text-slate-400" />
+                            <span className="font-black text-slate-600">{item.target_quantity}</span>
+                          </div>
+                        </td>
+
+                        <td className={`p-4 text-center border-l border-slate-50 ${needToBuy > 0 ? 'bg-rose-50/20' : ''}`}>
+                          {needToBuy > 0 ? (
+                            <div className="inline-flex flex-col items-center">
+                              <span className="text-lg font-black text-rose-600">+{needToBuy}</span>
+                              <span className="text-[10px] font-bold text-rose-400 bg-rose-100 px-1.5 py-0.5 rounded mt-0.5 whitespace-nowrap">ซื้อเติมสต๊อก</span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-300 font-black">-</span>
+                          )}
+                        </td>
+
+                        <td className="p-4 text-center border-l border-slate-50">
+                          {item.current_quantity === 0 ? (
+                            <span className="inline-flex items-center gap-1.5 bg-rose-100 text-rose-700 px-3 py-1.5 rounded-xl text-xs font-black border border-rose-200 shadow-sm whitespace-nowrap">
+                              <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div> ของหมด!
+                            </span>
+                          ) : item.current_quantity <= item.min_alert ? (
+                            <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-700 px-3 py-1.5 rounded-xl text-xs font-black border border-amber-200 shadow-sm whitespace-nowrap">
+                              <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></div> ใกล้หมด
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-3 py-1.5 rounded-xl text-xs font-bold border border-emerald-100">
+                              <CheckCircle2 size={14} /> ปกติ
+                            </span>
+                          )}
+                        </td>
+
+                        {/* 🌟 รวมปุ่ม ปรับยอด (สีเขียว) และ แก้ไขข้อมูลหลัก (สีฟ้า) */}
+                        <td className="p-4 text-center border-l border-slate-50">
+                          <div className="flex items-center justify-center gap-2">
+                            <button 
+                              onClick={() => openAdjustModal(item)}
+                              className="px-3 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white rounded-xl transition-all cursor-pointer active:scale-95 font-bold text-xs flex items-center gap-1 shadow-sm"
+                              title="ปรับยอดคงเหลือ"
+                            >
+                              <RefreshCw size={14} /> ปรับยอด
+                            </button>
+                            <button 
+                              onClick={() => openEditModal(item)}
+                              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors cursor-pointer active:scale-95"
+                              title="แก้ไขข้อมูลสินค้า"
+                            >
+                              <Edit size={18} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -313,85 +517,225 @@ export default function StockPage() {
         </div>
       </div>
 
-      {/* 🌟 Modal ป๊อปอัปสำหรับเพิ่มสินค้าใหม่ */}
-      {isAddModalOpen && (
+      {/* 🌟 Modal 1: ป๊อปอัปเพิ่ม/แก้ไขข้อมูลหลักสินค้า */}
+      {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300">
-            <div className="flex justify-between items-center p-6 border-b border-slate-100">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 shrink-0">
               <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
-                <PackagePlus className="text-orange-500" size={20} /> เพิ่มสินค้าเข้าระบบ
+                {editingId ? <Edit className="text-blue-500" size={20} /> : <PackagePlus className="text-orange-500" size={20} />} 
+                {editingId ? "แก้ไขข้อมูลสินค้า" : "เพิ่มสินค้าเข้าระบบ"}
               </h3>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:bg-slate-100 p-2 rounded-full transition-colors cursor-pointer active:scale-95">
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:bg-slate-100 p-2 rounded-full transition-colors cursor-pointer active:scale-95">
                 <X size={20} />
               </button>
             </div>
             
-            <form onSubmit={handleAddItem} className="p-6 space-y-5">
+            <div className="overflow-y-auto thin-scrollbar">
+              <form id="stock-form" onSubmit={handleSubmitItem} className="p-6 space-y-6">
+                <div>
+                  <label className="block text-xs font-black text-slate-500 mb-2 uppercase tracking-wide">ชื่อสินค้า *</label>
+                  <input 
+                    type="text" required
+                    value={formData.name}
+                    onChange={e => setFormData({...formData, name: e.target.value})}
+                    className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                    placeholder="เช่น ถุงหูหิ้วไซส์ M, เนื้อหมูกรอบ"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-black text-slate-500 mb-2 uppercase tracking-wide">หมวดหมู่</label>
+                    <select 
+                      value={formData.category}
+                      onChange={e => setFormData({...formData, category: e.target.value})}
+                      className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer"
+                    >
+                      <option value="แพคเกจจิ้ง">แพคเกจจิ้ง (กล่อง, ถุง)</option>
+                      <option value="วัตถุดิบอาหาร">วัตถุดิบอาหาร (ของสด)</option>
+                      <option value="เครื่องดื่ม">เครื่องดื่ม / ของแห้ง</option>
+                      <option value="อื่นๆ">อื่นๆ</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-slate-500 mb-2 uppercase tracking-wide">หน่วยนับ</label>
+                    <input 
+                      type="text" required
+                      value={formData.unit}
+                      onChange={e => setFormData({...formData, unit: e.target.value})}
+                      className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                      placeholder="เช่น ชิ้น, กก., แพ็ค"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                  <div>
+                    <label className="block text-[11px] font-black text-slate-500 mb-2 uppercase tracking-wide">
+                      เป้าหมายที่ควรมี (Target)
+                    </label>
+                    <input 
+                      type="number" min="0" required
+                      value={formData.target_quantity}
+                      onChange={e => setFormData({...formData, target_quantity: parseInt(e.target.value) || 0})}
+                      className="w-full text-center p-3 bg-white border border-slate-300 rounded-xl text-sm font-black text-blue-600 outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-black text-slate-500 mb-2 uppercase tracking-wide">
+                      แจ้งเตือนเมื่อต่ำกว่า (Min)
+                    </label>
+                    <input 
+                      type="number" min="0" required
+                      value={formData.min_alert}
+                      onChange={e => setFormData({...formData, min_alert: parseInt(e.target.value) || 0})}
+                      className="w-full text-center p-3 bg-white border border-slate-300 rounded-xl text-sm font-black text-rose-600 outline-none focus:ring-4 focus:ring-rose-500/10 focus:border-rose-500 transition-all"
+                    />
+                  </div>
+                </div>
+
+                {!editingId && (
+                  <div className="p-4 bg-orange-50 border border-orange-100 rounded-2xl space-y-4">
+                    <h4 className="text-xs font-black text-orange-600 uppercase tracking-widest flex items-center">
+                      <Layers size={14} className="mr-1.5" /> ที่ซื้อเข้ามา
+                    </h4>
+                    
+                    <div className="flex items-center gap-3">
+                      <input 
+                        type="number" min="0"
+                        value={formData.initial_qty}
+                        onChange={e => setFormData({...formData, initial_qty: parseInt(e.target.value) || 0})}
+                        className="w-24 text-center p-3.5 bg-white border border-slate-200 rounded-xl text-base font-black text-slate-800 outline-none focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 transition-all"
+                      />
+                      <span className="text-sm font-bold text-slate-500">{formData.unit}</span>
+                    </div>
+
+                    {formData.initial_qty > 0 && (
+                      <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                        <label className="block text-[11px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">เก็บไว้ที่สาขาไหน?</label>
+                        <select 
+                          required
+                          value={formData.initial_branch}
+                          onChange={e => setFormData({...formData, initial_branch: e.target.value})}
+                          className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 transition-all cursor-pointer shadow-sm"
+                        >
+                          {branches.map(b => (
+                            <option key={b.id} value={b.id}>{b.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </form>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 flex gap-3 shrink-0 bg-white">
+              <button 
+                type="button" onClick={() => setIsModalOpen(false)}
+                className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors cursor-pointer text-sm"
+              >
+                ยกเลิก
+              </button>
+              <button 
+                type="submit" form="stock-form" disabled={isSubmitting}
+                className="flex-1 py-3.5 bg-slate-900 text-white font-bold rounded-xl hover:bg-blue-600 transition-all cursor-pointer shadow-lg active:scale-95 disabled:bg-slate-300 disabled:cursor-not-allowed text-sm"
+              >
+                {isSubmitting ? "กำลังบันทึก..." : editingId ? "บันทึกการแก้ไข" : "เพิ่มสินค้า"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🌟 Modal 2: ป๊อปอัปปรับยอดสต๊อก (เข้า/ออก/ตั้งค่าใหม่) */}
+      {isAdjustModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100">
+              <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                <RefreshCw className="text-emerald-500" size={20} /> ปรับยอดสต๊อก
+              </h3>
+              <button onClick={() => setIsAdjustModalOpen(false)} className="text-slate-400 hover:bg-slate-100 p-2 rounded-full transition-colors cursor-pointer active:scale-95">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <form onSubmit={handleAdjustStock} className="p-6 space-y-6">
+              
+              <div className="text-center">
+                <h4 className="text-xl font-black text-slate-800">{adjustData.itemName}</h4>
+              </div>
+
               <div>
-                <label className="block text-xs font-black text-slate-500 mb-2 uppercase tracking-wide">ชื่อสินค้า *</label>
+                <label className="block text-[11px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">จัดการของสาขา</label>
+                <select 
+                  value={adjustData.branchId}
+                  onChange={e => setAdjustData({...adjustData, branchId: e.target.value})}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all cursor-pointer"
+                >
+                  {branches.map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+                <div className="mt-2 text-center text-xs font-bold text-slate-500">
+                  ยอดปัจจุบันในสาขานี้: <span className="text-emerald-600 text-lg font-black">{activeAdjustBalance}</span> {adjustData.unit}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-black text-slate-500 mb-2 uppercase tracking-wide">รูปแบบการปรับยอด</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button 
+                    type="button"
+                    onClick={() => setAdjustData({...adjustData, type: 'add'})}
+                    className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition-all cursor-pointer ${adjustData.type === 'add' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-100 text-slate-400 hover:bg-slate-50'}`}
+                  >
+                    <PlusCircle size={18} /> <span className="text-[10px] font-black">รับเข้า</span>
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setAdjustData({...adjustData, type: 'deduct'})}
+                    className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition-all cursor-pointer ${adjustData.type === 'deduct' ? 'border-rose-500 bg-rose-50 text-rose-700' : 'border-slate-100 text-slate-400 hover:bg-slate-50'}`}
+                  >
+                    <MinusCircle size={18} /> <span className="text-[10px] font-black">เบิกออก</span>
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setAdjustData({...adjustData, type: 'set'})}
+                    className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition-all cursor-pointer ${adjustData.type === 'set' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-100 text-slate-400 hover:bg-slate-50'}`}
+                  >
+                    <Settings2 size={18} /> <span className="text-[10px] font-black">แก้เลขเป๊ะๆ</span>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-black text-slate-500 mb-2 uppercase tracking-wide">
+                  ระบุจำนวน ({adjustData.unit})
+                </label>
                 <input 
-                  type="text" required
-                  value={formData.name}
-                  onChange={e => setFormData({...formData, name: e.target.value})}
-                  className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
-                  placeholder="เช่น ถุงหูหิ้วไซส์ M, เนื้อหมูกรอบ"
+                  type="number" min="0" required
+                  value={adjustData.amount || ""}
+                  onChange={e => setAdjustData({...adjustData, amount: parseInt(e.target.value) || 0})}
+                  className="w-full text-center p-4 bg-white border border-slate-200 rounded-xl text-2xl font-black text-slate-800 outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all shadow-inner"
+                  placeholder="0"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-black text-slate-500 mb-2 uppercase tracking-wide">หมวดหมู่</label>
-                  <select 
-                    value={formData.category}
-                    onChange={e => setFormData({...formData, category: e.target.value})}
-                    className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer"
-                  >
-                    <option value="แพคเกจจิ้ง">แพคเกจจิ้ง (กล่อง, ถุง)</option>
-                    <option value="วัตถุดิบอาหาร">วัตถุดิบอาหาร (ของสด)</option>
-                    <option value="เครื่องดื่ม">เครื่องดื่ม / ของแห้ง</option>
-                    <option value="อื่นๆ">อื่นๆ</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-black text-slate-500 mb-2 uppercase tracking-wide">หน่วยนับ</label>
-                  <input 
-                    type="text" required
-                    value={formData.unit}
-                    onChange={e => setFormData({...formData, unit: e.target.value})}
-                    className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
-                    placeholder="เช่น ชิ้น, กก., แพ็ค"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-slate-500 mb-2 uppercase tracking-wide flex items-center justify-between">
-                  แจ้งเตือนเมื่อเหลือน้อยกว่า 
-                  <span className="bg-rose-100 text-rose-600 px-2 py-0.5 rounded text-[10px]">ระบบจะขึ้นไฟแดงเตือน</span>
-                </label>
-                <div className="flex items-center gap-3">
-                  <input 
-                    type="number" min="0" required
-                    value={formData.min_alert}
-                    onChange={e => setFormData({...formData, min_alert: parseInt(e.target.value) || 0})}
-                    className="w-24 text-center p-3.5 bg-rose-50/50 border border-rose-200 rounded-xl text-base font-black text-rose-600 outline-none focus:bg-white focus:ring-4 focus:ring-rose-500/10 focus:border-rose-500 transition-all"
-                  />
-                  <span className="text-sm font-bold text-slate-500">{formData.unit}</span>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-slate-100 flex gap-3">
+              <div className="pt-2 flex gap-3">
                 <button 
-                  type="button" onClick={() => setIsAddModalOpen(false)}
+                  type="button" onClick={() => setIsAdjustModalOpen(false)}
                   className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors cursor-pointer text-sm"
                 >
                   ยกเลิก
                 </button>
                 <button 
                   type="submit" disabled={isSubmitting}
-                  className="flex-1 py-3.5 bg-slate-900 text-white font-bold rounded-xl hover:bg-blue-600 transition-all cursor-pointer shadow-lg active:scale-95 disabled:bg-slate-300 disabled:cursor-not-allowed text-sm"
+                  className="flex-1 py-3.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all cursor-pointer shadow-lg active:scale-95 disabled:bg-slate-300 disabled:cursor-not-allowed text-sm"
                 >
-                  {isSubmitting ? "กำลังบันทึก..." : "บันทึกสินค้า"}
+                  {isSubmitting ? "กำลังบันทึก..." : "ยืนยันการปรับยอด"}
                 </button>
               </div>
             </form>
