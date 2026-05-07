@@ -326,7 +326,7 @@ export default function UsersManagementPage() {
 
                   {/* 🌟 ตัวปรับเปลี่ยนสิทธิ์ */}
                   <div className="flex-1">
-                    <label className="block text-[10px] font-black text-gray-500 mb-1.5 uppercase tracking-wide flex items-center"><ShieldCheck size={12} className="mr-1"/> สิทธิ์</label>
+                    <label className="block text-[10px] font-black text-gray-500 mb-1.5 uppercase tracking-wide items-center"><ShieldCheck size={12} className="mr-1"/> สิทธิ์</label>
                     <select
                       disabled={isMe}
                       value={profile.role}
@@ -339,6 +339,7 @@ export default function UsersManagementPage() {
                     >
                       <option value="rider">🛵 ไรเดอร์</option>
                       <option value="admin">👑 แอดมิน</option>
+                      <option value="kitchen">🍳 ครัว</option>
                     </select>
                   </div>
                 </div>

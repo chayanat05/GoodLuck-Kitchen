@@ -36,10 +36,10 @@ import {
   Image as ImageIcon,
   PlayCircle,
   ChefHat,
-  PackageCheck,
   Settings,
   ArrowRightLeft,
-  Lock
+  Lock,
+  Contact
 } from "lucide-react";
 import {
   useJsApiLoader,
@@ -154,21 +154,42 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
   const [showContactInfo, setShowContactInfo] = useState(false);
 
+  const [currentUserRole, setCurrentUserRole] = useState<string>("admin");
+
   useEffect(() => {
-    const fetchBranchId = async () => {
+    const fetchBranchAndTheme = async () => {
       const { data } = await supabase
         .from("branches")
-        .select("id")
+        .select("id, theme_bg_color, theme_bg_image, theme_bg_option")
         .eq("slug", branchSlug)
         .single();
         
       if (data) {
         setCurrentBranchId(data.id);
+        if (data.theme_bg_color) setBgColor(data.theme_bg_color);
+        if (data.theme_bg_image) setBgImage(data.theme_bg_image);
+        // 🌟 แก้ไขเอา as any ออก เปลี่ยนเป็นการระบุ Type ชัดเจน
+        if (data.theme_bg_option) setBgOption(data.theme_bg_option as "cover" | "contain" | "repeat");
       } else {
         setCurrentBranchId(branchSlug);
       }
     };
-    fetchBranchId();
+    fetchBranchAndTheme();
+
+    const themeChannel = supabase
+      .channel("public:branches:theme")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "branches", filter: `slug=eq.${branchSlug}` },
+        (payload) => {
+          if (payload.new.theme_bg_color) setBgColor(payload.new.theme_bg_color);
+          if (payload.new.theme_bg_image) setBgImage(payload.new.theme_bg_image);
+          if (payload.new.theme_bg_option) setBgOption(payload.new.theme_bg_option as "cover" | "contain" | "repeat");
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(themeChannel); };
   }, [branchSlug]);
 
   useEffect(() => {
@@ -230,6 +251,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     lat: null as number | null,
     lng: null as number | null,
     contact_link: "",
+    contact_source: "เพจหลัก" 
   });
 
   const showToast = useCallback((msg: string) => {
@@ -265,25 +287,11 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     const { data, error } = await supabase
       .from("profiles")
       .select("id, username, last_lat, last_lng, last_seen")
-      .eq("branch_id", currentBranchId)
       .not("last_lat", "is", null);
 
     if (error) console.error(error);
     if (data) setRidersLoc(data as RiderLocation[]);
   }, [currentBranchId]);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setTimeout(() => {
-        const savedColor = localStorage.getItem("boardBgColor");
-        const savedImage = localStorage.getItem("boardBgImage");
-        const savedOption = localStorage.getItem("boardBgOption") as "cover" | "contain" | "repeat";
-        if (savedColor) setBgColor(savedColor);
-        if (savedImage) setBgImage(savedImage);
-        if (savedOption) setBgOption(savedOption);
-      }, 0);
-    }
-  }, []);
 
   useEffect(() => {
     if (!currentBranchId) return;
@@ -301,13 +309,16 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         .select("role, username")
         .eq("id", session.user.id)
         .single();
-      if (error || !profile || profile.role !== "admin") {
-        alert("สิทธิ์การเข้าถึงถูกปฏิเสธ!");
+        
+      if (error || !profile || (profile.role !== "admin" && profile.role !== "kitchen")) {
+        alert("สิทธิ์การเข้าถึงถูกปฏิเสธ! คุณถูกพาไปยังหน้าของไรเดอร์");
         window.location.href = "/rider";
         return;
       }
+      
       setCurrentUser(session.user);
-      setAdminName(profile.username || "แอดมิน");
+      setAdminName(profile.username || (profile.role === 'admin' ? "แอดมิน" : "แม่ครัว"));
+      setCurrentUserRole(profile.role); 
       setIsMounted(true);
       fetchOrdersAndLocations();
     };
@@ -478,9 +489,15 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
   };
 
   const openCreateModal = () => {
+    const storeOrders = orders.filter(o => o.job_type === 'ร้าน' && !isNaN(Number(o.order_number)));
+    let nextNum = "1";
+    if (storeOrders.length > 0) {
+      nextNum = (Number(storeOrders[0].order_number) + 1).toString();
+    }
+
     setEditingId(null);
     setFormData({
-      order_number: "",
+      order_number: nextNum, 
       job_type: "ร้าน",
       menu: "",
       details: "",
@@ -491,7 +508,8 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       payment_method: "โอน",
       lat: null,
       lng: null,
-      contact_link: "", 
+      contact_link: "",
+      contact_source: "เพจหลัก"
     });
     setImageFiles([]);
     setImagePreviews([]);
@@ -500,7 +518,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     setIsModalOpen(true);
   };
 
-  const openEditModal = (order: Order & { contact_link?: string }) => {
+  const openEditModal = (order: Order) => {
     setEditingId(order.id);
     setFormData({
       order_number: order.order_number,
@@ -515,6 +533,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       lat: order.lat || null,
       lng: order.lng || null,
       contact_link: order.contact_link || "", 
+      contact_source: order.contact_source || "เพจหลัก",
     });
     if (order.image_url) {
       setExistingImages(order.image_url.split(",").filter(Boolean));
@@ -570,9 +589,14 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     setIsUploading(true);
     const filesToUpload = [...imageFiles];
     const currentExisting = [...existingImages];
+
     let finalOrderNumber = formData.order_number.trim();
-    if (formData.job_type === "shopee" && !finalOrderNumber.startsWith("#"))
+    if (formData.job_type === "shopee" && !finalOrderNumber) {
+      finalOrderNumber = `#SHP-${Math.floor(1000 + Math.random() * 9000)}`;
+    } else if (formData.job_type === "shopee" && !finalOrderNumber.startsWith("#")) {
       finalOrderNumber = "#" + finalOrderNumber;
+    }
+
     const cleanPrice =
       formData.job_type === "shopee"
         ? 0
@@ -589,7 +613,8 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       payment_method: formData.job_type === "shopee" ? "โอน" : formData.payment_method,
       lat: formData.job_type === "shopee" ? null : formData.lat,
       lng: formData.job_type === "shopee" ? null : formData.lng,
-      contact_link: formData.contact_link.trim(), 
+      contact_link: formData.contact_link.trim(),
+      contact_source: formData.contact_source.trim(), 
     };
 
     let targetId = editingId;
@@ -791,13 +816,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     );
   }, [orders, debouncedQuery]);
 
-  const isOnline = (lastSeen: string | null) => {
-    if (!lastSeen) return false;
-    const diffMins =
-      (new Date().getTime() - new Date(lastSeen).getTime()) / 60000;
-    return diffMins < 5;
-  };
-
   if (!currentUser || !isMounted || !currentBranchId) 
     return (
       <div
@@ -929,12 +947,15 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
             >
               <MapViewIcon size={14} className="animate-pulse" /> พิกัดไรเดอร์
             </button>
-            <button
-              onClick={openCreateModal}
-              className="w-full sm:w-auto px-4 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 hover:shadow-lg transition-all duration-300 cursor-pointer active:scale-95 shadow-md"
-            >
-              + สร้างออเดอร์
-            </button>
+            
+            {currentUserRole === 'admin' && (
+              <button
+                onClick={openCreateModal}
+                className="w-full sm:w-auto px-4 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 hover:shadow-lg transition-all duration-300 cursor-pointer active:scale-95 shadow-md"
+              >
+                + สร้างออเดอร์
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -962,7 +983,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
               </h2>
               <p className="text-blue-200 text-xs font-bold tracking-wide flex items-center">
                 <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 mr-2 shadow-md shadow-emerald-400"></span>{" "}
-                ผู้ดูแลระบบ (ADMIN)
+                {currentUserRole === 'admin' ? "ผู้ดูแลระบบ (ADMIN)" : "แม่ครัว (KITCHEN)"}
               </p>
             </div>
             <div className="flex-1 p-5 space-y-3 overflow-y-auto">
@@ -989,16 +1010,18 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 Dashboard สถิติร้าน
               </Link>
 
-              <Link
-                href="/setting"
-                prefetch={false}
-                className="w-full flex items-center p-4 text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-2xl transition-all font-bold cursor-pointer border border-transparent hover:border-slate-200 group"
-              >
-                <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform group-hover:rotate-45">
-                  <Settings size={20} className="text-slate-600" />
-                </div>
-                ตั้งค่าระบบ
-              </Link>
+              {currentUserRole === 'admin' && (
+                <Link
+                  href="/setting"
+                  prefetch={false}
+                  className="w-full flex items-center p-4 text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-2xl transition-all font-bold cursor-pointer border border-transparent hover:border-slate-200 group"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform group-hover:rotate-45">
+                    <Settings size={20} className="text-slate-600" />
+                  </div>
+                  ตั้งค่าระบบ
+                </Link>
+              )}
             </div>
 
             <div className="p-6 border-t border-slate-100 bg-slate-50">
@@ -1104,9 +1127,17 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                           </div>
                           {selectedRiderMapInfo.id !== "shop" && (
                             <div
-                              className={`text-xs font-bold px-2 py-0.5 rounded-full inline-block ${isOnline(selectedRiderMapInfo.last_seen) ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}
+                              className={`text-xs font-bold px-2 py-0.5 rounded-full inline-block ${((lastSeen) => {
+                                if (!lastSeen) return false;
+                                const diffMins = (new Date().getTime() - new Date(lastSeen).getTime()) / 60000;
+                                return diffMins < 5;
+                              })(selectedRiderMapInfo.last_seen) ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}
                             >
-                              {isOnline(selectedRiderMapInfo.last_seen)
+                              {((lastSeen) => {
+                                if (!lastSeen) return false;
+                                const diffMins = (new Date().getTime() - new Date(lastSeen).getTime()) / 60000;
+                                return diffMins < 5;
+                              })(selectedRiderMapInfo.last_seen)
                                 ? "🟢 ออนไลน์"
                                 : "⚫️ ออฟไลน์"}
                             </div>
@@ -1156,13 +1187,15 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
               <br />
               กดปุ่มด้านล่างเพื่อเริ่มเปิดออเดอร์แรกของวันได้เลยครับ
             </p>
-            <button
-              onClick={openCreateModal}
-              className="px-10 py-5 bg-blue-600 text-white font-black rounded-3xl hover:bg-blue-700 hover:-translate-y-1 transition-all duration-300 flex items-center cursor-pointer tracking-wider uppercase text-sm active:scale-95 shadow-lg shadow-blue-500/50"
-            >
-              <ClipboardCheck size={22} className="mr-3" /> เปิดร้าน /
-              สร้างออเดอร์แรก
-            </button>
+            {currentUserRole === 'admin' && (
+              <button
+                onClick={openCreateModal}
+                className="px-10 py-5 bg-blue-600 text-white font-black rounded-3xl hover:bg-blue-700 hover:-translate-y-1 transition-all duration-300 flex items-center cursor-pointer tracking-wider uppercase text-sm active:scale-95 shadow-lg shadow-blue-500/50"
+              >
+                <ClipboardCheck size={22} className="mr-3" /> เปิดร้าน /
+                สร้างออเดอร์แรก
+              </button>
+            )}
           </div>
         ) : (
           <DragDropContext onDragEnd={onDragEnd}>
@@ -1189,6 +1222,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                           <OrderCard
                             order={order}
                             isCompact={isCompact}
+                            userRole={currentUserRole}
                             onEdit={openEditModal}
                             onStart={handleStartOrder}
                             onFinish={handleFinishOrder}
@@ -1290,16 +1324,16 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
               <div className="grid grid-cols-2 gap-5">
                 <div>
                   <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
-                    ออเดอร์ *
+                    ออเดอร์ (ร้าน) *
                   </label>
                   <input
-                    required
                     className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-bold text-slate-800 shadow-sm"
                     value={formData.order_number}
                     onChange={(e) =>
                       setFormData({ ...formData, order_number: e.target.value })
                     }
-                    placeholder="เช่น #1024"
+                    placeholder="ปล่อยว่างเพื่อสุ่ม (Shopee)"
+                    required={formData.job_type === "ร้าน"} 
                   />
                 </div>
                 <div>
@@ -1309,13 +1343,19 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                   <select
                     className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer font-bold text-slate-800 shadow-sm"
                     value={formData.job_type}
-                    onChange={(e) =>
-                      setFormData({ ...formData, job_type: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const newJobType = e.target.value;
+                      if (newJobType === "ร้าน" && !editingId) {
+                        const storeOrders = orders.filter(o => o.job_type === 'ร้าน' && !isNaN(Number(o.order_number)));
+                        let nextNum = "1";
+                        if (storeOrders.length > 0) nextNum = (Number(storeOrders[0].order_number) + 1).toString();
+                        setFormData({ ...formData, job_type: newJobType, order_number: nextNum });
+                      } else {
+                        setFormData({ ...formData, job_type: newJobType });
+                      }
+                    }}
                   >
                     <option value="ร้าน">🍽️ งานร้าน</option>
-                    <option value="รับหิ้ว">🛍️ รับหิ้ว</option>
-                    <option value="รับส่ง">📦 รับส่ง</option>
                     <option value="shopee">🧡 Shopee</option>
                   </select>
                 </div>
@@ -1336,17 +1376,34 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 />
               </div>
               
-              <div>
-                <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
-                  ลิ้งค์ติดต่อลูกค้า (Facebook/Line) *ซ่อนเป็นความลับ
-                </label>
-                <input
-                  type="text"
-                  className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-bold text-slate-800 shadow-sm"
-                  value={formData.contact_link}
-                  onChange={(e) => setFormData({ ...formData, contact_link: e.target.value })}
-                  placeholder="เช่น https://www.facebook.com/customer"
-                />
+              <div className="grid grid-cols-3 gap-5">
+                <div className="col-span-1">
+                  <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase">
+                    แหล่งที่มา (เพจ)
+                  </label>
+                  <select
+                    className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer font-bold text-slate-800 shadow-sm"
+                    value={formData.contact_source}
+                    onChange={(e) => setFormData({ ...formData, contact_source: e.target.value })}
+                  >
+                    <option value="เพจหลัก">เพจหลัก</option>
+                    <option value="Fortune Findss">Fortune Findss</option>
+                    <option value="Line OA">Line OA</option>
+                    <option value="หน้าร้าน">หน้าร้าน</option>
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase flex items-center">
+                    <Lock size={12} className="mr-1" /> ลิ้งค์ติดต่อ (ซ่อนเป็นความลับ)
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-bold text-slate-800 shadow-sm"
+                    value={formData.contact_link}
+                    onChange={(e) => setFormData({ ...formData, contact_link: e.target.value })}
+                    placeholder="เช่น https://www.facebook.com/customer"
+                  />
+                </div>
               </div>
 
               <div>
@@ -1644,8 +1701,14 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 </div>
               </div>
 
-              {/* 🌟 แสดงข้อมูลติดต่อลูกค้าลับ */}
-              {(selectedViewOrder as Order & { contact_link?: string }).contact_link && (
+              {currentUserRole === 'admin' && selectedViewOrder.contact_source && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black text-white bg-indigo-500 px-2 py-1 rounded-md uppercase flex items-center">
+                    <Contact size={12} className="mr-1"/> แหล่งที่มา: {selectedViewOrder.contact_source}
+                  </span>
+                </div>
+              )}
+              {currentUserRole === 'admin' && selectedViewOrder.contact_link && (
                 <div className="space-y-2">
                   <div className="text-xs font-black text-indigo-500 uppercase tracking-wider flex items-center">
                     <Lock size={14} className="mr-1.5" /> ช่องทางติดต่อลูกค้า (ลับ)
@@ -1653,12 +1716,12 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                   <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 flex justify-between items-center shadow-inner">
                     {showContactInfo ? (
                       <a 
-                        href={(selectedViewOrder as Order & { contact_link?: string }).contact_link!.startsWith('http') ? (selectedViewOrder as Order & { contact_link?: string }).contact_link : `https://${(selectedViewOrder as Order & { contact_link?: string }).contact_link}`} 
+                        href={selectedViewOrder.contact_link.startsWith('http') ? selectedViewOrder.contact_link : `https://${selectedViewOrder.contact_link}`} 
                         target="_blank" 
                         rel="noreferrer"
                         className="text-blue-600 font-bold text-xs underline break-all"
                       >
-                        {(selectedViewOrder as Order & { contact_link?: string }).contact_link}
+                        {selectedViewOrder.contact_link}
                       </a>
                     ) : (
                       <div className="text-xs text-indigo-300 blur-sm select-none font-black tracking-widest">
@@ -1786,33 +1849,23 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
             <div className="p-4 md:p-5 shrink-0 bg-white border-t border-slate-100 mt-0 flex flex-col gap-2 shadow-2xl z-20">
               {selectedViewOrder.status === "New" &&
-                selectedViewOrder.job_type !== "รับหิ้ว" &&
-                selectedViewOrder.job_type !== "รับส่ง" && (
+                selectedViewOrder.job_type !== "shopee" && (
                   <button
                     onClick={() => handleStartOrder(selectedViewOrder.id)}
                     className="w-full py-3.5 md:py-4 bg-blue-600 text-white font-black rounded-3xl hover:bg-blue-700 transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2"
                   >
                     <PlayCircle size={18} />{" "}
-                    {selectedViewOrder.job_type === "shopee"
-                      ? "เริ่มเตรียมของ (Shopee)"
-                      : "ยืนยัน: ครัวเริ่มทำอาหาร"}
+                    ยืนยัน: ครัวเริ่มทำอาหาร
                   </button>
                 )}
               {selectedViewOrder.status === "กำลังทำ" &&
-                selectedViewOrder.job_type !== "รับหิ้ว" &&
-                selectedViewOrder.job_type !== "รับส่ง" && (
+                selectedViewOrder.job_type !== "shopee" && (
                   <button
                     onClick={() => handleFinishOrder(selectedViewOrder.id)}
-                    className={`w-full py-3.5 md:py-4 text-white font-black rounded-3xl transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2 ${selectedViewOrder.job_type === "shopee" ? "bg-orange-500 hover:bg-orange-600" : "bg-emerald-500 hover:bg-emerald-600"}`}
+                    className={`w-full py-3.5 md:py-4 text-white font-black rounded-3xl transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600`}
                   >
-                    {selectedViewOrder.job_type === "shopee" ? (
-                      <PackageCheck size={18} />
-                    ) : (
-                      <ChefHat size={18} />
-                    )}{" "}
-                    {selectedViewOrder.job_type === "shopee"
-                      ? "ยืนยัน: ส่งมอบให้ขนส่งแล้ว"
-                      : "ยืนยัน: ครัวทำเสร็จแล้ว"}
+                    <ChefHat size={18} />{" "}
+                    ยืนยัน: ครัวทำเสร็จแล้ว
                   </button>
                 )}
               <button
@@ -1826,7 +1879,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         </div>
       )}
 
-      {/* เรียกใช้ SlipScanner Modal */}
       {scannerConfig?.isOpen && (
         <SlipScanner
           orderId={scannerConfig.orderId}
@@ -1865,7 +1917,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         />
       )}
 
-      {/* Pop-up ยืนยันการลบออเดอร์ */}
       {deleteConfirm.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-50">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col p-8 text-center relative">

@@ -373,7 +373,7 @@ export default function DashboardView({
               <div className="space-y-3 text-sm bg-slate-50 p-4 rounded-2xl border border-slate-100">
                 <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">ประเภทงาน:</span><span className="font-black text-slate-700 uppercase px-2.5 py-1 bg-white border border-slate-200 shadow-sm rounded-md">{selectedOrder.job_type}</span></div>
                 <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">ผู้รับผิดชอบ:</span><span className="font-black text-slate-700 bg-white border border-slate-200 shadow-sm px-2.5 py-1 rounded-md">{selectedOrder.rider_name || '-'}</span></div>
-                <div className="flex justify-between items-center pt-2 border-t border-slate-200/60"><span className="text-slate-500 font-medium">ยอดเรียกเก็บ:</span><span className="font-black text-blue-600 text-lg">฿{selectedOrder.total_price}</span></div>
+                <div className="flex justify-between items-center pt-2 border-tbbbbbbbbbb border-slate-200/60"><span className="text-slate-500 font-medium">ยอดเรียกเก็บ:</span><span className="font-black text-blue-600 text-lg">฿{selectedOrder.total_price}</span></div>
                 <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">การชำระเงิน:</span><span className={`font-black text-[10px] uppercase px-2.5 py-1 rounded-md ${selectedOrder.payment_method === 'โอน' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-600'}`}>{selectedOrder.payment_method || 'เงินสด'}</span></div>
               </div>
 

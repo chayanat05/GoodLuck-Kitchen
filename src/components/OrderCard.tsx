@@ -7,7 +7,7 @@ export interface Order {
   slip_image?: string | null;
   id: string;
   order_number: string;
-  job_type: "ร้าน" | "รับหิ้ว" | "รับส่ง" | "shopee" | string;
+  job_type: "ร้าน" | "shopee" | string; // 🌟 ตัดรับหิ้ว/รับส่ง ออก
   status: "New" | "กำลังทำ" | "รับงาน" | "ส่งแล้ว/เสร็จ" | string;
   menu?: string; 
   details: string;
@@ -24,12 +24,14 @@ export interface Order {
   payment_method?: string;
   slip_status?: "รอตรวจ" | "ผ่าน" | "ไม่ผ่าน" | string; 
   sort_index?: number;
-  contact_link?: string; // 🌟 เพิ่มบรรทัดนี้เข้ามาครับ!
+  contact_link?: string;
+  contact_source?: string; // 🌟 เพิ่มช่องเก็บชื่อเพจ
 }
 
 interface OrderProps {
   order: Order;
   isCompact?: boolean;
+  userRole?: string; // 🌟 รับ Role มาเพื่อดักซ่อนปุ่มของแม่ครัว
   onEdit?: (order: Order) => void; 
   onStart?: (id: string) => void;  
   onFinish?: (id: string) => void; 
@@ -50,9 +52,8 @@ const getCardTheme = (status: string) => {
   }
 };
 
-function OrderCard({ order, isCompact, onEdit, onStart, onFinish, onViewDetails, onViewImages, onVerifySlip, onDelete, onChangeStatusRequest }: OrderProps) {
+function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onViewDetails, onViewImages, onVerifySlip, onDelete, onChangeStatusRequest }: OrderProps) {
   const isShopee = order.job_type === "shopee";
-  const isCustomJob = order.job_type === "รับหิ้ว" || order.job_type === "รับส่ง"; 
   const isLocked = !!order.rider_id;
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -103,44 +104,45 @@ function OrderCard({ order, isCompact, onEdit, onStart, onFinish, onViewDetails,
             </button>
           )}
           
-          <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(!isMenuOpen); }} className={`p-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/20 ${theme.text} ${isMenuOpen ? 'bg-white/20' : ''}`} title="เมนูเพิ่มเติม">
-            <MoreVertical size={16} strokeWidth={2.5} />
-          </button>
+          {/* 🌟 ดักสิทธิ์ ถ้าเป็นแอดมินถึงจะเห็นปุ่ม 3 จุด (แก้/ลบ/เปลี่ยนสถานะ) */}
+          {userRole === 'admin' && (
+            <>
+              <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(!isMenuOpen); }} className={`p-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/20 ${theme.text} ${isMenuOpen ? 'bg-white/20' : ''}`} title="เมนูเพิ่มเติม">
+                <MoreVertical size={16} strokeWidth={2.5} />
+              </button>
 
-          {isMenuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200 origin-top-right flex flex-col">
-              
-              {onVerifySlip && order.payment_method === 'โอน' && order.status !== 'ส่งแล้ว/เสร็จ' && !isShopee && (
-                <button 
-                  onClick={(e) => { 
-                  e.stopPropagation(); 
-                  setIsMenuOpen(false); 
-                  onVerifySlip(order); 
-                }}
-            className="w-full text-left px-4 py-3 text-sm font-black text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 border-b border-slate-50 transition-colors cursor-pointer"
-                >
-                <ScanSearch size={16} className="animate-pulse" /> ตรวจสลิปด้วย AI
-                </button>
+              {isMenuOpen && (
+                <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200 origin-top-right flex flex-col">
+                  {onVerifySlip && order.payment_method === 'โอน' && order.status !== 'ส่งแล้ว/เสร็จ' && !isShopee && (
+                    <button 
+                      onClick={(e) => { 
+                      e.stopPropagation(); 
+                      setIsMenuOpen(false); 
+                      onVerifySlip(order); 
+                    }}
+                className="w-full text-left px-4 py-3 text-sm font-black text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 border-b border-slate-50 transition-colors cursor-pointer"
+                    >
+                    <ScanSearch size={16} className="animate-pulse" /> ตรวจสลิปด้วย AI
+                    </button>
+                  )}
+                  {onChangeStatusRequest && (
+                    <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onChangeStatusRequest(order); }} className="w-full text-left px-4 py-3 text-sm font-bold text-blue-600 hover:bg-blue-50 flex items-center gap-2 transition-colors border-b border-slate-50">
+                      <ArrowRightLeft size={16} /> เปลี่ยนสถานะออเดอร์
+                    </button>
+                  )}
+                  {onEdit && (
+                    <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onEdit(order); }} className="w-full text-left px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors border-b border-slate-50">
+                      <Edit2 size={16} /> แก้ไขข้อมูลออเดอร์
+                    </button>
+                  )}
+                  {onDelete && (
+                    <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onDelete(order.id); }} className="w-full text-left px-4 py-3 text-sm font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-2 transition-colors">
+                      <Trash2 size={16} /> ลบออเดอร์นี้
+                    </button>
+                  )}
+                </div>
               )}
-              
-              {onChangeStatusRequest && (
-                <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onChangeStatusRequest(order); }} className="w-full text-left px-4 py-3 text-sm font-bold text-blue-600 hover:bg-blue-50 flex items-center gap-2 transition-colors border-b border-slate-50">
-                  <ArrowRightLeft size={16} /> เปลี่ยนสถานะออเดอร์
-                </button>
-              )}
-
-              {onEdit && (
-                <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onEdit(order); }} className="w-full text-left px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors border-b border-slate-50">
-                  <Edit2 size={16} /> แก้ไขข้อมูลออเดอร์
-                </button>
-              )}
-
-              {onDelete && (
-                <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onDelete(order.id); }} className="w-full text-left px-4 py-3 text-sm font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-2 transition-colors">
-                  <Trash2 size={16} /> ลบออเดอร์นี้
-                </button>
-              )}
-            </div>
+            </>
           )}
         </div>
       </div>
@@ -208,27 +210,21 @@ function OrderCard({ order, isCompact, onEdit, onStart, onFinish, onViewDetails,
       </div>
 
       <div className="flex flex-col gap-2 shrink-0">
-        {order.status === 'New' && !isCustomJob && onStart && (
+        {order.status === 'New' && onStart && (
           <button onClick={() => onStart(order.id)} className={`w-full ${isCompact ? 'py-2.5 text-xs' : 'py-3 text-xs'} rounded-xl font-black transition-all duration-300 flex justify-center items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 uppercase tracking-wide border-b-4 border-transparent active:border-none ${theme.btnBg}`}>
             <PlayCircle size={16} className="shrink-0" />
             <span className="truncate">{isShopee ? 'รับงาน / เตรียมของ' : 'คลิกเพื่อเริ่มทำอาหาร'}</span>
           </button>
         )}
 
-        {order.status === 'กำลังทำ' && !isCustomJob && onFinish && (
+        {order.status === 'กำลังทำ' && onFinish && (
           <button onClick={() => onFinish(order.id)} className={`w-full ${isCompact ? 'py-2.5 text-xs' : 'py-3 text-xs'} rounded-xl font-black transition-all duration-300 flex justify-center items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 uppercase tracking-wide border-b-4 border-transparent active:border-none ${theme.btnBg}`}>
             {isShopee ? <PackageCheck size={16} className="shrink-0"/> : <ChefHat size={16} className="shrink-0" />}
             <span className="truncate">{isShopee ? 'ส่งมอบให้ขนส่งแล้ว' : 'คลิกเมื่อทำอาหารเสร็จ'}</span>
           </button>
         )}
 
-        {isCustomJob && order.status !== 'ส่งแล้ว/เสร็จ' && (
-          <div className={`text-center py-2.5 text-xs font-black rounded-xl shadow-inner tracking-wide bg-black/10 border border-white/10 ${theme.text}`}>
-            🛵 ไรเดอร์ดำเนินการรับส่งเอง
-          </div>
-        )}
-
-        {isLocked && !isCustomJob && (
+        {isLocked && (
           <div className={`flex items-center justify-center py-2.5 rounded-xl text-xs font-black shadow-inner tracking-wide bg-black/10 border border-white/10 ${theme.text}`}>
             <Lock size={12} className="mr-1.5 shrink-0" /> <span className="truncate">จองโดย: {order.rider_name || "ไรเดอร์"}</span>
           </div>
