@@ -211,10 +211,52 @@ export default function RiderPage() {
   useEffect(() => {
     if (!currentUser) return;
     if (!navigator.geolocation) {
-      setTimeout(() => { setGpsEnabled(false); setLocationError("เบราว์เซอร์ไม่รองรับ GPS"); }, 0);
+      setGpsEnabled(false);
+      setLocationError("เบราว์เซอร์ไม่รองรับ GPS");
       return;
     }
 
+    // 🌟 ฟังก์ชันแยกสำหรับขอพิกัดปัจจุบันก่อน แล้วค่อยไป watch
+    const initLocation = () => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setGpsEnabled(true);
+          setLocationError(null);
+          setMyLocation({ lat: position.coords.latitude, lng: position.coords.longitude });
+          // บันทึกลงฐานข้อมูลรอบแรกทันที
+          supabase.from("profiles").update({
+            last_lat: position.coords.latitude,
+            last_lng: position.coords.longitude,
+            last_seen: new Date().toISOString(),
+          }).eq("id", currentUser.id);
+        },
+        (error) => {
+          console.error("GPS Init Error:", error);
+          setGpsEnabled(false);
+          handleLocationError(error);
+        },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+      );
+    };
+
+    // 🌟 ฟังก์ชันจัดการ Error ให้ชัดเจนขึ้น
+    const handleLocationError = (error: GeolocationPositionError) => {
+      let msg = "กรุณาเปิด GPS";
+      switch(error.code) {
+        case error.PERMISSION_DENIED: msg = "คุณไม่อนุญาตให้ใช้ GPS กรุณาเปิดการตั้งค่า Safari/เบราว์เซอร์"; break;
+        case error.POSITION_UNAVAILABLE: msg = "ข้อมูลพิกัดไม่พร้อมใช้งานในขณะนี้"; break;
+        case error.TIMEOUT: msg = "หมดเวลาค้นหาพิกัด (ลองเปิดแอปใหม่)"; break;
+      }
+      setLocationError(msg);
+      // ถ้าระบบหาไม่เจอ ให้เคลียร์ State หมุนๆ ออกด้วย
+      if(error.code !== error.PERMISSION_DENIED) {
+        setMyLocation(null); 
+      }
+    };
+
+    initLocation(); // ดึงรอบแรกก่อนเลย
+
+    // 🌟 เริ่ม Watch แบบปรับ Option ใหม่
     const watchId = navigator.geolocation.watchPosition(
       async (position) => {
         setGpsEnabled(true);
@@ -232,11 +274,18 @@ export default function RiderPage() {
         }
       },
       (error) => {
-        console.error("GPS Error:", error);
-        setGpsEnabled(false);
-        setLocationError("กรุณาเปิด GPS");
+        console.error("GPS Watch Error:", error);
+        // ถ้ายกเลิกสิทธิ์ระหว่างทาง
+        if(error.code === error.PERMISSION_DENIED) {
+          setGpsEnabled(false);
+        }
+        handleLocationError(error);
       },
-      { enableHighAccuracy: true, maximumAge: 30000, timeout: 10000 },
+      { 
+        enableHighAccuracy: true, 
+        maximumAge: 10000, // บน iOS การให้มีอายุข้อมูลเก่าได้นิดหน่อยจะช่วยลดอาการค้าง
+        timeout: 20000 
+      }
     );
 
     return () => navigator.geolocation.clearWatch(watchId);

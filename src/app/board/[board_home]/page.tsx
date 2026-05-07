@@ -168,7 +168,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         setCurrentBranchId(data.id);
         if (data.theme_bg_color) setBgColor(data.theme_bg_color);
         if (data.theme_bg_image) setBgImage(data.theme_bg_image);
-        // 🌟 แก้ไขเอา as any ออก เปลี่ยนเป็นการระบุ Type ชัดเจน
         if (data.theme_bg_option) setBgOption(data.theme_bg_option as "cover" | "contain" | "repeat");
       } else {
         setCurrentBranchId(branchSlug);
@@ -518,7 +517,8 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     setIsModalOpen(true);
   };
 
-  const openEditModal = (order: Order) => {
+  // 🌟 แก้ไข Type `Order` ตรงนี้ไม่ให้ติด any และให้รองรับ contact_link, contact_source
+  const openEditModal = (order: Order & { contact_link?: string; contact_source?: string }) => {
     setEditingId(order.id);
     setFormData({
       order_number: order.order_number,
@@ -975,7 +975,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
               >
                 <X size={18} />
               </button>
-              <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-5 text-2xl font-black uppercase shadow-inner border border-white/20">
+              <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-5 text-2xl font-black uppercase shadow-inner border border-white/30">
                 {adminName.charAt(0)}
               </div>
               <h2 className="font-black text-2xl mb-1 tracking-tight">
@@ -1388,8 +1388,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                   >
                     <option value="เพจหลัก">เพจหลัก</option>
                     <option value="Fortune Findss">Fortune Findss</option>
-                    <option value="Line OA">Line OA</option>
-                    <option value="หน้าร้าน">หน้าร้าน</option>
                   </select>
                 </div>
                 <div className="col-span-2">
@@ -1667,7 +1665,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
       {selectedViewOrder && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col h-5/6">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col h-5/6">
             <div className="flex justify-between items-center p-5 md:p-6 border-b border-slate-100 bg-white sticky top-0 z-10 shrink-0">
               <h3 className="text-lg md:text-xl font-black text-slate-800 tracking-tight flex items-center">
                 <ClipboardCheck size={20} className="mr-2 text-blue-600" />{" "}
@@ -1701,14 +1699,14 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 </div>
               </div>
 
-              {currentUserRole === 'admin' && selectedViewOrder.contact_source && (
+              {currentUserRole === 'admin' && (selectedViewOrder as Order & { contact_source?: string }).contact_source && (
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-black text-white bg-indigo-500 px-2 py-1 rounded-md uppercase flex items-center">
-                    <Contact size={12} className="mr-1"/> แหล่งที่มา: {selectedViewOrder.contact_source}
+                    <Contact size={12} className="mr-1"/> แหล่งที่มา: {(selectedViewOrder as Order & { contact_source?: string }).contact_source}
                   </span>
                 </div>
               )}
-              {currentUserRole === 'admin' && selectedViewOrder.contact_link && (
+              {currentUserRole === 'admin' && (selectedViewOrder as Order & { contact_link?: string }).contact_link && (
                 <div className="space-y-2">
                   <div className="text-xs font-black text-indigo-500 uppercase tracking-wider flex items-center">
                     <Lock size={14} className="mr-1.5" /> ช่องทางติดต่อลูกค้า (ลับ)
@@ -1716,12 +1714,12 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                   <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 flex justify-between items-center shadow-inner">
                     {showContactInfo ? (
                       <a 
-                        href={selectedViewOrder.contact_link.startsWith('http') ? selectedViewOrder.contact_link : `https://${selectedViewOrder.contact_link}`} 
+                        href={(selectedViewOrder as Order & { contact_link?: string }).contact_link!.startsWith('http') ? (selectedViewOrder as Order & { contact_link?: string }).contact_link : `https://${(selectedViewOrder as Order & { contact_link?: string }).contact_link}`} 
                         target="_blank" 
                         rel="noreferrer"
                         className="text-blue-600 font-bold text-xs underline break-all"
                       >
-                        {selectedViewOrder.contact_link}
+                        {(selectedViewOrder as Order & { contact_link?: string }).contact_link}
                       </a>
                     ) : (
                       <div className="text-xs text-indigo-300 blur-sm select-none font-black tracking-widest">
