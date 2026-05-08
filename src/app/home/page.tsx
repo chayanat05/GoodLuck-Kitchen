@@ -7,7 +7,7 @@ import {
   Store, MapPin, ChevronRight, Activity, 
   LogOut, Loader2, Clock, ShieldCheck, Package, Menu, X, 
   Settings, MoonStar, AlertTriangle, CheckCircle2, Users, ScanSearch,
-  Search, CheckSquare, Banknote, LayoutDashboard
+  Search, CheckSquare, Banknote, LayoutDashboard, Landmark
 } from "lucide-react";
 
 interface Branch {
@@ -396,6 +396,17 @@ export default function BranchSelectorPage() {
                 </div>
                 จัดการพนักงาน / ไรเดอร์
               </Link>
+
+                <Link
+  href="/monthly-payroll"
+  prefetch={false}
+  className="w-full flex items-center p-4 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-2xl transition-all font-bold border border-transparent hover:border-indigo-100 group"
+>
+  <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+    <Landmark size={20} className="text-indigo-600" />
+  </div>
+  จ่ายเงินสะสม (รายเดือน)
+</Link>
 
               <Link
                 href="/stock"

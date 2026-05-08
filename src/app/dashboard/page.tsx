@@ -24,7 +24,7 @@ interface Branch {
   name: string;
 }
 
-type TimeRange = "today" | "7days" | "30days" | "all";
+type TimeRange = "today" | "yesterday" | "7days" | "30days" | "cycle" | "custom" | "all";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -35,6 +35,10 @@ export default function DashboardPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [timeRange, setTimeRange] = useState<TimeRange>("today");
   const [cutOffHour, setCutOffHour] = useState<number>(4);
+
+  // 🌟 State ใหม่สำหรับเก็บวันที่ที่แอดมินเลือกเอง
+  const [customStartDate, setCustomStartDate] = useState<string>("");
+  const [customEndDate, setCustomEndDate] = useState<string>("");
 
   const fetchDashboardData = useCallback(async () => {
     setLoading(true);
@@ -81,25 +85,60 @@ export default function DashboardPage() {
   const filteredOrders = useMemo(() => {
     const now = new Date();
     let startDate = new Date(0); // All time
+    let endDate = new Date(8640000000000000); // Max Date (อนาคตไกลๆ ไว้เป็นค่าเริ่มต้น)
 
     if (timeRange === "today") {
       startDate = new Date(now);
       if (now.getHours() < cutOffHour) startDate.setDate(startDate.getDate() - 1);
       startDate.setHours(cutOffHour, 0, 0, 0);
-    } else if (timeRange === "7days") {
+    } 
+    else if (timeRange === "yesterday") {
+      const endTarget = new Date(now);
+      if (now.getHours() < cutOffHour) endTarget.setDate(endTarget.getDate() - 1);
+      endTarget.setHours(cutOffHour, 0, 0, 0);
+      endDate = new Date(endTarget.getTime() - 1); // สิ้นสุดที่ 1 มิลลิวินาทีก่อนตัดยอดของวันนี้
+
+      startDate = new Date(endTarget);
+      startDate.setDate(startDate.getDate() - 1); // เริ่มที่เวลาตัดยอดของเมื่อวาน
+    } 
+    else if (timeRange === "7days") {
       startDate = new Date(now);
       startDate.setDate(startDate.getDate() - 7);
       startDate.setHours(0, 0, 0, 0);
-    } else if (timeRange === "30days") {
+    } 
+    else if (timeRange === "30days") {
       startDate = new Date(now);
       startDate.setDate(startDate.getDate() - 30);
       startDate.setHours(0, 0, 0, 0);
+    } 
+    else if (timeRange === "cycle") {
+      startDate = new Date(now);
+      if (now.getDate() >= 26) {
+        startDate.setDate(26);
+      } else {
+        startDate.setMonth(startDate.getMonth() - 1);
+        startDate.setDate(26);
+      }
+      startDate.setHours(0, 0, 0, 0);
+    }
+    else if (timeRange === "custom") {
+      if (customStartDate) {
+        startDate = new Date(customStartDate);
+        startDate.setHours(0, 0, 0, 0);
+      }
+      if (customEndDate) {
+        endDate = new Date(customEndDate);
+        endDate.setHours(23, 59, 59, 999);
+      }
     }
 
-    return orders.filter(o => new Date(o.created_at) >= startDate);
-  }, [orders, timeRange, cutOffHour]);
+    return orders.filter(o => {
+      const orderDate = new Date(o.created_at);
+      return orderDate >= startDate && orderDate <= endDate;
+    });
+  }, [orders, timeRange, cutOffHour, customStartDate, customEndDate]);
 
-  // 🌟 คำนวณสรุปยอด (รวมเฉพาะที่สถานะ "ส่งแล้ว/เสร็จ")
+  // คำนวณสรุปยอด (รวมเฉพาะที่สถานะ "ส่งแล้ว/เสร็จ")
   const stats = useMemo(() => {
     let totalRevenue = 0;
     let transferRevenue = 0;
@@ -119,7 +158,7 @@ export default function DashboardPage() {
     return { totalRevenue, transferRevenue, cashRevenue, completedCount, totalOrders: filteredOrders.length };
   }, [filteredOrders]);
 
-  // 🌟 คำนวณยอดขายแต่ละสาขา
+  // คำนวณยอดขายแต่ละสาขา
   const branchStats = useMemo(() => {
     const bStats: Record<string, { name: string, revenue: number, count: number }> = {};
     branches.forEach(b => { bStats[b.id] = { name: b.name, revenue: 0, count: 0 }; });
@@ -134,7 +173,7 @@ export default function DashboardPage() {
     return Object.values(bStats).sort((a, b) => b.revenue - a.revenue);
   }, [filteredOrders, branches]);
 
-  // 🌟 คำนวณอันดับไรเดอร์ (Leaderboard)
+  // คำนวณอันดับไรเดอร์ (Leaderboard)
   const riderStats = useMemo(() => {
     const rStats: Record<string, { name: string, trips: number, revenue: number }> = {};
 
@@ -149,7 +188,6 @@ export default function DashboardPage() {
     return Object.values(rStats).sort((a, b) => b.trips - a.trips);
   }, [filteredOrders]);
 
-  // หายอดสูงสุดเพื่อทำ CSS Progress Bar
   const maxBranchRevenue = Math.max(...branchStats.map(b => b.revenue), 1);
   const maxRiderTrips = Math.max(...riderStats.map(r => r.trips), 1);
 
@@ -166,8 +204,8 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-slate-50 font-sans pb-20">
       {/* Header */}
       <div className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-4 shrink-0">
             <button 
               onClick={() => router.back()} 
               className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500 bg-white shadow-sm border border-slate-200 cursor-pointer active:scale-95"
@@ -180,25 +218,52 @@ export default function DashboardPage() {
             </h1>
           </div>
           
-          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
-            <Calendar size={14} className="text-slate-500 ml-2 mr-1 hidden sm:block" />
-            <select 
-              value={timeRange}
-              onChange={(e) => setTimeRange(e.target.value as TimeRange)}
-              className="bg-transparent text-sm font-black text-slate-700 outline-none cursor-pointer p-1.5"
-            >
-              <option value="today">🔥 กะวันนี้</option>
-              <option value="7days">📅 ย้อนหลัง 7 วัน</option>
-              <option value="30days">🗓️ ย้อนหลัง 30 วัน</option>
-              <option value="all">📊 ทั้งหมด</option>
-            </select>
+          <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 w-full sm:w-auto">
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner shrink-0 w-full sm:w-auto justify-end">
+              <Calendar size={14} className="text-slate-500 ml-2 mr-1 hidden sm:block" />
+              <select 
+                value={timeRange}
+                onChange={(e) => setTimeRange(e.target.value as TimeRange)}
+                className="bg-transparent text-sm font-black text-slate-700 outline-none cursor-pointer p-1.5 w-full sm:w-auto text-right sm:text-left"
+              >
+                <option value="today">🔥 กะวันนี้</option>
+                <option value="yesterday">⏪ เมื่อวาน</option>
+                <option value="7days">📅 ย้อนหลัง 7 วัน</option>
+                <option value="30days">🗓️ ย้อนหลัง 30 วัน</option>
+                <option value="cycle">🔄 รอบบิลปัจจุบัน (26 - 25)</option>
+                <option value="custom">⚙️ กำหนดเวลาเอง...</option>
+                <option value="all">📊 ทั้งหมด</option>
+              </select>
+            </div>
+
+            {/* 🌟 แสดงช่องเลือกวันที่ เมื่อผู้ใช้คลิกคำว่า กำหนดเวลาเอง... */}
+            {timeRange === 'custom' && (
+              <div className="flex items-center gap-1.5 bg-white px-3 py-1 rounded-xl border border-slate-200 shadow-sm animate-in fade-in slide-in-from-right-2 w-full sm:w-auto justify-end">
+                <span className="text-slate-500 font-bold text-xs shrink-0">จากวันที่</span>
+                <input 
+                  type="date" 
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                />
+                <span className="text-slate-300 font-bold mx-1">-</span>
+                <span className="text-slate-500 font-bold text-xs shrink-0">ถึงวันที่</span>
+                <input 
+                  type="date" 
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                />
+              </div>
+            )}
           </div>
+
         </div>
       </div>
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-in fade-in duration-500 slide-in-from-bottom-4">
         
-        {/* 🌟 1. Summary Cards */}
+        {/* 1. Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 flex flex-col justify-between hover:shadow-md transition-shadow">
             <div className="flex justify-between items-start mb-4">
@@ -255,7 +320,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 🌟 2. Charts (Branch & Rider) */}
+        {/* 2. Charts (Branch & Rider) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           
           {/* Branch Performance */}

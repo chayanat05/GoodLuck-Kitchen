@@ -20,7 +20,7 @@ interface AttendanceRecord {
   base_pay: number;
   gas_allowance: number;
   diligence_bonus: number;
-  accumulated_savings: number; // 🌟 เพิ่มคอลัมน์เงินสะสม
+  accumulated_savings: number; 
   total_pay: number;
   payment_status: "รอชำระ" | "จ่ายแล้ว"; 
   payment_slip_url: string | null; 
@@ -35,11 +35,23 @@ interface EditForm {
   order_count: number;
   gas_allowance: number;
   diligence_bonus: number;
-  accumulated_savings: number; // 🌟 เพิ่มคอลัมน์เงินสะสม
+  accumulated_savings: number; 
   manual_total: number | null;
   payment_status: "รอชำระ" | "จ่ายแล้ว";
   payment_slip_url: string | null;
 }
+
+// 🌟 สูตรคำนวณค่าน้ำมันอัตโนมัติแบบขั้นบันได
+const getAutoGasAllowance = (orders: number): number => {
+  if (orders >= 71) return 350;
+  if (orders >= 61) return 300;
+  if (orders >= 51) return 250;
+  if (orders >= 41) return 200;
+  if (orders >= 31) return 150;
+  if (orders >= 21) return 100;
+  if (orders >= 10) return 50;
+  return 0; // ต่ำกว่า 10 ออเดอร์ไม่ได้ค่าน้ำมัน
+};
 
 export default function PayrollPage() {
   const router = useRouter();
@@ -73,6 +85,15 @@ export default function PayrollPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [viewSlip, setViewSlip] = useState<string | null>(null);
+
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000); 
+    return () => clearInterval(timer);
+  }, []);
 
   const showToast = useCallback((msg: string, type: 'success'|'error' = 'success') => {
     setToast({ show: true, message: msg, type });
@@ -123,7 +144,6 @@ export default function PayrollPage() {
     return () => clearTimeout(timer);
   }, [selectedDate, fetchRecords]);
 
-  // 🌟 สูตรคำนวณเฉพาะรายวัน (ชั่วโมง + ค่าน้ำมัน) ไม่รวมโบนัสและเงินสะสม
   const calculatedTotal = useMemo(() => {
     if (editForm.manual_total !== null) return editForm.manual_total;
     const basePay = ((editForm.total_minutes || 0) / 60) * editForm.hourlyRate;
@@ -132,17 +152,30 @@ export default function PayrollPage() {
 
   const openEditModal = (record: AttendanceRecord) => {
     let rate = 40;
-    if ((record.base_pay || 0) > 0 && (record.total_minutes || 0) > 0) {
-      rate = (record.base_pay / record.total_minutes) * 60;
+    
+    let liveMinutes = record.total_minutes || 0;
+    const isWorking = !record.check_out;
+
+    if (isWorking) {
+      const checkInTime = new Date(record.check_in).getTime();
+      liveMinutes = Math.floor((new Date().getTime() - checkInTime) / 60000);
     }
+
+    if ((record.base_pay || 0) > 0 && liveMinutes > 0) {
+      rate = (record.base_pay / liveMinutes) * 60;
+    }
+
+    const currentOrders = record.order_count || 0;
+    // 🌟 ดึงค่าน้ำมันอัตโนมัติถ้ากำลังทำงานอยู่
+    const proposedGas = isWorking ? getAutoGasAllowance(currentOrders) : (record.gas_allowance || 0);
 
     setEditForm({
       hourlyRate: Math.round(rate),
-      total_minutes: record.total_minutes || 0,
-      order_count: record.order_count || 0,
-      gas_allowance: record.gas_allowance || 0,
+      total_minutes: liveMinutes,
+      order_count: currentOrders,
+      gas_allowance: proposedGas, 
       diligence_bonus: record.diligence_bonus || 0,
-      accumulated_savings: record.accumulated_savings || 0, // 🌟
+      accumulated_savings: record.accumulated_savings || 0, 
       manual_total: record.total_pay || null,
       payment_status: record.payment_status || "รอชำระ",
       payment_slip_url: record.payment_slip_url || null
@@ -206,7 +239,7 @@ export default function PayrollPage() {
         base_pay: basePay,
         gas_allowance: editForm.gas_allowance,
         diligence_bonus: editForm.diligence_bonus,
-        accumulated_savings: editForm.accumulated_savings, // 🌟
+        accumulated_savings: editForm.accumulated_savings, 
         total_pay: finalTotal,
         payment_status: editForm.payment_status,
         payment_slip_url: editForm.payment_slip_url
@@ -312,6 +345,26 @@ export default function PayrollPage() {
               const isWorking = !record.check_out;
               const isPaid = record.payment_status === 'จ่ายแล้ว';
               
+              // 🌟 คำนวณนาที, ค่าน้ำมัน และยอดจ่ายแบบ Realtime สำหรับการ์ดโชว์
+              let displayMinutes = record.total_minutes || 0;
+              if (isWorking) {
+                const checkInTime = new Date(record.check_in).getTime();
+                displayMinutes = Math.floor((currentTime.getTime() - checkInTime) / 60000);
+              }
+
+              const currentOrders = record.order_count || 0;
+              const displayGas = isWorking ? getAutoGasAllowance(currentOrders) : (record.gas_allowance || 0);
+
+              let currentRate = 40;
+              if ((record.base_pay || 0) > 0 && (record.total_minutes || 0) > 0) {
+                currentRate = (record.base_pay / record.total_minutes) * 60;
+              }
+              const displayBasePay = (displayMinutes / 60) * currentRate;
+              
+              const displayTotal = isWorking 
+                ? (displayBasePay + displayGas)
+                : (record.total_pay || 0);
+              
               return (
                 <div key={record.id} className={`bg-white rounded-3xl p-5 border ${isWorking ? 'border-amber-200 shadow-sm shadow-amber-500/10' : isPaid ? 'border-emerald-200 shadow-sm shadow-emerald-500/10' : 'border-slate-200 shadow-sm'} transition-all hover:shadow-md relative overflow-hidden`}>
                   
@@ -356,25 +409,27 @@ export default function PayrollPage() {
                     </div>
                     <div className="text-right shrink-0">
                       <div className="text-2xl font-black text-emerald-600 tracking-tighter">
-                        ฿{(record.total_pay || 0).toLocaleString()}
+                        ฿{Math.round(displayTotal).toLocaleString()}
                       </div>
                       <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">ยอดจ่ายรายวัน</div>
                     </div>
                   </div>
 
-                  {/* แสดงสถิติการทำงาน */}
                   <div className="grid grid-cols-2 gap-y-3 gap-x-2 text-xs font-bold text-slate-600 mb-4 relative z-10">
                     <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
                       <Clock size={14} className="text-blue-500 shrink-0"/> 
-                      <span>{record.total_minutes || 0} นาที</span>
+                      <span>{displayMinutes} นาที</span> 
+                    </div>
+                    <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
+                      <Package size={14} className="text-orange-500 shrink-0"/> 
+                      <span>{currentOrders} งาน</span>
                     </div>
                     <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
                       <Fuel size={14} className="text-slate-400 shrink-0"/> 
-                      <span>น้ำมัน: ฿{(record.gas_allowance || 0).toLocaleString()}</span>
+                      <span>น้ำมัน: ฿{displayGas.toLocaleString()}</span>
                     </div>
                   </div>
 
-                  {/* 🌟 แสดงยอดสะสมรายเดือน */}
                   <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100 mb-5 flex justify-between text-xs font-bold text-slate-600 relative z-10">
                     <div className="flex items-center gap-1.5"><Trophy size={14} className="text-amber-500"/> โบนัสวันนี้: <span className="text-amber-600">฿{(record.diligence_bonus || 0).toLocaleString()}</span></div>
                     <div className="flex items-center gap-1.5"><PiggyBank size={14} className="text-indigo-500"/> สะสมวันนี้: <span className="text-indigo-600">฿{(record.accumulated_savings || 0).toLocaleString()}</span></div>
@@ -400,8 +455,8 @@ export default function PayrollPage() {
       {/* 🌟 Modal: จัดการเงิน */}
       {editingRecord && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60] animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300">
-            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-800 text-white">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-800 text-white shrink-0">
               <h3 className="text-lg font-black flex items-center gap-2">
                 <Edit3 size={20} className="text-emerald-400" /> จัดการค่าตอบแทน
               </h3>
@@ -410,7 +465,7 @@ export default function PayrollPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSavePayment} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto thin-scrollbar">
+            <form onSubmit={handleSavePayment} className="p-6 space-y-4 overflow-y-auto thin-scrollbar">
               
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 mb-2 flex justify-between items-center">
                 <div>
@@ -455,7 +510,25 @@ export default function PayrollPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1"><Fuel size={12}/> ค่าน้ำมันรายวัน (บาท)</label>
+                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide items-center gap-1"><Package size={12}/> ออเดอร์สำเร็จ</label>
+                  <input 
+                    type="number" min="0" required
+                    value={editForm.order_count}
+                    onChange={e => {
+                      const newCount = Number(e.target.value);
+                      // 🌟 เมื่อเปลี่ยนจำนวนออเดอร์ จะอัปเดตค่าน้ำมันให้อัตโนมัติ!
+                      setEditForm({
+                        ...editForm, 
+                        order_count: newCount,
+                        gas_allowance: getAutoGasAllowance(newCount),
+                        manual_total: null
+                      });
+                    }}
+                    className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-slate-500 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide items-center gap-1"><Fuel size={12}/> ค่าน้ำมันรายวัน (บาท)</label>
                   <div className="flex items-center gap-1">
                     <input 
                       type="number" min="0" 
@@ -465,26 +538,14 @@ export default function PayrollPage() {
                     />
                   </div>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1"><Package size={12}/> ออเดอร์สำเร็จ</label>
-                  <input 
-                    type="number" min="0" required
-                    value={editForm.order_count}
-                    onChange={e => setEditForm({...editForm, order_count: Number(e.target.value)})}
-                    className="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl text-sm font-black text-slate-400 outline-none cursor-not-allowed shadow-sm"
-                    disabled
-                  />
-                </div>
               </div>
 
-              {/* 🌟 ยอดสะสมรายเดือน พร้อมปุ่ม +/- */}
               <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 space-y-4">
                 <div className="text-xs font-black text-indigo-800 uppercase tracking-widest text-center border-b border-indigo-100 pb-2">ระบบเก็บสะสม (จ่ายรายเดือน)</div>
                 
                 <div className="grid grid-cols-2 gap-4">
-                  {/* โบนัส */}
                   <div>
-                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1"><Trophy size={12}/> โบนัสขยัน</label>
+                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide items-center gap-1"><Trophy size={12}/> โบนัสขยัน</label>
                     <div className="flex items-center gap-1 mb-1">
                       <button type="button" onClick={() => setEditForm(p => ({...p, diligence_bonus: Math.max(0, p.diligence_bonus - 50)}))} className="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-rose-50 text-rose-500 active:scale-95"><Minus size={14}/></button>
                       <input 
@@ -497,9 +558,8 @@ export default function PayrollPage() {
                     </div>
                   </div>
 
-                  {/* เงินสะสม */}
                   <div>
-                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1"><PiggyBank size={12}/> เงินเก็บ</label>
+                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide items-center gap-1"><PiggyBank size={12}/> เงินเก็บ</label>
                     <div className="flex items-center gap-1 mb-1">
                       <button type="button" onClick={() => setEditForm(p => ({...p, accumulated_savings: Math.max(0, p.accumulated_savings - 50)}))} className="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-rose-50 text-rose-500 active:scale-95"><Minus size={14}/></button>
                       <input 
@@ -554,7 +614,7 @@ export default function PayrollPage() {
                 </p>
               </div>
 
-              <div className="pt-4 flex gap-3">
+              <div className="pt-4 flex gap-3 pb-2">
                 <button 
                   type="button" onClick={() => setEditingRecord(null)}
                   className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors cursor-pointer text-sm"
@@ -563,7 +623,7 @@ export default function PayrollPage() {
                 </button>
                 <button 
                   type="submit" disabled={isSaving}
-                  className="flex-[1.5] py-3.5 bg-slate-900 text-emerald-400 font-black rounded-xl hover:bg-slate-800 transition-all cursor-pointer shadow-lg active:scale-95 disabled:bg-slate-300 text-sm flex justify-center items-center gap-2"
+                  className="flex-[1.5] py-3.5 bg-slate-900 text-emerald-400 font-black rounded-xl hover:bg-slate-800 transition-all cursor-pointer shadow-lg active:scale-95 disabled:bg-slate-300 disabled:text-slate-500 text-sm flex justify-center items-center gap-2"
                 >
                   {isSaving ? "กำลังบันทึก..." : <><Save size={18}/> บันทึกการจ่ายเงิน</>}
                 </button>
