@@ -1,12 +1,11 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { 
   ArrowLeft, Banknote, Calendar, Loader2, CheckCircle2, AlertTriangle, 
   Search, Edit3, X, Save, Clock, Package, DollarSign, Fuel, Trophy, User, ImagePlus, Check,
-  Trash2, Image as ImageIcon
+  Trash2
 } from "lucide-react";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import Image from "next/image";
@@ -22,8 +21,8 @@ interface AttendanceRecord {
   gas_allowance: number;
   diligence_bonus: number;
   total_pay: number;
-  payment_status: "ค้างจ่าย" | "จ่ายแล้ว"; 
-  payment_slip_url: string | null; 
+  payment_status: "ค้างจ่าย" | "จ่ายแล้ว"; // 🌟 สถานะใหม่
+  payment_slip_url: string | null; // 🌟 สลิปใหม่
   profiles: {
     username: string;
   } | null;
@@ -69,9 +68,6 @@ export default function PayrollPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // 🌟 เพิ่ม State สำหรับดูรูปสลิป
-  const [viewSlip, setViewSlip] = useState<string | null>(null);
 
   const showToast = useCallback((msg: string, type: 'success'|'error' = 'success') => {
     setToast({ show: true, message: msg, type });
@@ -121,17 +117,16 @@ export default function PayrollPage() {
     }, 0);
     return () => clearTimeout(timer);
   }, [selectedDate, fetchRecords]);
-
+  
   const calculatedTotal = useMemo(() => {
     if (editForm.manual_total !== null) return editForm.manual_total;
-    const basePay = ((editForm.total_minutes || 0) / 60) * editForm.hourlyRate;
-    return basePay + (editForm.gas_allowance || 0) + (editForm.diligence_bonus || 0);
+    const basePay = (editForm.total_minutes / 60) * editForm.hourlyRate;
+    return basePay + editForm.gas_allowance + editForm.diligence_bonus;
   }, [editForm]);
 
   const openEditModal = (record: AttendanceRecord) => {
     let rate = 40;
-    // 🌟 ใส่ Fallback || 0 ป้องกัน null
-    if ((record.base_pay || 0) > 0 && (record.total_minutes || 0) > 0) {
+    if (record.base_pay > 0 && record.total_minutes > 0) {
       rate = (record.base_pay / record.total_minutes) * 60;
     }
 
@@ -148,6 +143,7 @@ export default function PayrollPage() {
     setEditingRecord(record);
   };
 
+  // 🌟 ฟังก์ชันจัดการอัปโหลดสลิป
   const handleUploadSlip = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       alert('กรุณาอัปโหลดไฟล์รูปภาพเท่านั้น');
@@ -168,7 +164,7 @@ export default function PayrollPage() {
     }
 
     const { data } = supabase.storage.from("order-images").getPublicUrl(filePath);
-    setEditForm(prev => ({ ...prev, payment_slip_url: data.publicUrl, payment_status: "จ่ายแล้ว" })); 
+    setEditForm(prev => ({ ...prev, payment_slip_url: data.publicUrl, payment_status: "จ่ายแล้ว" })); // แนบสลิปปุ๊บ ปรับสถานะเป็นจ่ายแล้วอัตโนมัติ
     showToast('อัปโหลดสลิปสำเร็จ! 📸');
     setIsUploading(false);
   };
@@ -193,7 +189,7 @@ export default function PayrollPage() {
     if (!editingRecord) return;
     setIsSaving(true);
 
-    const basePay = ((editForm.total_minutes || 0) / 60) * editForm.hourlyRate;
+    const basePay = (editForm.total_minutes / 60) * editForm.hourlyRate;
     const finalTotal = editForm.manual_total !== null ? editForm.manual_total : calculatedTotal;
 
     const { data, error } = await supabase
@@ -325,7 +321,7 @@ export default function PayrollPage() {
                       </div>
                       <div>
                         <h4 className="font-black text-slate-800 text-base">{record.profiles?.username || 'ไม่ระบุชื่อ'}</h4>
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        <div className="flex items-center gap-1.5 mt-1">
                           {isWorking ? (
                             <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">
                               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span> ทำงานอยู่
@@ -339,21 +335,10 @@ export default function PayrollPage() {
                           <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border ${isPaid ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}>
                             {isPaid ? <Check size={10}/> : null} {record.payment_status || 'ค้างจ่าย'}
                           </span>
-
-                          {/* 🌟 ปุ่มดูสลิปโผล่มาตรงนี้ถ้ามีการอัปโหลดสลิปไว้ */}
-                          {record.payment_slip_url && (
-                            <button 
-                              onClick={() => setViewSlip(record.payment_slip_url)}
-                              className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100 transition-colors cursor-pointer"
-                            >
-                              <ImageIcon size={10} /> ดูสลิป
-                            </button>
-                          )}
                         </div>
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      {/* 🌟 ใส่ || 0 แก้บั๊กตัวแดงเรียบร้อย */}
+                    <div className="text-right">
                       <div className="text-2xl font-black text-emerald-600 tracking-tighter">
                         ฿{(record.total_pay || 0).toLocaleString()}
                       </div>
@@ -364,19 +349,19 @@ export default function PayrollPage() {
                   <div className="grid grid-cols-2 gap-y-3 gap-x-2 text-xs font-bold text-slate-600 mb-5 relative z-10">
                     <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
                       <Clock size={14} className="text-blue-500 shrink-0"/> 
-                      <span>{record.total_minutes || 0} นาที</span>
+                      <span>{record.total_minutes} นาที</span>
                     </div>
                     <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
                       <Package size={14} className="text-orange-500 shrink-0"/> 
-                      <span>{record.order_count || 0} งาน</span>
+                      <span>{record.order_count} งาน</span>
                     </div>
                     <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
                       <Fuel size={14} className="text-slate-400 shrink-0"/> 
-                      <span>น้ำมัน: ฿{(record.gas_allowance || 0).toLocaleString()}</span>
+                      <span>น้ำมัน: ฿{record.gas_allowance}</span>
                     </div>
                     <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
                       <Trophy size={14} className="text-amber-500 shrink-0"/> 
-                      <span>โบนัส: ฿{(record.diligence_bonus || 0).toLocaleString()}</span>
+                      <span>โบนัส: ฿{record.diligence_bonus}</span>
                     </div>
                   </div>
 
@@ -388,7 +373,7 @@ export default function PayrollPage() {
                         'bg-slate-900 text-white hover:bg-blue-600 hover:shadow-lg hover:shadow-blue-500/30'}`}
                   >
                     <Edit3 size={16} /> 
-                    {isWorking ? 'บังคับจ่าย / ปรับเงิน' : isPaid ? 'แนบสลิป / แก้ไข' : 'จัดการยอดเงิน'}
+                    {isWorking ? 'บังคับจ่าย / ปรับเงิน' : isPaid ? 'ดูสลิป / แก้ไข' : 'จัดการยอดเงิน'}
                   </button>
                 </div>
               )
@@ -412,7 +397,8 @@ export default function PayrollPage() {
 
             <form onSubmit={handleSavePayment} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto thin-scrollbar">
               
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 mb-2 flex justify-between items-center">
+              {/* Header Info */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex justify-between items-center">
                 <div>
                   <div className="text-sm font-black text-slate-800 mb-1">{editingRecord.profiles?.username}</div>
                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
@@ -431,6 +417,7 @@ export default function PayrollPage() {
                 </div>
               </div>
 
+              {/* Number Inputs */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">เรทจ่าย (บาท/ชม.)</label>
@@ -483,6 +470,7 @@ export default function PayrollPage() {
                 />
               </div>
 
+              {/* 🌟 อัปโหลดสลิป */}
               <div className="pt-2 border-t border-slate-100">
                 <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase tracking-wide">หลักฐานการโอนเงิน (สลิป)</label>
                 {editForm.payment_slip_url ? (
@@ -535,26 +523,6 @@ export default function PayrollPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* 🌟 Modal: แสดงรูปสลิปแบบเต็มจอ */}
-      {viewSlip && (
-        <div 
-          className="fixed inset-0 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4 z-[200] animate-in fade-in duration-200"
-          onClick={() => setViewSlip(null)}
-        >
-          <div className="relative max-w-2xl w-full h-[80vh] flex flex-col items-center justify-center">
-            <button 
-              onClick={(e) => { e.stopPropagation(); setViewSlip(null); }} 
-              className="absolute -top-12 right-0 p-2 bg-white/20 hover:bg-white/40 rounded-full text-white transition-colors cursor-pointer"
-            >
-              <X size={24} />
-            </button>
-            <div className="relative w-full h-full bg-black/50 rounded-2xl overflow-hidden border border-white/20 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-              <Image src={viewSlip} alt="Slip Full View" fill className="object-contain" />
-            </div>
           </div>
         </div>
       )}

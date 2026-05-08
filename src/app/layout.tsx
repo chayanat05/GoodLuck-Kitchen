@@ -7,12 +7,12 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-    title: 'Rider App',
+    title: 'Store Management System',
     description: 'ระบบจัดการออเดอร์',
     appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'Rider App',
+    title: 'Store Management System',
     },
 }
 
