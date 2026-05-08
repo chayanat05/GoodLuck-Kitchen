@@ -1,12 +1,11 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { 
   ArrowLeft, Banknote, Calendar, Loader2, CheckCircle2, AlertTriangle, 
   Search, Edit3, X, Save, Clock, Package, DollarSign, Fuel, Trophy, User, ImagePlus, Check,
-  Trash2, Image as ImageIcon
+  Trash2, Image as ImageIcon, PiggyBank, Plus, Minus
 } from "lucide-react";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import Image from "next/image";
@@ -21,8 +20,9 @@ interface AttendanceRecord {
   base_pay: number;
   gas_allowance: number;
   diligence_bonus: number;
+  accumulated_savings: number; // 🌟 เพิ่มคอลัมน์เงินสะสม
   total_pay: number;
-  payment_status: "ค้างจ่าย" | "จ่ายแล้ว"; 
+  payment_status: "รอชำระ" | "จ่ายแล้ว"; 
   payment_slip_url: string | null; 
   profiles: {
     username: string;
@@ -35,8 +35,9 @@ interface EditForm {
   order_count: number;
   gas_allowance: number;
   diligence_bonus: number;
+  accumulated_savings: number; // 🌟 เพิ่มคอลัมน์เงินสะสม
   manual_total: number | null;
-  payment_status: "ค้างจ่าย" | "จ่ายแล้ว";
+  payment_status: "รอชำระ" | "จ่ายแล้ว";
   payment_slip_url: string | null;
 }
 
@@ -61,8 +62,9 @@ export default function PayrollPage() {
     order_count: 0,
     gas_allowance: 0,
     diligence_bonus: 0,
+    accumulated_savings: 0,
     manual_total: null,
-    payment_status: "ค้างจ่าย",
+    payment_status: "รอชำระ",
     payment_slip_url: null
   });
   
@@ -70,7 +72,6 @@ export default function PayrollPage() {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 🌟 เพิ่ม State สำหรับดูรูปสลิป
   const [viewSlip, setViewSlip] = useState<string | null>(null);
 
   const showToast = useCallback((msg: string, type: 'success'|'error' = 'success') => {
@@ -122,15 +123,15 @@ export default function PayrollPage() {
     return () => clearTimeout(timer);
   }, [selectedDate, fetchRecords]);
 
+  // 🌟 สูตรคำนวณเฉพาะรายวัน (ชั่วโมง + ค่าน้ำมัน) ไม่รวมโบนัสและเงินสะสม
   const calculatedTotal = useMemo(() => {
     if (editForm.manual_total !== null) return editForm.manual_total;
     const basePay = ((editForm.total_minutes || 0) / 60) * editForm.hourlyRate;
-    return basePay + (editForm.gas_allowance || 0) + (editForm.diligence_bonus || 0);
+    return basePay + (editForm.gas_allowance || 0);
   }, [editForm]);
 
   const openEditModal = (record: AttendanceRecord) => {
     let rate = 40;
-    // 🌟 ใส่ Fallback || 0 ป้องกัน null
     if ((record.base_pay || 0) > 0 && (record.total_minutes || 0) > 0) {
       rate = (record.base_pay / record.total_minutes) * 60;
     }
@@ -141,8 +142,9 @@ export default function PayrollPage() {
       order_count: record.order_count || 0,
       gas_allowance: record.gas_allowance || 0,
       diligence_bonus: record.diligence_bonus || 0,
+      accumulated_savings: record.accumulated_savings || 0, // 🌟
       manual_total: record.total_pay || null,
-      payment_status: record.payment_status || "ค้างจ่าย",
+      payment_status: record.payment_status || "รอชำระ",
       payment_slip_url: record.payment_slip_url || null
     });
     setEditingRecord(record);
@@ -204,6 +206,7 @@ export default function PayrollPage() {
         base_pay: basePay,
         gas_allowance: editForm.gas_allowance,
         diligence_bonus: editForm.diligence_bonus,
+        accumulated_savings: editForm.accumulated_savings, // 🌟
         total_pay: finalTotal,
         payment_status: editForm.payment_status,
         payment_slip_url: editForm.payment_slip_url
@@ -255,7 +258,7 @@ export default function PayrollPage() {
               <ArrowLeft size={20} />
             </button>
             <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center">
-              <Banknote className="mr-2 text-emerald-500" size={24} /> จ่ายเงินไรเดอร์ (Payroll)
+              <Banknote className="mr-2 text-emerald-500" size={24} /> จ่ายเงินพนักงาน (Payroll)
             </h1>
           </div>
         </div>
@@ -269,7 +272,7 @@ export default function PayrollPage() {
             <div className="pl-4 text-slate-400"><Search size={18} /></div>
             <input 
               type="text"
-              placeholder="ค้นหาชื่อไรเดอร์..."
+              placeholder="ค้นหาชื่อพนักงาน..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full md:w-64 p-3 bg-transparent border-none outline-none text-sm font-bold text-slate-700"
@@ -301,7 +304,7 @@ export default function PayrollPage() {
               <Banknote size={48} />
             </div>
             <h3 className="text-xl font-black text-slate-700 mb-2">ไม่พบประวัติการเข้างาน</h3>
-            <p className="text-slate-500 font-medium">ไม่มีไรเดอร์ตอกบัตรในวันที่คุณเลือก</p>
+            <p className="text-slate-500 font-medium">ไม่มีพนักงานตอกบัตรในวันที่คุณเลือก</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -337,10 +340,9 @@ export default function PayrollPage() {
                           )}
                           
                           <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border ${isPaid ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}>
-                            {isPaid ? <Check size={10}/> : null} {record.payment_status || 'ค้างจ่าย'}
+                            {isPaid ? <Check size={10}/> : null} {record.payment_status || 'รอชำระ'}
                           </span>
 
-                          {/* 🌟 ปุ่มดูสลิปโผล่มาตรงนี้ถ้ามีการอัปโหลดสลิปไว้ */}
                           {record.payment_slip_url && (
                             <button 
                               onClick={() => setViewSlip(record.payment_slip_url)}
@@ -353,31 +355,29 @@ export default function PayrollPage() {
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      {/* 🌟 ใส่ || 0 แก้บั๊กตัวแดงเรียบร้อย */}
                       <div className="text-2xl font-black text-emerald-600 tracking-tighter">
                         ฿{(record.total_pay || 0).toLocaleString()}
                       </div>
-                      <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">ยอดสุทธิ</div>
+                      <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">ยอดจ่ายรายวัน</div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-y-3 gap-x-2 text-xs font-bold text-slate-600 mb-5 relative z-10">
+                  {/* แสดงสถิติการทำงาน */}
+                  <div className="grid grid-cols-2 gap-y-3 gap-x-2 text-xs font-bold text-slate-600 mb-4 relative z-10">
                     <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
                       <Clock size={14} className="text-blue-500 shrink-0"/> 
                       <span>{record.total_minutes || 0} นาที</span>
                     </div>
                     <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
-                      <Package size={14} className="text-orange-500 shrink-0"/> 
-                      <span>{record.order_count || 0} งาน</span>
-                    </div>
-                    <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
                       <Fuel size={14} className="text-slate-400 shrink-0"/> 
                       <span>น้ำมัน: ฿{(record.gas_allowance || 0).toLocaleString()}</span>
                     </div>
-                    <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
-                      <Trophy size={14} className="text-amber-500 shrink-0"/> 
-                      <span>โบนัส: ฿{(record.diligence_bonus || 0).toLocaleString()}</span>
-                    </div>
+                  </div>
+
+                  {/* 🌟 แสดงยอดสะสมรายเดือน */}
+                  <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100 mb-5 flex justify-between text-xs font-bold text-slate-600 relative z-10">
+                    <div className="flex items-center gap-1.5"><Trophy size={14} className="text-amber-500"/> โบนัสวันนี้: <span className="text-amber-600">฿{(record.diligence_bonus || 0).toLocaleString()}</span></div>
+                    <div className="flex items-center gap-1.5"><PiggyBank size={14} className="text-indigo-500"/> สะสมวันนี้: <span className="text-indigo-600">฿{(record.accumulated_savings || 0).toLocaleString()}</span></div>
                   </div>
 
                   <button 
@@ -422,15 +422,16 @@ export default function PayrollPage() {
                 <div className="text-right">
                   <select 
                     value={editForm.payment_status}
-                    onChange={e => setEditForm({...editForm, payment_status: e.target.value as "ค้างจ่าย" | "จ่ายแล้ว"})}
+                    onChange={e => setEditForm({...editForm, payment_status: e.target.value as "รอชำระ" | "จ่ายแล้ว"})}
                     className={`text-xs font-black p-2 rounded-xl outline-none cursor-pointer border ${editForm.payment_status === 'จ่ายแล้ว' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}
                   >
-                    <option value="ค้างจ่าย">🔴 ค้างจ่าย</option>
+                    <option value="รอชำระ">🔴 รอชำระ</option>
                     <option value="จ่ายแล้ว">🟢 จ่ายแล้ว</option>
                   </select>
                 </div>
               </div>
 
+              {/* ข้อมูลรายวัน */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">เรทจ่าย (บาท/ชม.)</label>
@@ -454,43 +455,73 @@ export default function PayrollPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
+                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1"><Fuel size={12}/> ค่าน้ำมันรายวัน (บาท)</label>
+                  <div className="flex items-center gap-1">
+                    <input 
+                      type="number" min="0" 
+                      value={editForm.gas_allowance}
+                      onChange={e => setEditForm({...editForm, gas_allowance: Number(e.target.value), manual_total: null})}
+                      className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-slate-500 shadow-sm"
+                    />
+                  </div>
+                </div>
+                <div>
                   <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1"><Package size={12}/> ออเดอร์สำเร็จ</label>
                   <input 
                     type="number" min="0" required
                     value={editForm.order_count}
                     onChange={e => setEditForm({...editForm, order_count: Number(e.target.value)})}
-                    className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-slate-500 shadow-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1"><Trophy size={12}/> โบนัสขยัน (บาท)</label>
-                  <input 
-                    type="number" min="0" 
-                    value={editForm.diligence_bonus}
-                    onChange={e => setEditForm({...editForm, diligence_bonus: Number(e.target.value), manual_total: null})}
-                    className="w-full p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm font-black text-amber-600 outline-none focus:ring-2 focus:ring-amber-500 shadow-sm"
+                    className="w-full p-3 bg-slate-100 border border-slate-200 rounded-xl text-sm font-black text-slate-400 outline-none cursor-not-allowed shadow-sm"
+                    disabled
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1"><Fuel size={12}/> ค่าน้ำมัน/อื่นๆ (บาท)</label>
-                <input 
-                  type="number" min="0" 
-                  value={editForm.gas_allowance}
-                  onChange={e => setEditForm({...editForm, gas_allowance: Number(e.target.value), manual_total: null})}
-                  className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-slate-500 shadow-sm"
-                />
+              {/* 🌟 ยอดสะสมรายเดือน พร้อมปุ่ม +/- */}
+              <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 space-y-4">
+                <div className="text-xs font-black text-indigo-800 uppercase tracking-widest text-center border-b border-indigo-100 pb-2">ระบบเก็บสะสม (จ่ายรายเดือน)</div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  {/* โบนัส */}
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1"><Trophy size={12}/> โบนัสขยัน</label>
+                    <div className="flex items-center gap-1 mb-1">
+                      <button type="button" onClick={() => setEditForm(p => ({...p, diligence_bonus: Math.max(0, p.diligence_bonus - 50)}))} className="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-rose-50 text-rose-500 active:scale-95"><Minus size={14}/></button>
+                      <input 
+                        type="number" min="0" 
+                        value={editForm.diligence_bonus}
+                        onChange={e => setEditForm({...editForm, diligence_bonus: Number(e.target.value)})}
+                        className="w-full p-2 bg-white border border-amber-200 rounded-lg text-sm text-center font-black text-amber-600 outline-none focus:ring-2 focus:ring-amber-500 shadow-sm"
+                      />
+                      <button type="button" onClick={() => setEditForm(p => ({...p, diligence_bonus: p.diligence_bonus + 50}))} className="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-emerald-50 text-emerald-500 active:scale-95"><Plus size={14}/></button>
+                    </div>
+                  </div>
+
+                  {/* เงินสะสม */}
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1"><PiggyBank size={12}/> เงินเก็บ</label>
+                    <div className="flex items-center gap-1 mb-1">
+                      <button type="button" onClick={() => setEditForm(p => ({...p, accumulated_savings: Math.max(0, p.accumulated_savings - 50)}))} className="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-rose-50 text-rose-500 active:scale-95"><Minus size={14}/></button>
+                      <input 
+                        type="number" min="0" 
+                        value={editForm.accumulated_savings}
+                        onChange={e => setEditForm({...editForm, accumulated_savings: Number(e.target.value)})}
+                        className="w-full p-2 bg-white border border-indigo-200 rounded-lg text-sm text-center font-black text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+                      />
+                      <button type="button" onClick={() => setEditForm(p => ({...p, accumulated_savings: p.accumulated_savings + 50}))} className="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-emerald-50 text-emerald-500 active:scale-95"><Plus size={14}/></button>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="pt-2 border-t border-slate-100">
-                <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase tracking-wide">หลักฐานการโอนเงิน (สลิป)</label>
+                <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase tracking-wide">หลักฐานการโอนเงินรายวัน (สลิป)</label>
                 {editForm.payment_slip_url ? (
                   <div className="relative w-full h-32 bg-slate-100 rounded-2xl border border-slate-200 overflow-hidden group">
                     <Image src={editForm.payment_slip_url} alt="Slip" fill className="object-contain" />
                     <button 
                       type="button" 
-                      onClick={() => setEditForm(prev => ({...prev, payment_slip_url: null, payment_status: "ค้างจ่าย"}))}
+                      onClick={() => setEditForm(prev => ({...prev, payment_slip_url: null, payment_status: "รอชำระ"}))}
                       className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       <Trash2 size={16} />
@@ -510,7 +541,7 @@ export default function PayrollPage() {
 
               <div className="mt-4 pt-4 border-t border-slate-100">
                 <label className="block text-xs font-black text-slate-800 mb-2 uppercase tracking-wide flex items-center gap-1.5">
-                  <DollarSign size={16} className="text-emerald-500"/> ยอดสุทธิ (บาท)
+                  <DollarSign size={16} className="text-emerald-500"/> ยอดจ่ายรายวันสุทธิ (บาท)
                 </label>
                 <input 
                   type="number" step="0.25"
@@ -518,6 +549,9 @@ export default function PayrollPage() {
                   onChange={e => setEditForm({...editForm, manual_total: Number(e.target.value)})}
                   className="w-full p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-3xl font-black text-emerald-700 outline-none focus:bg-white focus:ring-4 focus:ring-emerald-500/20 text-center shadow-inner"
                 />
+                <p className="text-[10px] text-center text-slate-400 font-bold mt-2">
+                  *ระบบคำนวณ (ค่าแรง + ค่าน้ำมัน) อัตโนมัติ แต่แอดมินสามารถพิมพ์ปัดเศษยอดเงินได้
+                </p>
               </div>
 
               <div className="pt-4 flex gap-3">
