@@ -7,7 +7,8 @@ import {
   Store, MapPin, ChevronRight, Activity, 
   LogOut, Loader2, Clock, ShieldCheck, Package, Menu, X, 
   Settings, MoonStar, AlertTriangle, CheckCircle2, Users, ScanSearch,
-  Search, CheckSquare, Banknote, LayoutDashboard, Landmark
+  Search, CheckSquare, Banknote, LayoutDashboard,
+  Landmark
 } from "lucide-react";
 
 interface Branch {
@@ -20,10 +21,11 @@ interface Branch {
   slug: string;
 }
 
-interface RiderProfile {
+interface EmployeeProfile {
   id: string;
   username: string;
   branch_id: string | null; 
+  role: string; 
 }
 
 interface Attendance {
@@ -36,13 +38,11 @@ interface Attendance {
 export default function BranchSelectorPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   
-  // 🌟 State สำหรับระบบ HR ไรเดอร์
-  const [riders, setRiders] = useState<RiderProfile[]>([]);
+  const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
   const [attendances, setAttendances] = useState<Record<string, Attendance>>({});
   
-  // 🌟 State สำหรับระบบค้นหา และเลือกหลายคน
-  const [riderSearch, setRiderSearch] = useState("");
-  const [selectedRiders, setSelectedRiders] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
@@ -93,15 +93,12 @@ export default function BranchSelectorPage() {
 
     setBranches(branchList);
 
-    // ดึงข้อมูลไรเดอร์พร้อมสาขา
-    const { data: ridersData } = await supabase
+    const { data: employeeData } = await supabase
       .from("profiles")
-      .select("id, username, branch_id")
-      .eq("role", "rider");
+      .select("id, username, branch_id, role");
     
-    if (ridersData) setRiders(ridersData);
+    if (employeeData) setEmployees(employeeData);
 
-    // ดึงข้อมูลการเข้างานวันนี้
     const today = new Date().toISOString().split('T')[0];
     const { data: attendanceData } = await supabase
       .from("rider_attendance")
@@ -181,21 +178,20 @@ export default function BranchSelectorPage() {
     }
   };
 
-  // ฟังก์ชันจัดการตอกบัตรเดี่ยวๆ
-  const handleSingleAction = async (riderId: string, type: 'in' | 'out') => {
+  const handleSingleAction = async (employeeId: string, type: 'in' | 'out') => {
     setIsSubmitting(true);
     try {
       if (type === 'in') {
         const { data, error } = await supabase
           .from("rider_attendance")
-          .insert([{ rider_id: riderId }])
+          .insert([{ rider_id: employeeId }])
           .select()
           .single();
         if (error) throw error;
-        setAttendances(prev => ({ ...prev, [riderId]: data }));
+        setAttendances(prev => ({ ...prev, [employeeId]: data }));
         showToast("เข้างานสำเร็จ! 🟢");
       } else {
-        const att = attendances[riderId];
+        const att = attendances[employeeId];
         if (!att) return;
         const now = new Date();
         const checkInDate = new Date(att.check_in);
@@ -211,7 +207,7 @@ export default function BranchSelectorPage() {
           .select()
           .single();
         if (error) throw error;
-        setAttendances(prev => ({ ...prev, [riderId]: data }));
+        setAttendances(prev => ({ ...prev, [employeeId]: data }));
         showToast("ออกงานสำเร็จ! 🔴");
       }
     } catch (error) {
@@ -222,15 +218,14 @@ export default function BranchSelectorPage() {
     }
   };
 
-  // ฟังก์ชันจัดการตอกบัตรหลายคนพร้อมกัน (Bulk Action)
   const handleBulkAction = async (type: 'in' | 'out') => {
-    if (selectedRiders.length === 0) return;
-    const isConfirmed = window.confirm(`ยืนยันการตอก${type === 'in' ? 'เข้า' : 'ออก'}งาน ${selectedRiders.length} คนพร้อมกัน?`);
+    if (selectedEmployees.length === 0) return;
+    const isConfirmed = window.confirm(`ยืนยันการตอก${type === 'in' ? 'เข้า' : 'ออก'}งาน ${selectedEmployees.length} คนพร้อมกัน?`);
     if (!isConfirmed) return;
 
     setIsSubmitting(true);
     try {
-      const promises = selectedRiders.map(async (id) => {
+      const promises = selectedEmployees.map(async (id) => {
         const att = attendances[id];
         const isActive = att && !att.check_out;
 
@@ -256,8 +251,8 @@ export default function BranchSelectorPage() {
         if (res?.data) newAtts[res.id] = res.data;
       });
       setAttendances(newAtts);
-      setSelectedRiders([]);
-      showToast(`ทำรายการ ${selectedRiders.length} รายการสำเร็จ!`);
+      setSelectedEmployees([]);
+      showToast(`ทำรายการ ${selectedEmployees.length} รายการสำเร็จ!`);
     } catch (error) {
       console.error(error);
       showToast("เกิดข้อผิดพลาดบางรายการ", "error");
@@ -266,23 +261,29 @@ export default function BranchSelectorPage() {
     }
   };
 
-  const toggleRiderSelect = (id: string) => {
-    setSelectedRiders(prev => prev.includes(id) ? prev.filter(rId => rId !== id) : [...prev, id]);
+  const toggleEmployeeSelect = (id: string) => {
+    setSelectedEmployees(prev => prev.includes(id) ? prev.filter(eId => eId !== id) : [...prev, id]);
   };
 
-  // กรอง เรียงลำดับ(คนที่เข้างานให้อยู่บน) และค้นหาไรเดอร์
-  const sortedAndFilteredRiders = useMemo(() => {
-    let result = riders;
-    if (riderSearch.trim() !== "") {
-      result = result.filter(r => r.username.toLowerCase().includes(riderSearch.toLowerCase()));
+  const sortedAndFilteredEmployees = useMemo(() => {
+    let result = employees;
+    if (searchQuery.trim() !== "") {
+      result = result.filter(e => e.username.toLowerCase().includes(searchQuery.toLowerCase()));
     }
     return result.sort((a, b) => {
       const isAActive = attendances[a.id] && !attendances[a.id].check_out ? 1 : 0;
       const isBActive = attendances[b.id] && !attendances[b.id].check_out ? 1 : 0;
       if (isAActive !== isBActive) return isBActive - isAActive; 
+      
+      if (a.role !== b.role) {
+        if (a.role === 'admin') return -1;
+        if (b.role === 'admin') return 1;
+        return a.role === 'rider' ? -1 : 1;
+      }
+
       return a.username.localeCompare(b.username); 
     });
-  }, [riders, attendances, riderSearch]);
+  }, [employees, attendances, searchQuery]);
 
   const getBranchName = (branchId: string | null) => {
     if (!branchId) return "ไม่ระบุสาขา";
@@ -290,10 +291,24 @@ export default function BranchSelectorPage() {
     return b ? b.name : "ไม่ระบุสาขา";
   };
 
-  const isAllSelected = sortedAndFilteredRiders.length > 0 && selectedRiders.length === sortedAndFilteredRiders.length;
+  const isAllSelected = sortedAndFilteredEmployees.length > 0 && selectedEmployees.length === sortedAndFilteredEmployees.length;
   const toggleSelectAll = () => {
-    if (isAllSelected) setSelectedRiders([]);
-    else setSelectedRiders(sortedAndFilteredRiders.map(r => r.id));
+    if (isAllSelected) setSelectedEmployees([]);
+    else setSelectedEmployees(sortedAndFilteredEmployees.map(e => e.id));
+  };
+
+  // 🌟 เพิ่มฟังก์ชันสำหรับเลือกพนักงานตามตำแหน่ง (Role)
+  const selectByRole = (role: string) => {
+    const roleIds = sortedAndFilteredEmployees.filter(e => e.role === role).map(e => e.id);
+    if (roleIds.length === 0) return;
+    
+    const allRoleSelected = roleIds.every(id => selectedEmployees.includes(id));
+    if (allRoleSelected) {
+      setSelectedEmployees(prev => prev.filter(id => !roleIds.includes(id)));
+    } else {
+      const newSelection = new Set([...selectedEmployees, ...roleIds]);
+      setSelectedEmployees(Array.from(newSelection));
+    }
   };
 
   return (
@@ -359,7 +374,6 @@ export default function BranchSelectorPage() {
             
             <div className="flex-1 p-5 space-y-3 overflow-y-auto thin-scrollbar">
               
-              {/* 🌟 1. ปุ่มจ่ายเงินไรเดอร์ (Payroll) */}
               <Link
                 href="/payroll"
                 prefetch={false}
@@ -368,10 +382,20 @@ export default function BranchSelectorPage() {
                 <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
                   <Banknote size={20} className="text-emerald-600" />
                 </div>
-                จ่ายเงินไรเดอร์ (Payroll)
+                จ่ายเงินพนักงาน (รายวัน)
+              </Link>
+
+              <Link
+                href="/monthly-payroll"
+                prefetch={false}
+                className="w-full flex items-center p-4 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-2xl transition-all font-bold border border-transparent hover:border-indigo-100 group"
+              >
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                  <Landmark size={20} className="text-indigo-600" />
+                </div>
+                สรุปเงินเดือน (รายเดือน)
               </Link>
               
-              {/* 🌟 2. Dashboard สถิติรวม */}
               <Link
                 href="/dashboard"
                 prefetch={false}
@@ -385,7 +409,6 @@ export default function BranchSelectorPage() {
 
               <div className="h-px bg-slate-100 my-2"></div>
 
-              {/* 🌟 3. จัดการสมาชิก */}
               <Link
                 href="/users"
                 prefetch={false}
@@ -394,19 +417,8 @@ export default function BranchSelectorPage() {
                 <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
                   <Users size={20} className="text-indigo-600" />
                 </div>
-                จัดการพนักงาน / ไรเดอร์
+                จัดการพนักงาน / สาขา
               </Link>
-
-                <Link
-  href="/monthly-payroll"
-  prefetch={false}
-  className="w-full flex items-center p-4 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-2xl transition-all font-bold border border-transparent hover:border-indigo-100 group"
->
-  <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
-    <Landmark size={20} className="text-indigo-600" />
-  </div>
-  จ่ายเงินสะสม (รายเดือน)
-</Link>
 
               <Link
                 href="/stock"
@@ -482,10 +494,8 @@ export default function BranchSelectorPage() {
         </div>
       )}
 
-      {/* 🌟 ใช้งาน CSS Grid แบ่ง 2 ฝั่ง */}
       <div className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-5 gap-8">
         
-        {/* 🟡 ฝั่งซ้าย: สาขาทั้งหมด (กินพื้นที่ 3 ส่วน) */}
         <div className="lg:col-span-3">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-black text-slate-700 flex items-center gap-2">
@@ -549,14 +559,13 @@ export default function BranchSelectorPage() {
           )}
         </div>
 
-        {/* 🟢 ฝั่งขวา: ระบบเข้างานไรเดอร์ (HR) กินพื้นที่ 2 ส่วน */}
+        {/* 🟢 ฝั่งขวา: ระบบลงเวลาพนักงาน (HR) */}
         <div className="lg:col-span-2">
-          <div className="bg-white rounded-4xl p-6 shadow-sm border border-slate-100 flex flex-col h-full max-h-[800px]">
+          <div className="bg-white rounded-4xl p-6 shadow-sm border border-slate-100 flex flex-col h-full max-h-200">
             <h2 className="text-lg font-black text-slate-700 flex items-center gap-2 mb-4 shrink-0">
-              <Users size={20} className="text-emerald-500" /> ควบคุมไรเดอร์
+              <Users size={20} className="text-emerald-500" /> ควบคุมเวลาเข้างาน (HR)
             </h2>
 
-            {/* ระบบค้นหาและตัวเลือก Bulk */}
             <div className="space-y-3 mb-4 shrink-0">
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -564,25 +573,38 @@ export default function BranchSelectorPage() {
                 </div>
                 <input
                   type="text"
-                  placeholder="ค้นหาชื่อไรเดอร์..."
-                  value={riderSearch}
-                  onChange={(e) => setRiderSearch(e.target.value)}
+                  placeholder="ค้นหาชื่อพนักงาน..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                 />
               </div>
 
-              {sortedAndFilteredRiders.length > 0 && (
-                <div className="flex items-center justify-between bg-slate-50 p-2 rounded-xl border border-slate-100">
-                  <button onClick={toggleSelectAll} className="flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-slate-800 transition-colors px-2">
-                    <CheckSquare size={16} className={isAllSelected ? "text-emerald-500" : "text-slate-400"} />
-                    {isAllSelected ? "ยกเลิกทั้งหมด" : "เลือกทั้งหมด"} ({selectedRiders.length})
-                  </button>
-                  {selectedRiders.length > 0 && (
-                    <div className="flex gap-2">
-                      <button onClick={() => handleBulkAction('in')} disabled={isSubmitting} className="px-3 py-1.5 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded-lg text-[10px] font-black uppercase transition-colors shadow-sm disabled:opacity-50">
+              {sortedAndFilteredEmployees.length > 0 && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100 gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={toggleSelectAll} className="flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-slate-800 transition-colors px-2">
+                      <CheckSquare size={16} className={isAllSelected ? "text-emerald-500" : "text-slate-400"} />
+                      {isAllSelected ? "ยกเลิกทั้งหมด" : "เลือกทั้งหมด"} ({selectedEmployees.length})
+                    </button>
+                    
+                    <div className="h-4 w-px bg-slate-300 mx-1 hidden sm:block"></div>
+                    
+                    {/* 🌟 ปุ่มเลือกแยกตำแหน่ง */}
+                    <div className="flex items-center gap-1.5 border-l border-slate-200 sm:border-none pl-3 sm:pl-0 ml-1 sm:ml-0">
+                      <span className="text-[9px] font-bold text-slate-400 mr-1 hidden sm:inline-block">เลือกด่วน:</span>
+                      <button onClick={() => selectByRole('admin')} className="text-[10px] font-black px-2 py-1 rounded-md border bg-purple-50 text-purple-600 border-purple-100 hover:bg-purple-100 transition-colors active:scale-95">👑 แอดมิน</button>
+                      <button onClick={() => selectByRole('kitchen')} className="text-[10px] font-black px-2 py-1 rounded-md border bg-orange-50 text-orange-600 border-orange-100 hover:bg-orange-100 transition-colors active:scale-95">🍳 ครัว</button>
+                      <button onClick={() => selectByRole('rider')} className="text-[10px] font-black px-2 py-1 rounded-md border bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100 transition-colors active:scale-95">🛵 ไรเดอร์</button>
+                    </div>
+                  </div>
+
+                  {selectedEmployees.length > 0 && (
+                    <div className="flex gap-2 w-full sm:w-auto">
+                      <button onClick={() => handleBulkAction('in')} disabled={isSubmitting} className="flex-1 sm:flex-none px-4 py-2 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded-lg text-[10px] font-black uppercase transition-colors shadow-sm disabled:opacity-50">
                         เข้างาน
                       </button>
-                      <button onClick={() => handleBulkAction('out')} disabled={isSubmitting} className="px-3 py-1.5 bg-rose-100 text-rose-700 hover:bg-rose-200 rounded-lg text-[10px] font-black uppercase transition-colors shadow-sm disabled:opacity-50">
+                      <button onClick={() => handleBulkAction('out')} disabled={isSubmitting} className="flex-1 sm:flex-none px-4 py-2 bg-rose-100 text-rose-700 hover:bg-rose-200 rounded-lg text-[10px] font-black uppercase transition-colors shadow-sm disabled:opacity-50">
                         เลิกงาน
                       </button>
                     </div>
@@ -591,19 +613,18 @@ export default function BranchSelectorPage() {
               )}
             </div>
             
-            {/* List ไรเดอร์ (Scroll ได้) */}
             <div className="space-y-3 overflow-y-auto thin-scrollbar flex-1 pr-1">
-              {sortedAndFilteredRiders.length === 0 && !isLoading && (
-                <p className="text-center text-slate-400 font-medium py-10">ไม่พบรายชื่อไรเดอร์</p>
+              {sortedAndFilteredEmployees.length === 0 && !isLoading && (
+                <p className="text-center text-slate-400 font-medium py-10">ไม่พบรายชื่อพนักงาน</p>
               )}
               
-              {sortedAndFilteredRiders.map(rider => {
-                const att = attendances[rider.id];
+              {sortedAndFilteredEmployees.map(employee => {
+                const att = attendances[employee.id];
                 const isActive = att && !att.check_out; 
-                const isSelected = selectedRiders.includes(rider.id);
+                const isSelected = selectedEmployees.includes(employee.id);
                 
                 return (
-                  <div key={rider.id} className={`flex items-center p-3 sm:p-4 border rounded-2xl transition-all cursor-pointer ${isActive ? 'bg-white border-emerald-200 shadow-sm shadow-emerald-500/5' : 'bg-slate-50 border-slate-100 opacity-80'} ${isSelected ? 'ring-2 ring-emerald-400' : ''}`} onClick={() => toggleRiderSelect(rider.id)}>
+                  <div key={employee.id} className={`flex items-center p-3 sm:p-4 border rounded-2xl transition-all cursor-pointer ${isActive ? 'bg-white border-emerald-200 shadow-sm shadow-emerald-500/5' : 'bg-slate-50 border-slate-100 opacity-80'} ${isSelected ? 'ring-2 ring-emerald-400' : ''}`} onClick={() => toggleEmployeeSelect(employee.id)}>
                     
                     <div className="shrink-0 mr-3">
                       <div className={`w-5 h-5 rounded flex items-center justify-center border transition-colors ${isSelected ? 'bg-emerald-500 border-emerald-600 text-white' : 'bg-white border-slate-300 text-transparent'}`}>
@@ -613,9 +634,16 @@ export default function BranchSelectorPage() {
 
                     <div className="flex-1 min-w-0 pr-2">
                       <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-black text-slate-800 text-sm truncate">{rider.username}</h4>
-                        <span className="text-[9px] px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded font-bold whitespace-nowrap hidden sm:inline-block">
-                          {getBranchName(rider.branch_id)}
+                        <h4 className="font-black text-slate-800 text-sm truncate">{employee.username}</h4>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap hidden sm:inline-block border ${
+                          employee.role === 'admin' ? 'bg-purple-50 text-purple-600 border-purple-100' :
+                          employee.role === 'kitchen' ? 'bg-orange-50 text-orange-600 border-orange-100' : 
+                          'bg-blue-50 text-blue-600 border-blue-100'
+                        }`}>
+                          {employee.role === 'admin' ? '👑 แอดมิน' : employee.role === 'kitchen' ? '🍳 ครัว' : '🛵 ไรเดอร์'}
+                        </span>
+                        <span className="text-[9px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded font-bold whitespace-nowrap hidden sm:inline-block border border-slate-200">
+                          {getBranchName(employee.branch_id)}
                         </span>
                       </div>
 
@@ -635,7 +663,7 @@ export default function BranchSelectorPage() {
                     <div className="shrink-0">
                       {isActive ? (
                         <button 
-                          onClick={(e) => { e.stopPropagation(); handleSingleAction(rider.id, 'out'); }}
+                          onClick={(e) => { e.stopPropagation(); handleSingleAction(employee.id, 'out'); }}
                           disabled={isSubmitting}
                           className="px-3 py-2 bg-rose-50 text-rose-600 hover:bg-rose-500 hover:text-white border border-rose-100 rounded-xl text-xs font-black transition-colors active:scale-95 shadow-sm whitespace-nowrap"
                         >
@@ -643,7 +671,7 @@ export default function BranchSelectorPage() {
                         </button>
                       ) : (
                         <button 
-                          onClick={(e) => { e.stopPropagation(); handleSingleAction(rider.id, 'in'); }}
+                          onClick={(e) => { e.stopPropagation(); handleSingleAction(employee.id, 'in'); }}
                           disabled={isSubmitting}
                           className="px-3 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white border border-emerald-100 rounded-xl text-xs font-black transition-colors active:scale-95 shadow-sm whitespace-nowrap"
                         >
@@ -660,9 +688,9 @@ export default function BranchSelectorPage() {
 
       </div>
 
-      {/* 🌟 Modal: ตัดยอด */}
+      {/* Modal: ตัดยอด */}
       {isCutoffOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60] animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-60 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300">
             <div className="flex justify-between items-center p-6 border-b border-slate-100">
               <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
@@ -720,9 +748,9 @@ export default function BranchSelectorPage() {
         </div>
       )}
 
-      {/* 🌟 Modal: ล้างกระดานออเดอร์ */}
+      {/* Modal: ล้างกระดานออเดอร์ */}
       {isClearBoardOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60] animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-60 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col p-8 text-center relative">
             <div className="w-20 h-20 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
               <MoonStar size={40} />

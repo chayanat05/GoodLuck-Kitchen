@@ -1,13 +1,14 @@
 'use client'
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   ArrowLeft, LayoutDashboard, CheckCircle2, 
   MapPinned, Navigation, X, ClipboardList,
   ImageIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Calendar, CalendarDays,
-  Banknote 
+  Banknote, Coins, Clock, Package, Fuel, Trophy, PiggyBank 
 } from 'lucide-react';
 import { Order } from '../../components/OrderCard';
 import Image from 'next/image';
+import { supabase } from '../../lib/supabase'; 
 
 const SHOP_LAT = 16.248130;
 const SHOP_LNG = 103.242206;
@@ -20,12 +21,40 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))); 
 };
 
+const getAutoGasAllowance = (orders: number): number => {
+  if (orders >= 71) return 350;
+  if (orders >= 61) return 300;
+  if (orders >= 51) return 250;
+  if (orders >= 41) return 200;
+  if (orders >= 31) return 150;
+  if (orders >= 21) return 100;
+  if (orders >= 10) return 50;
+  return 0;
+};
+
+const getCycleDetails = () => {
+  const now = new Date();
+  const startDate = new Date(now);
+  if (now.getDate() >= 26) {
+    startDate.setDate(26);
+  } else {
+    startDate.setMonth(startDate.getMonth() - 1);
+    startDate.setDate(26);
+  }
+  startDate.setHours(0, 0, 0, 0);
+  const endDate = new Date(startDate);
+  endDate.setMonth(endDate.getMonth() + 1);
+  endDate.setDate(25);
+  endDate.setHours(23, 59, 59, 999);
+  return { startDateStr: startDate.toISOString(), endDateStr: endDate.toISOString() };
+};
+
 interface DashboardViewProps {
   riderName: string;
   onBack: () => void;
   activeOrdersCount: number;
   allCompletedOrders: Order[]; 
-  cutOffHour: number; // 🌟 รับเวลาตัดยอดจากหน้า RiderPage
+  cutOffHour: number; 
 }
 
 type FilterMode = 'today' | 'date' | 'month' | 'all';
@@ -48,6 +77,109 @@ export default function DashboardView({
   const [imageGallery, setImageGallery] = useState<{urls: string[], startIndex: number} | null>(null);
   const [imgScale, setImgScale] = useState(1);
   const galleryRef = useRef<HTMLDivElement>(null);
+
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
+  const [payrollStats, setPayrollStats] = useState({
+    isWorking: false,
+    checkInTime: null as string | null,
+    hourlyRate: 40,
+    monthlyBonus: 0,
+    monthlySavings: 0,
+    dailyFixedPay: 0, 
+    dailyFixedGas: 0,
+    dailyFixedMinutes: 0
+  });
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const fetchPayroll = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const riderId = session.user.id;
+
+      const now = new Date();
+      const shiftStart = new Date(now);
+      if (now.getHours() < cutOffHour) shiftStart.setDate(shiftStart.getDate() - 1);
+      shiftStart.setHours(cutOffHour, 0, 0, 0);
+
+      const { data: dailyData } = await supabase
+        .from('rider_attendance')
+        .select('*')
+        .eq('rider_id', riderId)
+        .gte('check_in', shiftStart.toISOString())
+        .order('check_in', { ascending: false })
+        .limit(1)
+        .single();
+
+      const cycle = getCycleDetails();
+      const { data: monthlyData } = await supabase
+        .from('rider_attendance')
+        .select('diligence_bonus, accumulated_savings')
+        .eq('rider_id', riderId)
+        .gte('check_in', cycle.startDateStr)
+        .lte('check_in', cycle.endDateStr);
+
+      let mBonus = 0;
+      let mSavings = 0;
+      if (monthlyData) {
+        monthlyData.forEach(r => {
+          mBonus += Number(r.diligence_bonus) || 0;
+          mSavings += Number(r.accumulated_savings) || 0;
+        });
+      }
+
+      if (dailyData) {
+        let rate = 40;
+        if ((dailyData.base_pay || 0) > 0 && (dailyData.total_minutes || 0) > 0) {
+          rate = (dailyData.base_pay / dailyData.total_minutes) * 60;
+        }
+        setPayrollStats({
+          isWorking: !dailyData.check_out,
+          checkInTime: dailyData.check_in,
+          hourlyRate: Math.round(rate),
+          monthlyBonus: mBonus,
+          monthlySavings: mSavings,
+          dailyFixedPay: dailyData.total_pay || 0,
+          dailyFixedGas: dailyData.gas_allowance || 0,
+          dailyFixedMinutes: dailyData.total_minutes || 0
+        });
+      } else {
+        setPayrollStats(prev => ({ ...prev, monthlyBonus: mBonus, monthlySavings: mSavings }));
+      }
+    };
+    fetchPayroll();
+  }, [cutOffHour]);
+
+  const todaysCompletedOrdersCount = useMemo(() => {
+    const now = new Date();
+    const shiftStart = new Date(now);
+    if (now.getHours() < cutOffHour) shiftStart.setDate(shiftStart.getDate() - 1);
+    shiftStart.setHours(cutOffHour, 0, 0, 0);
+    const shiftEnd = new Date(shiftStart);
+    shiftEnd.setDate(shiftEnd.getDate() + 1);
+
+    return (Array.isArray(allCompletedOrders) ? allCompletedOrders : []).filter(o => {
+      if (o.status !== 'ส่งแล้ว/เสร็จ' || !o.end_time) return false;
+      const d = new Date(o.end_time);
+      return d >= shiftStart && d < shiftEnd;
+    }).length;
+  }, [allCompletedOrders, cutOffHour]); 
+
+  const liveMinutes = payrollStats.isWorking 
+    ? Math.max(0, Math.floor((currentTime.getTime() - new Date(payrollStats.checkInTime!).getTime()) / 60000))
+    : payrollStats.dailyFixedMinutes;
+
+  const liveGas = payrollStats.isWorking 
+    ? getAutoGasAllowance(todaysCompletedOrdersCount) 
+    : payrollStats.dailyFixedGas;
+
+  const liveTotalPay = payrollStats.isWorking
+    ? ((liveMinutes / 60) * payrollStats.hourlyRate) + liveGas
+    : payrollStats.dailyFixedPay;
 
   useEffect(() => {
     if (
@@ -136,9 +268,8 @@ export default function DashboardView({
     return Number.isFinite(totalDist) ? totalDist.toFixed(1) : "0.0";
   };
 
+  // 🌟 ลบตัวแปร totalTransfer และ totalValue ที่ทำให้เกิดขีดเหลืองทิ้งไป
   const totalCash = displayOrders.filter(o => o.payment_method === 'เงินสด' || !o.payment_method).reduce((sum, o) => sum + (o.total_price || 0), 0);
-  const totalTransfer = displayOrders.filter(o => o.payment_method === 'โอน').reduce((sum, o) => sum + (o.total_price || 0), 0);
-  const totalValue = totalCash + totalTransfer;
 
   return (
     <div className="min-h-screen bg-slate-50 pb-safe animate-in fade-in slide-in-from-bottom-4 duration-300 relative font-sans">
@@ -174,10 +305,67 @@ export default function DashboardView({
           </div>
         </div>
 
-        <div className="space-y-3">
+        {/* 🌟 1. การ์ดรายได้ Realtime ของไรเดอร์ */}
+        <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
+          <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+            <h3 className="font-black text-slate-700 text-sm flex items-center">
+              <Coins size={18} className="mr-2 text-emerald-500" /> กระเป๋าเงินของฉัน (วันนี้)
+            </h3>
+            {payrollStats.isWorking ? (
+              <span className="flex items-center gap-1 text-[10px] font-black uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 shadow-sm">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> ทำงานอยู่
+              </span>
+            ) : (
+              <span className="text-[10px] font-black uppercase text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 shadow-sm">
+                ไม่ได้เข้างาน
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 text-center flex flex-col justify-center">
+              <div className="text-[10px] font-black text-emerald-600/70 uppercase tracking-wider mb-1">รายได้วันนี้ (ประมาณ)</div>
+              <div className="text-3xl font-black text-emerald-600 tracking-tighter">฿{Math.round(liveTotalPay).toLocaleString()}</div>
+            </div>
+            <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 flex flex-col justify-center">
+              <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2">
+                <span className="flex items-center"><Clock size={12} className="mr-1 text-blue-500"/> เวลาทำ</span>
+                <span className="text-blue-700 font-black">{liveMinutes} นาที</span>
+              </div>
+              <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2">
+                <span className="flex items-center"><Package size={12} className="mr-1 text-orange-500"/> สำเร็จแล้ว</span>
+                <span className="text-orange-700 font-black">{todaysCompletedOrdersCount} งาน</span>
+              </div>
+              <div className="flex justify-between items-center text-xs font-bold text-slate-600">
+                <span className="flex items-center"><Fuel size={12} className="mr-1 text-slate-500"/> ค่าน้ำมัน</span>
+                <span className="text-slate-700 font-black">฿{liveGas.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex items-center gap-3 bg-amber-50 p-3 rounded-xl border border-amber-100 shadow-sm">
+              <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-500 shrink-0"><Trophy size={14}/></div>
+              <div>
+                <div className="text-[9px] font-black text-amber-600/70 uppercase tracking-wider">โบนัสรอบบิลนี้</div>
+                <div className="text-sm font-black text-amber-700">฿{payrollStats.monthlyBonus.toLocaleString()}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 bg-indigo-50 p-3 rounded-xl border border-indigo-100 shadow-sm">
+              <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-500 shrink-0"><PiggyBank size={14}/></div>
+              <div>
+                <div className="text-[9px] font-black text-indigo-600/70 uppercase tracking-wider">เงินเก็บรอบบิลนี้</div>
+                <div className="text-sm font-black text-indigo-700">฿{payrollStats.monthlySavings.toLocaleString()}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ฟิลเตอร์ ข้อมูลเดิม */}
+        <div className="space-y-3 pt-2">
           <div className="flex items-center justify-between px-1">
             <h3 className="font-black text-slate-700 text-sm flex items-center">
-              <CalendarDays size={16} className="mr-2 text-indigo-500" /> ตัวกรองข้อมูล
+              <CalendarDays size={16} className="mr-2 text-indigo-500" /> ตัวกรองข้อมูลงานวิ่ง
             </h3>
           </div>
 
@@ -240,11 +428,11 @@ export default function DashboardView({
         </div>
 
         <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 flex flex-col gap-3">
-          <div className="flex items-center text-slate-700 font-black text-sm mb-1"><Banknote size={18} className="mr-2 text-emerald-500" /> สรุปยอดเงินที่ต้องคืนร้าน</div>
+          <div className="flex items-center text-slate-700 font-black text-sm mb-1"><Banknote size={18} className="mr-2 text-rose-500" /> สรุปยอดเงินที่ต้องคืนร้าน</div>
           <div className="flex gap-3">
-            <div className="flex-1 bg-amber-50 p-4 rounded-2xl border border-amber-100 flex items-center justify-between">
-              <div className="text-[11px] font-black text-amber-600 uppercase tracking-wider">เงินสด (ต้องส่งร้าน)</div>
-              <div className="text-2xl font-black text-amber-700">฿{totalCash.toLocaleString()}</div>
+            <div className="flex-1 bg-rose-50 p-4 rounded-2xl border border-rose-100 flex items-center justify-between shadow-sm">
+              <div className="text-[11px] font-black text-rose-600 uppercase tracking-wider">เงินสด (ต้องส่งร้าน)</div>
+              <div className="text-2xl font-black text-rose-700">฿{totalCash.toLocaleString()}</div>
             </div>
           </div>
         </div>
@@ -312,7 +500,6 @@ export default function DashboardView({
         </div>
       </div>
 
-      {/* 🌟 กู้คืน Modal ดูรายละเอียดประวัติงาน */}
       {selectedOrder && (
         <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm">
           <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col max-h-[90vh]">
@@ -373,7 +560,7 @@ export default function DashboardView({
               <div className="space-y-3 text-sm bg-slate-50 p-4 rounded-2xl border border-slate-100">
                 <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">ประเภทงาน:</span><span className="font-black text-slate-700 uppercase px-2.5 py-1 bg-white border border-slate-200 shadow-sm rounded-md">{selectedOrder.job_type}</span></div>
                 <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">ผู้รับผิดชอบ:</span><span className="font-black text-slate-700 bg-white border border-slate-200 shadow-sm px-2.5 py-1 rounded-md">{selectedOrder.rider_name || '-'}</span></div>
-                <div className="flex justify-between items-center pt-2 border-tbbbbbbbbbb border-slate-200/60"><span className="text-slate-500 font-medium">ยอดเรียกเก็บ:</span><span className="font-black text-blue-600 text-lg">฿{selectedOrder.total_price}</span></div>
+                <div className="flex justify-between items-center pt-2 border-t border-slate-200/60"><span className="text-slate-500 font-medium">ยอดเรียกเก็บ:</span><span className="font-black text-blue-600 text-lg">฿{selectedOrder.total_price}</span></div>
                 <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">การชำระเงิน:</span><span className={`font-black text-[10px] uppercase px-2.5 py-1 rounded-md ${selectedOrder.payment_method === 'โอน' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-600'}`}>{selectedOrder.payment_method || 'เงินสด'}</span></div>
               </div>
 
@@ -398,7 +585,6 @@ export default function DashboardView({
         </div>
       )}
 
-      {/* 🌟 กู้คืน แกลเลอรี่รูปภาพ */}
       {imageGallery && (
         <div className="fixed inset-0 z-300 bg-black/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200" onClick={() => { setImageGallery(null); setImgScale(1); }}>
           <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-50 text-white pointer-events-none">
