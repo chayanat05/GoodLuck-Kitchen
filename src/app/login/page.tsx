@@ -51,18 +51,28 @@ export default function LoginPage() {
         setErrorMsg('รหัสผ่านไม่ถูกต้อง หรือบัญชีนี้ไม่มีอยู่จริงครับ');
       } else if (authData.user) {
         
-        // 🌟 สับราง! วิ่งไปเช็ค Role ของคนที่เพิ่งล็อกอินสำเร็จ
+        // 🌟 สับราง! วิ่งไปเช็ค Role และ สาขา ของคนที่เพิ่งล็อกอิน
         const { data: userProfile } = await supabase
           .from('profiles')
-          .select('role')
+          .select('role, branch_id') // 🌟 ดึง branch_id มาด้วย
           .eq('id', authData.user.id)
           .single();
 
-        // ตรวจสอบสิทธิ์แล้วส่งไปหน้าที่ถูกต้องด้วย router.push
+        // 🌟 ตรวจสอบสิทธิ์แล้วส่งไปหน้าที่ถูกต้อง
         if (userProfile?.role === 'admin') {
-          router.push('/home'); // 🌟 แอดมินไปหน้าเลือกสาขา
+          router.push('/home'); 
+        } else if (userProfile?.role === 'kitchen') {
+          if (userProfile.branch_id) {
+             // 🌟 ดึง slug มาจากฐานข้อมูล
+            const { data: branchData } = await supabase.from('branches').select('slug').eq('id', userProfile.branch_id).single();
+            const slugToUse = branchData?.slug || userProfile.branch_id;
+            router.push(`/board/${slugToUse}`);
+          } else {
+            setErrorMsg('บัญชีของคุณยังไม่ได้ถูกกำหนดสาขา กรุณาแจ้งแอดมินครับ');
+            await supabase.auth.signOut();
+          }
         } else {
-          router.push('/rider'); // 🌟 ไรเดอร์ไปหน้าลงพื้นที่
+          router.push('/rider'); 
         }
       }
     } catch (err: unknown) {

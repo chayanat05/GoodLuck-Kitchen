@@ -1,4 +1,3 @@
-// [board_home]
 "use client";
 import { useState, useEffect, useRef, useMemo, useCallback, use } from "react";
 import Link from "next/link";
@@ -39,7 +38,8 @@ import {
   Settings,
   ArrowRightLeft,
   Lock,
-  Contact
+  Contact,
+  ClipboardList
 } from "lucide-react";
 import {
   useJsApiLoader,
@@ -156,6 +156,10 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
   const [currentUserRole, setCurrentUserRole] = useState<string>("admin");
 
+  const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
+  const [adminName, setAdminName] = useState<string>("กำลังโหลด...");
+  const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
+
   useEffect(() => {
     const fetchBranchAndTheme = async () => {
       const { data } = await supabase
@@ -221,10 +225,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [existingImages, setExistingImages] = useState<string[]>([]);
 
-  const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
-  const [adminName, setAdminName] = useState<string>("กำลังโหลด...");
-  const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
-
   const [showRiderMap, setShowRiderMap] = useState<boolean>(false);
   const [ridersLoc, setRidersLoc] = useState<RiderLocation[]>([]);
   const [selectedRiderMapInfo, setSelectedRiderMapInfo] = useState<RiderLocation | null>(null);
@@ -270,7 +270,14 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       .order("created_at", { ascending: false });
 
     if (orderError) console.error("Error fetching orders:", orderError);
-    if (orderData) setOrders(orderData as Order[]);
+    if (orderData) {
+      if (currentUserRole === 'kitchen') {
+        const kitchenOrders = (orderData as Order[]).filter(o => o.job_type === 'ร้าน');
+        setOrders(kitchenOrders);
+      } else {
+        setOrders(orderData as Order[]);
+      }
+    }
 
     const { data: locData, error: locError } = await supabase
       .from("saved_locations")
@@ -278,7 +285,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       .order("name", { ascending: true });
     if (locError) console.error("Error fetching locations:", locError);
     if (locData) setSavedLocations(locData as SavedLocation[]);
-  }, [currentBranchId]);
+  }, [currentBranchId, currentUserRole]);
 
   const fetchRidersLocation = useCallback(async () => {
     if (!currentBranchId) return;
@@ -517,7 +524,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     setIsModalOpen(true);
   };
 
-  // 🌟 แก้ไข Type `Order` ตรงนี้ไม่ให้ติด any และให้รองรับ contact_link, contact_source
   const openEditModal = (order: Order & { contact_link?: string; contact_source?: string }) => {
     setEditingId(order.id);
     setFormData({
@@ -752,8 +758,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       icon: (
         <LogOut
           size={44}
-          className="text-slate-700 mb-4 ml-1 drop-shadow-sm"
-          style={{ animation: "wiggle 2s infinite" }}
+          className="text-rose-500 mb-4 ml-1 drop-shadow-sm animate-pulse"
         />
       ),
     });
@@ -829,7 +834,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
           backgroundAttachment: "fixed",
         }}
       >
-        <div className="bg-slate-900/60 backdrop-blur-xl p-10 rounded-3xl shadow-2xl flex flex-col items-center justify-center border border-white/10">
+        <div className="bg-slate-900/60 backdrop-blur-xl p-10 rounded-4xl shadow-2xl flex flex-col items-center justify-center border border-white/10 animate-in zoom-in-95 duration-500">
           <div
             className="loader mb-4"
             style={{ "--loader-color": "#fff" } as React.CSSProperties}
@@ -838,40 +843,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
             กำลังเตรียมบอร์ด...
           </p>
         </div>
-
-        <style jsx global>{`
-          .loader,
-          .loader:before,
-          .loader:after {
-            width: 35px;
-            aspect-ratio: 1;
-            box-shadow: 0 0 0 3px inset var(--loader-color, #fff);
-            position: relative;
-            animation: l6 1.5s infinite 0.5s;
-          }
-          .loader:before,
-          .loader:after {
-            content: "";
-            position: absolute;
-            left: calc(100% + 5px);
-            animation-delay: 1s;
-          }
-          .loader:after {
-            left: -40px;
-            animation-delay: 0s;
-          }
-          @keyframes l6 {
-            0%,
-            55%,
-            100% {
-              border-radius: 0;
-            }
-            20%,
-            30% {
-              border-radius: 50%;
-            }
-          }
-        `}</style>
       </div>
     );
 
@@ -941,12 +912,14 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
               {isCompact ? "ขยายการ์ด" : "ย่อการ์ด"}
             </button>
 
-            <button
-              onClick={() => setShowRiderMap(true)}
-              className="w-full sm:w-auto px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl hover:bg-indigo-100 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
-            >
-              <MapViewIcon size={14} className="animate-pulse" /> พิกัดไรเดอร์
-            </button>
+            {currentUserRole === 'admin' && (
+              <button
+                onClick={() => setShowRiderMap(true)}
+                className="w-full sm:w-auto px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl hover:bg-indigo-100 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
+              >
+                <MapViewIcon size={14} className="animate-pulse" /> พิกัดไรเดอร์
+              </button>
+            )}
             
             {currentUserRole === 'admin' && (
               <button
@@ -966,7 +939,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
             className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm animate-in fade-in duration-300"
             onClick={() => setIsMenuOpen(false)}
           ></div>
-          <div className="relative w-80 bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-300 z-10 rounded-r-3xl overflow-hidden">
+          <div className="relative w-80 bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-300 z-10 rounded-r-4xl overflow-hidden">
             <div className="bg-linear-to-br from-blue-600 to-indigo-800 p-8 text-white relative">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-bl-full pointer-events-none"></div>
               <button
@@ -986,41 +959,58 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 {currentUserRole === 'admin' ? "ผู้ดูแลระบบ (ADMIN)" : "แม่ครัว (KITCHEN)"}
               </p>
             </div>
-            <div className="flex-1 p-5 space-y-3 overflow-y-auto">
+            <div className="flex-1 p-5 space-y-3 overflow-y-auto thin-scrollbar">
               
-              <Link
-                href="/home"
-                prefetch={false}
-                className="w-full flex items-center p-4 text-slate-600 hover:bg-rose-50 hover:text-rose-700 rounded-2xl transition-all font-bold border border-transparent hover:border-rose-100 group"
-              >
-                <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
-                  <Store size={20} className="text-rose-600" />
-                </div>
-                กลับหน้าเลือกสาขา
-              </Link>
-
-              <Link
-                href="/board/dashboard"
-                prefetch={false}
-                className="w-full flex items-center p-4 text-slate-600 hover:bg-blue-50 hover:text-blue-700 rounded-2xl transition-all font-bold border border-transparent hover:border-blue-100 group"
-              >
-                <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
-                  <LayoutDashboard size={20} className="text-blue-600" />
-                </div>
-                Dashboard สถิติร้าน
-              </Link>
-
               {currentUserRole === 'admin' && (
                 <Link
-                  href="/setting"
+                  href="/home"
                   prefetch={false}
-                  className="w-full flex items-center p-4 text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-2xl transition-all font-bold cursor-pointer border border-transparent hover:border-slate-200 group"
+                  className="w-full flex items-center p-4 text-slate-600 hover:bg-rose-50 hover:text-rose-700 rounded-2xl transition-all font-bold border border-transparent hover:border-rose-100 group"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform group-hover:rotate-45">
-                    <Settings size={20} className="text-slate-600" />
+                  <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                    <Store size={20} className="text-rose-600" />
                   </div>
-                  ตั้งค่าระบบ
+                  กลับหน้าเลือกสาขา
                 </Link>
+              )}
+
+              {currentUserRole === 'kitchen' && (
+                <Link
+                  href="/kitchen"
+                  prefetch={false}
+                  className="w-full flex items-center p-4 text-slate-600 hover:bg-orange-50 hover:text-orange-700 rounded-2xl transition-all font-bold border border-transparent hover:border-orange-100 group"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                    <ChefHat size={20} className="text-orange-600" />
+                  </div>
+                  แดชบอร์ดของฉัน
+                </Link>
+              )}
+
+              {currentUserRole === 'admin' && (
+                <>
+                  <Link
+                    href="/dashboard"
+                    prefetch={false}
+                    className="w-full flex items-center p-4 text-slate-600 hover:bg-blue-50 hover:text-blue-700 rounded-2xl transition-all font-bold border border-transparent hover:border-blue-100 group"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                      <LayoutDashboard size={20} className="text-blue-600" />
+                    </div>
+                    Dashboard สถิติร้าน
+                  </Link>
+
+                  <Link
+                    href="/setting"
+                    prefetch={false}
+                    className="w-full flex items-center p-4 text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-2xl transition-all font-bold cursor-pointer border border-transparent hover:border-slate-200 group"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform group-hover:rotate-45">
+                      <Settings size={20} className="text-slate-600" />
+                    </div>
+                    ตั้งค่าระบบ
+                  </Link>
+                </>
               )}
             </div>
 
@@ -1040,9 +1030,9 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         </div>
       )}
 
-      {showRiderMap && (
+      {showRiderMap && currentUserRole === 'admin' && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col h-5/6">
+          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 flex flex-col h-5/6 relative">
             <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-white sticky top-0 z-10 shrink-0">
               <h3 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
                 <MapViewIcon className="text-indigo-600" size={24} />{" "}
@@ -1185,15 +1175,14 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
             <p className="text-slate-700 font-bold mb-10 text-center max-w-md leading-relaxed drop-shadow-sm">
               กระดานว่างเปล่าพร้อมรับออเดอร์สำหรับวันนี้แล้ว
               <br />
-              กดปุ่มด้านล่างเพื่อเริ่มเปิดออเดอร์แรกของวันได้เลยครับ
+              {currentUserRole === 'admin' ? "กดปุ่มด้านล่างเพื่อเริ่มเปิดออเดอร์แรกของวันได้เลยครับ" : "รอรับออเดอร์จากหน้าร้านเพื่อเริ่มทำอาหารครับ"}
             </p>
             {currentUserRole === 'admin' && (
               <button
                 onClick={openCreateModal}
-                className="px-10 py-5 bg-blue-600 text-white font-black rounded-3xl hover:bg-blue-700 hover:-translate-y-1 transition-all duration-300 flex items-center cursor-pointer tracking-wider uppercase text-sm active:scale-95 shadow-lg shadow-blue-500/50"
+                className="px-10 py-5 bg-blue-600 text-white font-black rounded-4xl hover:bg-blue-700 hover:-translate-y-1 transition-all duration-300 flex items-center cursor-pointer tracking-wider uppercase text-sm active:scale-95 shadow-lg shadow-blue-500/50"
               >
-                <ClipboardCheck size={22} className="mr-3" /> เปิดร้าน /
-                สร้างออเดอร์แรก
+                <ClipboardCheck size={22} className="mr-3" /> เปิดร้าน / สร้างออเดอร์แรก
               </button>
             )}
           </div>
@@ -1211,6 +1200,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                       key={order.id}
                       draggableId={order.id}
                       index={index}
+                      isDragDisabled={currentUserRole === 'kitchen'} // 🌟 แม่ครัวลากการ์ดไม่ได้
                     >
                       {(provided, snapshot) => (
                         <div
@@ -1257,38 +1247,43 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         )}
       </div>
 
+      {/* 🌟 Modal เปลี่ยนสถานะออเดอร์สุดล้ำ */}
       {statusModal.isOpen && statusModal.order && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-50">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col relative">
-            <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-white">
-              <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
-                <ArrowRightLeft className="text-blue-600" size={20} />{" "}
-                เปลี่ยนสถานะออเดอร์
-              </h3>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-[150]">
+          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col relative border border-white/20">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-blue-100 text-blue-500 rounded-full flex items-center justify-center shadow-inner">
+                  <ArrowRightLeft size={24} className="animate-wiggle" />
+                </div>
+                <h3 className="text-xl font-black text-slate-800 tracking-tight">
+                  เปลี่ยนสถานะ
+                </h3>
+              </div>
               <button
                 onClick={() => setStatusModal({ isOpen: false, order: null })}
-                className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500"
+                className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 active:scale-90"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <div className="p-6 flex flex-col gap-3">
+            <div className="p-6 flex flex-col gap-3 bg-slate-50/50">
               {["New", "กำลังทำ", "รับงาน", "ส่งแล้ว/เสร็จ"].map((st) => (
                 <button
                   key={st}
                   disabled={statusModal.order?.status === st}
                   onClick={() => executeStatusChange(st)}
-                  className={`w-full py-4 rounded-xl text-sm font-black transition-all shadow-sm border flex items-center justify-center ${
+                  className={`w-full py-4 rounded-2xl text-sm font-black transition-all shadow-sm flex items-center justify-center active:scale-95 ${
                     statusModal.order?.status === st
-                      ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+                      ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
                       : st === "New"
-                        ? "bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 border-blue-200 hover:shadow-lg"
+                        ? "bg-blue-50 hover:bg-blue-500 hover:text-white text-blue-700 border border-blue-200 hover:shadow-lg shadow-blue-500/30"
                         : st === "กำลังทำ"
-                          ? "bg-yellow-50 hover:bg-yellow-500 hover:text-white text-yellow-700 border-yellow-200 hover:shadow-lg"
+                          ? "bg-amber-50 hover:bg-amber-500 hover:text-white text-amber-700 border border-amber-200 hover:shadow-lg shadow-amber-500/30"
                           : st === "รับงาน"
-                            ? "bg-purple-50 hover:bg-purple-600 hover:text-white text-purple-700 border-purple-200 hover:shadow-lg"
-                            : "bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-700 border-emerald-200 hover:shadow-lg"
+                            ? "bg-purple-50 hover:bg-purple-500 hover:text-white text-purple-700 border border-purple-200 hover:shadow-lg shadow-purple-500/30"
+                            : "bg-emerald-50 hover:bg-emerald-500 hover:text-white text-emerald-700 border border-emerald-200 hover:shadow-lg shadow-emerald-500/30"
                   }`}
                 >
                   {statusModal.order?.status === st
@@ -1303,9 +1298,10 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
-          <div className="bg-white shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 thin-scrollbar rounded-3xl max-h-full pb-10 overflow-y-auto">
+          <div className="bg-white shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 thin-scrollbar rounded-4xl max-h-full pb-10 overflow-y-auto">
             <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white/80 backdrop-blur-xl sticky top-0 z-10">
-              <h3 className="text-xl font-black text-slate-800 tracking-tight">
+              <h3 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                <ClipboardCheck className="text-blue-500" />
                 {editingId ? "แก้ไขออเดอร์ 📝" : "สร้างออเดอร์ใหม่ ✨"}
               </h3>
               <button
@@ -1649,7 +1645,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 <button
                   type="submit"
                   disabled={isUploading}
-                  className="w-full bg-slate-900 text-white font-black py-4 rounded-3xl hover:bg-blue-600 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-300 flex justify-center items-center cursor-pointer text-sm uppercase tracking-widest disabled:bg-slate-300 disabled:hover:translate-y-0 disabled:hover:shadow-none active:scale-95"
+                  className="w-full bg-slate-900 text-white font-black py-4 rounded-4xl hover:bg-blue-600 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-300 flex justify-center items-center cursor-pointer text-sm uppercase tracking-widest disabled:bg-slate-300 disabled:hover:translate-y-0 disabled:hover:shadow-none active:scale-95"
                 >
                   {isUploading
                     ? "กำลังจัดเก็บข้อมูล..."
@@ -1663,12 +1659,13 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         </div>
       )}
 
+      {/* 🌟 Modal สำหรับแสดงรายละเอียดออเดอร์ */}
       {selectedViewOrder && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col h-5/6">
+          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-5 md:p-6 border-b border-slate-100 bg-white sticky top-0 z-10 shrink-0">
               <h3 className="text-lg md:text-xl font-black text-slate-800 tracking-tight flex items-center">
-                <ClipboardCheck size={20} className="mr-2 text-blue-600" />{" "}
+                <ClipboardList size={20} className="mr-2 text-blue-600" />{" "}
                 รายละเอียดออเดอร์
               </h3>
               <button
@@ -1690,12 +1687,22 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                     {selectedViewOrder.order_number}
                   </div>
                 </div>
+                {/* 🌟 ป้ายสถานะ เปลี่ยนให้กดได้ เพื่อแก้สถานะย้อนหลัง */}
                 <div className="text-right mb-1">
-                  <span
-                    className={`text-xs font-black px-3 py-1.5 rounded-lg shadow-sm border ${selectedViewOrder.status === "New" ? "bg-blue-100 text-blue-800 border-blue-300" : selectedViewOrder.status === "กำลังทำ" ? "bg-amber-100 text-amber-800 border-amber-300" : selectedViewOrder.status === "รับงาน" ? "bg-indigo-100 text-indigo-800 border-indigo-300" : "bg-emerald-100 text-emerald-800 border-emerald-300"}`}
+                  <button
+                    onClick={() => {
+                      setStatusModal({ isOpen: true, order: selectedViewOrder });
+                    }}
+                    className={`flex items-center gap-1.5 text-xs font-black px-3 py-1.5 rounded-lg shadow-sm border cursor-pointer hover:scale-105 active:scale-95 transition-all ${
+                      selectedViewOrder.status === "New" ? "bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200" : 
+                      selectedViewOrder.status === "กำลังทำ" ? "bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200" : 
+                      selectedViewOrder.status === "รับงาน" ? "bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200" : 
+                      "bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200"
+                    }`}
+                    title="คลิกเพื่อแก้ไขสถานะ"
                   >
-                    {selectedViewOrder.status}
-                  </span>
+                    {selectedViewOrder.status} <ArrowRightLeft size={12} className="opacity-70" />
+                  </button>
                 </div>
               </div>
 
@@ -1734,7 +1741,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                           if (pin === "9999") setShowContactInfo(true);
                           else if (pin) alert("รหัสผ่านไม่ถูกต้อง ❌");
                         }}
-                        className="ml-3 px-3 py-1.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-[10px] font-black transition-colors shrink-0 shadow-sm"
+                        className="ml-3 px-3 py-1.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-[10px] font-black transition-colors shrink-0 shadow-sm cursor-pointer"
                       >
                         ปลดล็อก
                       </button>
@@ -1850,7 +1857,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 selectedViewOrder.job_type !== "shopee" && (
                   <button
                     onClick={() => handleStartOrder(selectedViewOrder.id)}
-                    className="w-full py-3.5 md:py-4 bg-blue-600 text-white font-black rounded-3xl hover:bg-blue-700 transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2"
+                    className="w-full py-3.5 md:py-4 bg-blue-600 text-white font-black rounded-4xl hover:bg-blue-700 transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2"
                   >
                     <PlayCircle size={18} />{" "}
                     ยืนยัน: ครัวเริ่มทำอาหาร
@@ -1860,7 +1867,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 selectedViewOrder.job_type !== "shopee" && (
                   <button
                     onClick={() => handleFinishOrder(selectedViewOrder.id)}
-                    className={`w-full py-3.5 md:py-4 text-white font-black rounded-3xl transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600`}
+                    className={`w-full py-3.5 md:py-4 text-white font-black rounded-4xl transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600`}
                   >
                     <ChefHat size={18} />{" "}
                     ยืนยัน: ครัวทำเสร็จแล้ว
@@ -1868,7 +1875,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 )}
               <button
                 onClick={() => setSelectedViewOrder(null)}
-                className="w-full py-3 md:py-3.5 bg-slate-100 text-slate-600 font-bold rounded-3xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-xs uppercase tracking-widest"
+                className="w-full py-3 md:py-3.5 bg-slate-100 text-slate-600 font-bold rounded-4xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-xs uppercase tracking-widest"
               >
                 ปิดหน้าต่าง
               </button>
@@ -1877,6 +1884,69 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         </div>
       )}
 
+      {/* 🌟 Modal ยืนยันการลบออเดอร์ */}
+      {deleteConfirm.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-[150]">
+          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col p-8 text-center relative border border-white/20">
+            <div className="w-20 h-20 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner">
+              <Trash2 size={40} className="animate-wiggle" />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 tracking-tight mb-2">
+              ยืนยันการลบ?
+            </h3>
+            <p className="text-sm text-slate-500 font-medium mb-8 whitespace-pre-line leading-relaxed">
+              คุณกำลังจะลบออเดอร์นี้ทิ้งแบบถาวร
+              <br />
+              แน่ใจแล้วใช่ไหมครับ?
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirm({ isOpen: false, id: null })}
+                className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-sm uppercase tracking-widest"
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={executeDeleteOrder}
+                className="flex-[1.5] py-4 text-white font-black rounded-2xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm uppercase tracking-widest bg-rose-500 hover:bg-rose-600 shadow-rose-500/30"
+              >
+                ลบทิ้งเลย
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🌟 Modal ยืนยันการออกจากระบบ */}
+      {alertModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-[150]">
+          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col p-8 text-center relative border border-white/20">
+            <div className="flex justify-center">{alertModal.icon}</div>
+            <h3 className="text-xl font-black text-slate-800 tracking-tight mb-2">
+              {alertModal.title}
+            </h3>
+            <p className="text-sm text-slate-500 font-medium mb-8 whitespace-pre-line leading-relaxed">
+              {alertModal.message}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setAlertModal({ ...alertModal, isOpen: false })}
+                className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-sm uppercase tracking-widest"
+              >
+                {alertModal.cancelText}
+              </button>
+              <button
+                onClick={executeLogout}
+                className="flex-[1.5] py-4 text-white font-black rounded-2xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm uppercase tracking-widest bg-slate-800 hover:bg-slate-900 shadow-slate-800/30"
+              >
+                {alertModal.confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🌟 แสดงป๊อปอัพ SlipScanner ถ้ามีการสั่งตรวจ */}
       {scannerConfig?.isOpen && (
         <SlipScanner
           orderId={scannerConfig.orderId}
@@ -1915,75 +1985,15 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         />
       )}
 
-      {deleteConfirm.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-50">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col p-8 text-center relative">
-            <div className="w-20 h-20 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
-              <Trash2 size={40} />
-            </div>
-            <h3 className="text-xl font-black text-slate-800 tracking-tight mb-2">
-              ยืนยันการลบ?
-            </h3>
-            <p className="text-sm text-slate-500 font-medium mb-8 whitespace-pre-line leading-relaxed">
-              คุณกำลังจะลบออเดอร์นี้ทิ้งแบบถาวร
-              <br />
-              แน่ใจแล้วใช่ไหมครับ?
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setDeleteConfirm({ isOpen: false, id: null })}
-                className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-xs uppercase tracking-widest"
-              >
-                ยกเลิก
-              </button>
-              <button
-                onClick={executeDeleteOrder}
-                className="flex-1 py-3.5 text-white font-black rounded-2xl transition-all cursor-pointer shadow-lg active:scale-95 text-xs uppercase tracking-widest bg-rose-500 hover:bg-rose-600 shadow-rose-500/30"
-              >
-                ลบทิ้งเลย
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {alertModal.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-50">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col p-8 text-center relative">
-            <div className="flex justify-center">{alertModal.icon}</div>
-            <h3 className="text-xl font-black text-slate-800 tracking-tight mb-2">
-              {alertModal.title}
-            </h3>
-            <p className="text-sm text-slate-500 font-medium mb-8 whitespace-pre-line leading-relaxed">
-              {alertModal.message}
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setAlertModal({ ...alertModal, isOpen: false })}
-                className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-xs uppercase tracking-widest"
-              >
-                {alertModal.cancelText}
-              </button>
-              <button
-                onClick={executeLogout}
-                className={`flex-1 py-3.5 text-white font-black rounded-2xl transition-all cursor-pointer shadow-lg active:scale-95 text-xs uppercase tracking-widest bg-slate-800 hover:bg-slate-900`}
-              >
-                {alertModal.confirmText}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {imageGallery && (
         <div
-          className="fixed inset-0 bg-gray-900/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200 z-50"
+          className="fixed inset-0 bg-gray-900/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200 z-[200]"
           onClick={() => {
             setImageGallery(null);
             setImgScale(1);
           }}
         >
-          <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-50 text-white pointer-events-none">
+          <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-[210] text-white pointer-events-none">
             <span className="font-bold text-xs bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm">
               คลิก 2 ครั้งเพื่อซูม / ใช้ปุ่มลูกศรเลื่อน
             </span>
@@ -2005,7 +2015,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                   e.stopPropagation();
                   scrollGallery("left");
                 }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-50 transition-all cursor-pointer hidden md:block"
+                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-[210] transition-all cursor-pointer hidden md:block"
               >
                 <ChevronLeft size={24} />
               </button>
@@ -2014,7 +2024,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                   e.stopPropagation();
                   scrollGallery("right");
                 }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-50 transition-all cursor-pointer hidden md:block"
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-[210] transition-all cursor-pointer hidden md:block"
               >
                 <ChevronRight size={24} />
               </button>
@@ -2022,7 +2032,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
           )}
           <div
             ref={galleryRef}
-            className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory thin-scrollbar"
+            className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory thin-scrollbar z-[200]"
           >
             {imageGallery.urls.map((url, i) => (
               <div
@@ -2050,7 +2060,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
             ))}
           </div>
           <div
-            className="absolute bottom-10 left-1/2 transform -translate-x-1/2 flex items-center gap-6 bg-gray-800/80 px-6 py-3 rounded-full backdrop-blur-md shadow-2xl z-50"
+            className="absolute bottom-10 left-1/2 transform -translate-x-1/2 flex items-center gap-6 bg-gray-800/80 px-6 py-3 rounded-full backdrop-blur-md shadow-2xl z-[210]"
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -2104,6 +2114,12 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
           0%, 100% { transform: rotate(-3deg); }
           50% { transform: rotate(3deg); }
         }
+        @keyframes float {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-5px); }
+        }
+        .animate-float { animation: float 3s ease-in-out infinite; }
+        .animate-wiggle { animation: wiggle 2s ease-in-out infinite; }
       `}</style>
     </div>
   );

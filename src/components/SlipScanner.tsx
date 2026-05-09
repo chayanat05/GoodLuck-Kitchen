@@ -9,7 +9,7 @@ import Image from 'next/image';
 
 interface SlipScannerProps {
   orderId: string;
-  expectedAmount: number;
+  expectedAmount: number; // 🌟 ยอดเงินที่ดึงมาจากออเดอร์จริงๆ (total_price)
   onClose: () => void;
   onSuccess: (imageUrl: string) => void;
 }
@@ -17,7 +17,6 @@ interface SlipScannerProps {
 type ScanStatus = 'idle' | 'uploading' | 'scanning' | 'success' | 'error';
 
 export default function SlipScanner({ orderId, expectedAmount, onClose, onSuccess }: SlipScannerProps) {
-  // 🌟 เปลี่ยนจากเก็บรูปเดียว เป็นเก็บหลายรูป (Array)
   const [files, setFiles] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   
@@ -27,7 +26,19 @@ export default function SlipScanner({ orderId, expectedAmount, onClose, onSucces
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 🌟 1. จัดการรูปภาพ (รองรับทีละหลายรูป)
+  /* ========================================================================
+   🏦 จุดใส่ข้อมูลบัญชีร้าน (Whitelist)
+   ========================================================================
+   ใส่ "ชื่อบัญชี" หรือ "เลขบัญชี" ของร้านทุกบัญชีที่มีลงใน Array นี้ครับ
+   ======================================================================== */
+  const STORE_BANK_ACCOUNTS = [
+    "ชยณัฐ มาตยะขันธ์",
+    "CHAYANAT M",
+    "123-4-56789-0", // ตัวอย่างเลขกสิกร
+    "0987654321",    // ตัวอย่างเลขไทยพาณิชย์
+    "บริษัท คันบัง จำกัด",
+  ];
+
   const processFiles = (selectedFiles: FileList | File[]) => {
     const validFiles = Array.from(selectedFiles).filter(f => f.type.startsWith('image/'));
     
@@ -54,22 +65,12 @@ export default function SlipScanner({ orderId, expectedAmount, onClose, onSucces
     setPreviewUrls(prev => prev.filter((_, index) => index !== indexToRemove));
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-  };
-
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragOver(true); };
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragOver(false); };
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    if (e.dataTransfer.files) {
-      processFiles(e.dataTransfer.files);
-    }
+    if (e.dataTransfer.files) processFiles(e.dataTransfer.files);
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -84,7 +85,6 @@ export default function SlipScanner({ orderId, expectedAmount, onClose, onSucces
     if (pastedFiles.length > 0) processFiles(pastedFiles);
   };
 
-  // 🌟 2. อัปโหลดและตรวจสอบสลิปทีละหลายใบ
   const handleVerify = async () => {
     if (files.length === 0 || previewUrls.length === 0) return;
 
@@ -92,52 +92,64 @@ export default function SlipScanner({ orderId, expectedAmount, onClose, onSucces
       setStatus('uploading');
       const uploadedUrls: string[] = [];
 
-      // วนลูปอัปโหลดทีละรูปเข้า Supabase Storage
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const fileExt = file.name.split('.').pop();
         const fileName = `slip-${orderId}-${Date.now()}-${i}.${fileExt}`;
         const filePath = `slips/${fileName}`;
 
-        const { error: uploadError } = await supabase.storage
-          .from('order-images')
-          .upload(filePath, file);
-
+        const { error: uploadError } = await supabase.storage.from('order-images').upload(filePath, file);
         if (uploadError) throw new Error('ไม่สามารถอัปโหลดรูปภาพได้');
 
-        const { data: publicUrlData } = supabase.storage
-          .from('order-images')
-          .getPublicUrl(filePath);
-        
+        const { data: publicUrlData } = supabase.storage.from('order-images').getPublicUrl(filePath);
         uploadedUrls.push(publicUrlData.publicUrl);
       }
 
       setStatus('scanning');
 
-      /* 
-        ========================================================================
-        💡 จุดเชื่อมต่อ API ตรวจสลิป (รองรับ 2 สลิปขึ้นไป)
-        ========================================================================
-        คุณปลั๊กสามารถส่ง uploadedUrls (ซึ่งตอนนี้เป็น Array มีหลายลิงก์) ไปให้ AI
-        และสั่ง Prompt AI ว่า: "นี่คือสลิปโอนเงินหลายใบ ให้สกัดตัวเลขยอดโอนจากทุกสลิป 
-        นำมาบวกกัน แล้วตรวจสอบว่ายอดรวมกันเท่ากับ expectedAmount หรือไม่"
-        ========================================================================
+      /* ========================================================================
+        🚀 จุดเชื่อมต่อ API ของ OCR ฟรี (เขียนโค้ดต่อตรงนี้ได้เลย)
+        ======================================================================== */
+      
+      // 1. ส่งรูปไป API ของคุณปลั๊ก (Uncomment แล้วปรับ URL ได้เลย)
+      /*
+      const formData = new FormData();
+      formData.append('file', files[0]); // ส่งทีละรูป หรือส่งทั้งหมดขึ้นอยู่กับ API
+      
+      const response = await fetch('YOUR_FREE_OCR_API_URL', {
+        method: 'POST',
+        body: formData
+      });
+      const ocrData = await response.json();
       */
 
-      // 🛑 โค้ดจำลอง (Mock) ว่า AI กำลังประมวลผลยอดรวมจากทุกรูป 3 วินาที
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // 🛑 โค้ดจำลอง (Mock Data) สมมติว่านี่คือค่าที่ได้มาจาก OCR
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
-      const isSlipValid = true; // สมมติว่า AI รวมยอด 2 สลิปแล้วตรงกัน!
+      const extractedAmount = 100; // สมมติ OCR อ่านยอดเงินได้ 100 บาท (แก้เป็น ocrData.amount)
+      const extractedName = "นาย มิจฉาชีพ ชอบโกง"; // สมมติ OCR อ่านชื่อ (แก้เป็น ocrData.receiver_name)
+      const extractedAccount = "999-9-99999-9"; // สมมติ OCR อ่านเลขบัญชี (แก้เป็น ocrData.receiver_account)
 
-      if (isSlipValid) {
-        setStatus('success');
-        setTimeout(() => {
-          // ส่งกลับไปแบบเชื่อม URL ด้วยลูกน้ำ (,) เพื่อให้ระบบเก็บหลายรูปลง DB ได้เลย
-          onSuccess(uploadedUrls.join(',')); 
-        }, 1500);
-      } else {
-        throw new Error('ยอดโอนรวมไม่ตรงกับยอดเรียกเก็บ หรือ สลิปซ้ำครับ');
+      // 2️⃣ เงื่อนไขเช็ค: บัญชีผู้รับตรงกับร้านเราไหม? (เช็คจาก Whitelist)
+      const isAccountValid = STORE_BANK_ACCOUNTS.some(acc => 
+        (extractedName && extractedName.includes(acc)) || 
+        (extractedAccount && extractedAccount.includes(acc))
+      );
+
+      if (!isAccountValid) {
+        throw new Error(`บัญชีผู้รับไม่ถูกต้อง! (${extractedName || extractedAccount})`);
       }
+
+      // 3️⃣ เงื่อนไขเช็ค: ยอดเงินครบไหม?
+      if (extractedAmount < expectedAmount) {
+        throw new Error(`ยอดเงินไม่ครบ! (สลิปโอนมา ฿${extractedAmount} แต่ยอดเรียกเก็บคือ ฿${expectedAmount})`);
+      }
+
+      // ถ้าผ่านมาได้ถึงตรงนี้ = ผ่าน 100%
+      setStatus('success');
+      setTimeout(() => {
+        onSuccess(uploadedUrls.join(',')); 
+      }, 1500);
 
     } catch (error: unknown) {
       setStatus('error');
@@ -171,7 +183,7 @@ export default function SlipScanner({ orderId, expectedAmount, onClose, onSucces
         <div className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
           <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl flex items-center justify-between shadow-inner">
             <div>
-              <p className="text-xs font-black text-emerald-600 uppercase tracking-wider mb-1">ยอดเงินรวมที่ต้องโอน</p>
+              <p className="text-xs font-black text-emerald-600 uppercase tracking-wider mb-1">ยอดเรียกเก็บ (จากบิล)</p>
               <p className="text-sm font-bold text-slate-600">ออเดอร์: <span className="text-slate-800">{orderId.slice(0, 8)}...</span></p>
             </div>
             <div className="text-3xl font-black text-emerald-600">
@@ -180,7 +192,6 @@ export default function SlipScanner({ orderId, expectedAmount, onClose, onSucces
           </div>
 
           {previewUrls.length === 0 ? (
-            // 🌟 พื้นที่อัปโหลดกรณีที่ยังไม่มีรูปเลย
             <div 
               onClick={() => fileInputRef.current?.click()}
               onDragOver={handleDragOver}
@@ -194,10 +205,9 @@ export default function SlipScanner({ orderId, expectedAmount, onClose, onSucces
               <p className="text-base font-bold mb-1 px-4 text-center">
                 {isDragOver ? 'ปล่อยรูปสลิปตรงนี้เลย!' : 'คลิก เลือกสลิป (เลือกทีละหลายใบได้) หรือ Ctrl+V'}
               </p>
-              <p className="text-xs font-medium opacity-70">รองรับ 2 สลิปขึ้นไป (รวมยอดโอนได้)</p>
+              <p className="text-xs font-medium opacity-70">ระบบ OCR จะเช็คยอดเงินและบัญชีอัตโนมัติ</p>
             </div>
           ) : (
-            // 🌟 พื้นที่แสดงรูปภาพสลิปที่เลือกมาทั้งหมด
             <div className="space-y-4">
               <div className={`grid gap-3 ${previewUrls.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                 {previewUrls.map((url, idx) => (
@@ -210,7 +220,6 @@ export default function SlipScanner({ orderId, expectedAmount, onClose, onSucces
                       sizes="(max-width: 768px) 100vw, 400px"
                     />
                     
-                    {/* ปุ่มลบรูปทีละใบ (ซ่อนตอนกำลังสแกน) */}
                     {status === 'idle' && (
                       <button 
                         onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
@@ -220,7 +229,6 @@ export default function SlipScanner({ orderId, expectedAmount, onClose, onSucces
                       </button>
                     )}
 
-                    {/* แอนิเมชันเลเซอร์สแกน */}
                     {status === 'scanning' && (
                       <>
                         <div className="absolute inset-0 bg-emerald-900/20 mix-blend-overlay"></div>
@@ -232,38 +240,34 @@ export default function SlipScanner({ orderId, expectedAmount, onClose, onSucces
                 ))}
               </div>
 
-              {/* ปุ่มเพิ่มสลิปใบที่ 2, 3... */}
               {status === 'idle' && (
                 <button 
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full py-3 border-2 border-dashed border-emerald-300 text-emerald-600 rounded-2xl flex items-center justify-center gap-2 font-bold hover:bg-emerald-50 hover:border-emerald-400 transition-colors"
+                  className="w-full py-3 border-2 border-dashed border-emerald-300 text-emerald-600 rounded-2xl flex items-center justify-center gap-2 font-bold hover:bg-emerald-50 hover:border-emerald-400 transition-colors cursor-pointer"
                 >
                   <Plus size={18} /> เพิ่มสลิปอีกใบเพื่อรวมยอด
                 </button>
               )}
 
-              {/* Overlay กำลังสแกน */}
               {status === 'scanning' && (
-                <div className="flex items-center justify-center gap-3 text-emerald-600 font-black text-sm p-4 bg-emerald-50 rounded-xl animate-pulse">
-                  <Loader2 size={18} className="animate-spin" /> AI กำลังวิเคราะห์ยอดรวมจากทุกสลิป...
+                <div className="flex items-center justify-center gap-3 text-emerald-600 font-black text-sm p-4 bg-emerald-50 rounded-xl animate-pulse border border-emerald-200">
+                  <Loader2 size={18} className="animate-spin" /> OCR กำลังวิเคราะห์ยอดและชื่อบัญชี...
                 </div>
               )}
 
-              {/* Overlay สำเร็จ */}
               {status === 'success' && (
                 <div className="flex items-center justify-center gap-3 text-emerald-600 font-black text-lg p-4 bg-emerald-50 rounded-xl border border-emerald-200 shadow-sm animate-in zoom-in duration-300">
-                  <ShieldCheck size={28} className="animate-bounce" /> ยอดเงินรวมถูกต้องครบถ้วน!
+                  <ShieldCheck size={28} className="animate-bounce" /> ยอดเงินตรง / บัญชีถูกต้อง!
                 </div>
               )}
 
-              {/* Overlay ข้อผิดพลาด */}
               {status === 'error' && (
                 <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl flex flex-col items-center justify-center text-center animate-in fade-in">
                   <AlertCircle size={28} className="text-rose-500 mb-2" />
                   <p className="text-rose-700 font-black text-sm mb-3">{errorMessage}</p>
                   <button 
                     onClick={() => setStatus('idle')}
-                    className="px-5 py-2 bg-white border border-rose-200 text-rose-600 font-bold rounded-full shadow-sm text-xs hover:bg-rose-100 transition-colors"
+                    className="px-5 py-2 bg-white border border-rose-200 text-rose-600 font-bold rounded-full shadow-sm text-xs hover:bg-rose-100 transition-colors cursor-pointer"
                   >
                     ตรวจสอบใหม่อีกครั้ง
                   </button>
@@ -275,7 +279,7 @@ export default function SlipScanner({ orderId, expectedAmount, onClose, onSucces
           <input 
             type="file" 
             accept="image/*" 
-            multiple // 🌟 สั่งให้เลือกได้หลายรูป
+            multiple 
             ref={fileInputRef} 
             onChange={(e) => {
               if(e.target.files && e.target.files.length > 0) processFiles(e.target.files);
@@ -284,7 +288,6 @@ export default function SlipScanner({ orderId, expectedAmount, onClose, onSucces
           />
         </div>
 
-        {/* Footer Actions */}
         <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3 shrink-0">
           <button 
             onClick={onClose}
@@ -311,8 +314,7 @@ export default function SlipScanner({ orderId, expectedAmount, onClose, onSucces
         </div>
       </div>
 
-      <style jsx>{`
-        /* แอนิเมชันแสงเลเซอร์สแกนสลิป */
+      <style jsx global>{`
         .scanner-laser {
           animation: scan 2s linear infinite;
         }

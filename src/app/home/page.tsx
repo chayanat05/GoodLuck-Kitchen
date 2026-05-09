@@ -6,9 +6,8 @@ import { supabase } from "../../lib/supabase";
 import { 
   Store, MapPin, ChevronRight, Activity, 
   LogOut, Loader2, Clock, ShieldCheck, Package, Menu, X, 
-  Settings, MoonStar, AlertTriangle, CheckCircle2, Users, ScanSearch,
-  Search, CheckSquare, Banknote, LayoutDashboard,
-  Landmark
+  Settings, AlertTriangle, CheckCircle2, Users, ScanSearch,
+  Search, CheckSquare, Banknote, LayoutDashboard, Landmark
 } from "lucide-react";
 
 interface Branch {
@@ -51,12 +50,6 @@ export default function BranchSelectorPage() {
 
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
 
-  const [isCutoffOpen, setIsCutoffOpen] = useState(false);
-  const [isClearBoardOpen, setIsClearBoardOpen] = useState(false);
-
-  const [cutoffForm, setCutoffForm] = useState({ target: "ALL", hour: 4 });
-  const [clearTarget, setClearTarget] = useState("ALL");
-
   const showToast = useCallback((message: string, type = "success") => {
     setToast({ show: true, message, type });
     setTimeout(() => setToast({ show: false, message: "", type: "success" }), 3000);
@@ -68,6 +61,18 @@ export default function BranchSelectorPage() {
     if (!session) {
       router.push("/login");
       return;
+    }
+
+    // 🌟 ล็อกประตู! ป้องกันไม่ให้แม่ครัว (หรือคนที่ไม่ใช่ Admin) เข้าหน้า Home ได้
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", session.user.id)
+      .single();
+      
+    if (profile?.role !== "admin") { 
+      router.push("/login"); 
+      return; 
     }
 
     const { data: branchesData, error: branchError } = await supabase
@@ -123,59 +128,6 @@ export default function BranchSelectorPage() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push("/login");
-  };
-
-  const handleUpdateCutoff = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    try {
-      let query = supabase.from("branches").update({ cut_off_hour: cutoffForm.hour });
-      if (cutoffForm.target !== "ALL") {
-        query = query.eq("id", cutoffForm.target);
-      } else {
-        query = query.not("id", "is", null); 
-      }
-      
-      const { error } = await query;
-      if (error) throw error;
-      
-      showToast("อัปเดตเวลาตัดยอดสำเร็จ!");
-      setIsCutoffOpen(false);
-      setIsMenuOpen(false);
-      fetchBranchesAndStats();
-    } catch (error) {
-      console.error(error);
-      showToast("เกิดข้อผิดพลาดในการอัปเดตเวลา", "error");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleClearBoard = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const isConfirmed = window.confirm("⚠️ ยืนยันการปิดยอดจบวัน?\nออเดอร์ในสาขาที่เลือกจะถูกซ่อนออกจากกระดานทันที");
-    if (!isConfirmed) return;
-
-    setIsSubmitting(true);
-    try {
-      let query = supabase.from("orders").update({ is_archived: true }).neq("is_archived", true);
-      if (clearTarget !== "ALL") {
-        query = query.eq("branch_id", clearTarget);
-      }
-      
-      const { error } = await query;
-      if (error) throw error;
-      
-      showToast("🌙 ปิดยอดจบวัน (ล้างกระดาน) เรียบร้อย!");
-      setIsClearBoardOpen(false);
-      setIsMenuOpen(false);
-      fetchBranchesAndStats();
-    } catch (error) {
-      console.error(error);
-      showToast("เกิดข้อผิดพลาดในการล้างบอร์ด", "error");
-    } finally {
-      setIsSubmitting(false);
-    }
   };
 
   const handleSingleAction = async (employeeId: string, type: 'in' | 'out') => {
@@ -297,7 +249,6 @@ export default function BranchSelectorPage() {
     else setSelectedEmployees(sortedAndFilteredEmployees.map(e => e.id));
   };
 
-  // 🌟 เพิ่มฟังก์ชันสำหรับเลือกพนักงานตามตำแหน่ง (Role)
   const selectByRole = (role: string) => {
     const roleIds = sortedAndFilteredEmployees.filter(e => e.role === role).map(e => e.id);
     if (roleIds.length === 0) return;
@@ -444,28 +395,6 @@ export default function BranchSelectorPage() {
 
               <div className="h-px bg-slate-100 my-2"></div>
 
-              <button
-                onClick={() => setIsCutoffOpen(true)}
-                className="w-full flex items-center p-4 text-slate-600 hover:bg-amber-50 hover:text-amber-700 rounded-2xl transition-all font-bold border border-transparent hover:border-amber-100 group cursor-pointer"
-              >
-                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
-                  <Clock size={20} className="text-amber-600" />
-                </div>
-                ตั้งเวลาตัดยอดร้าน
-              </button>
-
-              <button
-                onClick={() => setIsClearBoardOpen(true)}
-                className="w-full flex items-center p-4 text-slate-600 hover:bg-rose-50 hover:text-rose-700 rounded-2xl transition-all font-bold border border-transparent hover:border-rose-100 group cursor-pointer"
-              >
-                <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
-                  <MoonStar size={20} className="text-rose-600" />
-                </div>
-                ปิดยอดจบวัน (ล้างบอร์ด)
-              </button>
-
-              <div className="h-px bg-slate-100 my-2"></div>
-
               <Link
                 href="/setting"
                 prefetch={false}
@@ -561,7 +490,7 @@ export default function BranchSelectorPage() {
 
         {/* 🟢 ฝั่งขวา: ระบบลงเวลาพนักงาน (HR) */}
         <div className="lg:col-span-2">
-          <div className="bg-white rounded-4xl p-6 shadow-sm border border-slate-100 flex flex-col h-full max-h-200">
+          <div className="bg-white rounded-4xl p-6 shadow-sm border border-slate-100 flex flex-col h-full max-h-[800px]">
             <h2 className="text-lg font-black text-slate-700 flex items-center gap-2 mb-4 shrink-0">
               <Users size={20} className="text-emerald-500" /> ควบคุมเวลาเข้างาน (HR)
             </h2>
@@ -687,111 +616,6 @@ export default function BranchSelectorPage() {
         </div>
 
       </div>
-
-      {/* Modal: ตัดยอด */}
-      {isCutoffOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-60 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300">
-            <div className="flex justify-between items-center p-6 border-b border-slate-100">
-              <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
-                <Clock className="text-emerald-500" size={20} /> เวลาตัดยอดจบวัน
-              </h3>
-              <button onClick={() => setIsCutoffOpen(false)} className="text-slate-400 hover:bg-slate-100 p-2 rounded-full transition-colors cursor-pointer active:scale-95">
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={handleUpdateCutoff} className="p-6 space-y-5">
-              <div>
-                <label className="block text-[11px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">จัดการของสาขา</label>
-                <select 
-                  value={cutoffForm.target}
-                  onChange={e => setCutoffForm({...cutoffForm, target: e.target.value})}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all cursor-pointer"
-                >
-                  <option value="ALL">🌟 ปรับให้ทุกสาขาพร้อมกัน</option>
-                  {branches.map(b => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[11px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">ตั้งเวลา (น.)</label>
-                <div className="flex items-center gap-3">
-                  <input 
-                    type="number" min="0" max="23" required
-                    value={cutoffForm.hour}
-                    onChange={e => setCutoffForm({...cutoffForm, hour: parseInt(e.target.value) || 0})}
-                    className="w-24 text-center p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-2xl font-black text-emerald-700 outline-none focus:bg-white focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all shadow-inner"
-                  />
-                  <span className="text-xl font-black text-slate-500">: 00 น.</span>
-                </div>
-                <p className="text-[11px] text-slate-400 font-bold mt-2">
-                  * ถ้าร้านปิดตี 2 แนะนำให้ตั้งเวลาเป็น 4 (ตี 4) เพื่อเปลี่ยนวันใหม่ในสถิติ
-                </p>
-              </div>
-              <div className="pt-2 flex gap-3">
-                <button 
-                  type="button" onClick={() => setIsCutoffOpen(false)}
-                  className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors cursor-pointer text-sm"
-                >
-                  ยกเลิก
-                </button>
-                <button 
-                  type="submit" disabled={isSubmitting}
-                  className="flex-1 py-3.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all cursor-pointer shadow-lg active:scale-95 disabled:bg-slate-300 text-sm"
-                >
-                  {isSubmitting ? "กำลังบันทึก..." : "บันทึกเวลา"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: ล้างกระดานออเดอร์ */}
-      {isClearBoardOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-60 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col p-8 text-center relative">
-            <div className="w-20 h-20 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
-              <MoonStar size={40} />
-            </div>
-            <h3 className="text-xl font-black text-slate-800 tracking-tight mb-2">
-              ล้างกระดานออเดอร์
-            </h3>
-            <p className="text-sm text-slate-500 font-medium mb-6 leading-relaxed">
-              เลือกสาขาที่ต้องการปิดยอดจบวัน ออเดอร์ทั้งหมดจะถูกซ่อนจากกระดาน (ดูย้อนหลังได้ในหน้าสถิติ)
-            </p>
-            
-            <form onSubmit={handleClearBoard} className="space-y-6">
-              <select 
-                value={clearTarget}
-                onChange={e => setClearTarget(e.target.value)}
-                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:ring-4 focus:ring-rose-500/10 focus:border-rose-500 transition-all cursor-pointer text-center"
-              >
-                <option value="ALL">⚠️ ล้างกระดานทุกสาขาพร้อมกัน</option>
-                {branches.map(b => (
-                  <option key={b.id} value={b.id}>เฉพาะ {b.name}</option>
-                ))}
-              </select>
-
-              <div className="flex gap-3">
-                <button 
-                  type="button" onClick={() => setIsClearBoardOpen(false)}
-                  className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-sm"
-                >
-                  ยกเลิก
-                </button>
-                <button 
-                  type="submit" disabled={isSubmitting}
-                  className="flex-1 py-3.5 text-white font-black rounded-2xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm bg-rose-500 hover:bg-rose-600 shadow-rose-500/30 disabled:bg-slate-300 disabled:shadow-none"
-                >
-                  {isSubmitting ? "กำลังล้าง..." : "ล้างกระดานเลย!"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       <style jsx global>{`
         .thin-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }

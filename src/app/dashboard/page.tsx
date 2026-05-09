@@ -24,7 +24,8 @@ interface Branch {
   name: string;
 }
 
-type TimeRange = "today" | "yesterday" | "7days" | "30days" | "cycle" | "custom" | "all";
+// 🌟 อัปเกรด Type เพิ่ม shift1 และ shift2
+type TimeRange = "today" | "shift1" | "shift2" | "yesterday" | "7days" | "30days" | "cycle" | "custom" | "all";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -34,9 +35,14 @@ export default function DashboardPage() {
   const [orders, setOrders] = useState<OrderData[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [timeRange, setTimeRange] = useState<TimeRange>("today");
-  const [cutOffHour, setCutOffHour] = useState<number>(4);
+  
+  // 🌟 State ใหม่สำหรับรับค่า Business Day และ Shift
+  const [businessDayStart, setBusinessDayStart] = useState<string>("07:00");
+  const [shift1Start, setShift1Start] = useState<string>("10:00");
+  const [shift1End, setShift1End] = useState<string>("17:00");
+  const [shift2Start, setShift2Start] = useState<string>("17:00");
+  const [shift2End, setShift2End] = useState<string>("03:00");
 
-  // 🌟 State ใหม่สำหรับเก็บวันที่ที่แอดมินเลือกเอง
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
 
@@ -52,17 +58,19 @@ export default function DashboardPage() {
     }
     setCurrentUser(session.user);
 
-    // ดึงค่าตั้งเวลาตัดยอด
-    const { data: settings } = await supabase.from("store_settings").select("cut_off_hour").eq("id", 1).single();
-    if (settings && settings.cut_off_hour !== undefined) {
-      setCutOffHour(settings.cut_off_hour);
+    // 🌟 ดึงค่าตั้งเวลาแบบใหม่ (Business Day & Shifts)
+    const { data: settings } = await supabase.from("store_settings").select("*").eq("id", 1).single();
+    if (settings) {
+      if (settings.business_day_start) setBusinessDayStart(settings.business_day_start);
+      if (settings.shift1_start) setShift1Start(settings.shift1_start);
+      if (settings.shift1_end) setShift1End(settings.shift1_end);
+      if (settings.shift2_start) setShift2Start(settings.shift2_start);
+      if (settings.shift2_end) setShift2End(settings.shift2_end);
     }
 
-    // ดึงสาขาทั้งหมด
     const { data: branchData } = await supabase.from("branches").select("id, name");
     if (branchData) setBranches(branchData);
 
-    // ดึงออเดอร์ทั้งหมด (รวมที่ archive ไปแล้วเพื่อดูสถิติ)
     const { data: orderData } = await supabase
       .from("orders")
       .select("id, total_price, payment_method, status, branch_id, rider_id, rider_name, created_at");
@@ -75,41 +83,59 @@ export default function DashboardPage() {
   }, [router]);
 
   useEffect(() => {
-    const init = async () => {
-      await fetchDashboardData();
-    };
-    init();
+    const timer = setTimeout(() => {
+      fetchDashboardData();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [fetchDashboardData]);
 
-  // 🌟 ประมวลผลข้อมูลตามช่วงเวลาที่เลือก
+  // 🌟 ประมวลผลข้อมูลตาม Business Day (ตัดเวลาตี 5 หรือเวลาที่ตั้งไว้)
   const filteredOrders = useMemo(() => {
     const now = new Date();
-    let startDate = new Date(0); // All time
-    let endDate = new Date(8640000000000000); // Max Date (อนาคตไกลๆ ไว้เป็นค่าเริ่มต้น)
+    let startDate = new Date(0); 
+    let endDate = new Date(8640000000000000); 
+
+    // คำนวณวันปัจจุบันของร้าน (Business Date)
+    const [bizHour, bizMin] = businessDayStart.split(':').map(Number);
+    const currentBizDate = new Date(now);
+    if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
+      currentBizDate.setDate(currentBizDate.getDate() - 1);
+    }
+    const y = currentBizDate.getFullYear();
+    const m = currentBizDate.getMonth();
+    const d = currentBizDate.getDate();
 
     if (timeRange === "today") {
-      startDate = new Date(now);
-      if (now.getHours() < cutOffHour) startDate.setDate(startDate.getDate() - 1);
-      startDate.setHours(cutOffHour, 0, 0, 0);
+      startDate = new Date(y, m, d, bizHour, bizMin, 0, 0);
+      endDate = new Date(y, m, d + 1, bizHour, bizMin, 0, 0);
+      endDate.setMilliseconds(endDate.getMilliseconds() - 1);
     } 
+    // 🌟 ดึงยอดขายกะเช้า (ของวันทำการนี้)
+    else if (timeRange === "shift1") {
+      const [sH, sM] = shift1Start.split(':').map(Number);
+      const [eH, eM] = shift1End.split(':').map(Number);
+      startDate = new Date(y, m, d, sH, sM, 0, 0);
+      endDate = new Date(y, m, d, eH, eM, 0, 0);
+      if (eH < sH) endDate.setDate(endDate.getDate() + 1); // คร่อมเที่ยงคืน
+    }
+    // 🌟 ดึงยอดขายกะดึก (ของวันทำการนี้)
+    else if (timeRange === "shift2") {
+      const [sH, sM] = shift2Start.split(':').map(Number);
+      const [eH, eM] = shift2End.split(':').map(Number);
+      startDate = new Date(y, m, d, sH, sM, 0, 0);
+      endDate = new Date(y, m, d, eH, eM, 0, 0);
+      if (eH < sH) endDate.setDate(endDate.getDate() + 1); // คร่อมเที่ยงคืน
+    }
     else if (timeRange === "yesterday") {
-      const endTarget = new Date(now);
-      if (now.getHours() < cutOffHour) endTarget.setDate(endTarget.getDate() - 1);
-      endTarget.setHours(cutOffHour, 0, 0, 0);
-      endDate = new Date(endTarget.getTime() - 1); // สิ้นสุดที่ 1 มิลลิวินาทีก่อนตัดยอดของวันนี้
-
-      startDate = new Date(endTarget);
-      startDate.setDate(startDate.getDate() - 1); // เริ่มที่เวลาตัดยอดของเมื่อวาน
+      startDate = new Date(y, m, d - 1, bizHour, bizMin, 0, 0);
+      endDate = new Date(y, m, d, bizHour, bizMin, 0, 0);
+      endDate.setMilliseconds(endDate.getMilliseconds() - 1);
     } 
     else if (timeRange === "7days") {
-      startDate = new Date(now);
-      startDate.setDate(startDate.getDate() - 7);
-      startDate.setHours(0, 0, 0, 0);
+      startDate = new Date(y, m, d - 7, bizHour, bizMin, 0, 0);
     } 
     else if (timeRange === "30days") {
-      startDate = new Date(now);
-      startDate.setDate(startDate.getDate() - 30);
-      startDate.setHours(0, 0, 0, 0);
+      startDate = new Date(y, m, d - 30, bizHour, bizMin, 0, 0);
     } 
     else if (timeRange === "cycle") {
       startDate = new Date(now);
@@ -136,9 +162,8 @@ export default function DashboardPage() {
       const orderDate = new Date(o.created_at);
       return orderDate >= startDate && orderDate <= endDate;
     });
-  }, [orders, timeRange, cutOffHour, customStartDate, customEndDate]);
+  }, [orders, timeRange, businessDayStart, shift1Start, shift1End, shift2Start, shift2End, customStartDate, customEndDate]);
 
-  // คำนวณสรุปยอด (รวมเฉพาะที่สถานะ "ส่งแล้ว/เสร็จ")
   const stats = useMemo(() => {
     let totalRevenue = 0;
     let transferRevenue = 0;
@@ -158,7 +183,6 @@ export default function DashboardPage() {
     return { totalRevenue, transferRevenue, cashRevenue, completedCount, totalOrders: filteredOrders.length };
   }, [filteredOrders]);
 
-  // คำนวณยอดขายแต่ละสาขา
   const branchStats = useMemo(() => {
     const bStats: Record<string, { name: string, revenue: number, count: number }> = {};
     branches.forEach(b => { bStats[b.id] = { name: b.name, revenue: 0, count: 0 }; });
@@ -173,7 +197,6 @@ export default function DashboardPage() {
     return Object.values(bStats).sort((a, b) => b.revenue - a.revenue);
   }, [filteredOrders, branches]);
 
-  // คำนวณอันดับไรเดอร์ (Leaderboard)
   const riderStats = useMemo(() => {
     const rStats: Record<string, { name: string, trips: number, revenue: number }> = {};
 
@@ -202,7 +225,6 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans pb-20">
-      {/* Header */}
       <div className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4 shrink-0">
@@ -226,7 +248,9 @@ export default function DashboardPage() {
                 onChange={(e) => setTimeRange(e.target.value as TimeRange)}
                 className="bg-transparent text-sm font-black text-slate-700 outline-none cursor-pointer p-1.5 w-full sm:w-auto text-right sm:text-left"
               >
-                <option value="today">🔥 กะวันนี้</option>
+                <option value="today">🔥 วันนี้ (รวมทั้งหมด)</option>
+                <option value="shift1">☀️ เฉพาะกะเช้า</option>
+                <option value="shift2">🌙 เฉพาะกะดึก</option>
                 <option value="yesterday">⏪ เมื่อวาน</option>
                 <option value="7days">📅 ย้อนหลัง 7 วัน</option>
                 <option value="30days">🗓️ ย้อนหลัง 30 วัน</option>
@@ -236,7 +260,6 @@ export default function DashboardPage() {
               </select>
             </div>
 
-            {/* 🌟 แสดงช่องเลือกวันที่ เมื่อผู้ใช้คลิกคำว่า กำหนดเวลาเอง... */}
             {timeRange === 'custom' && (
               <div className="flex items-center gap-1.5 bg-white px-3 py-1 rounded-xl border border-slate-200 shadow-sm animate-in fade-in slide-in-from-right-2 w-full sm:w-auto justify-end">
                 <span className="text-slate-500 font-bold text-xs shrink-0">จากวันที่</span>
@@ -257,13 +280,11 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-
         </div>
       </div>
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-in fade-in duration-500 slide-in-from-bottom-4">
         
-        {/* 1. Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 flex flex-col justify-between hover:shadow-md transition-shadow">
             <div className="flex justify-between items-start mb-4">
@@ -320,10 +341,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 2. Charts (Branch & Rider) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          
-          {/* Branch Performance */}
           <div className="bg-white rounded-4xl p-6 md:p-8 shadow-sm border border-slate-200 flex flex-col h-full">
             <h2 className="text-lg font-black text-slate-800 flex items-center gap-2 mb-6 shrink-0">
               <Store size={20} className="text-blue-500" /> ยอดขายแยกตามสาขา
@@ -353,7 +371,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Rider Leaderboard */}
           <div className="bg-white rounded-4xl p-6 md:p-8 shadow-sm border border-slate-200 flex flex-col h-full">
             <div className="flex justify-between items-center mb-6 shrink-0">
               <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
@@ -395,7 +412,6 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
-
         </div>
       </div>
 

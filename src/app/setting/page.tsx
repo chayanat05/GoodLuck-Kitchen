@@ -8,23 +8,16 @@ import {
 import { User as SupabaseUser } from '@supabase/supabase-js';
 
 const COLORS = [
-  // ⚪ โทนสว่าง / เทา / ดำ
   '#ffffff', '#f8fafc', '#f1f5f9', '#e2e8f0', '#cbd5e1', '#94a3b8', '#475569', '#1e293b',
-  // 🔴 โทนแดง / ชมพู
   '#fff1f2', '#ffe4e6', '#fecdd3', '#fda4af', '#fb7185', '#f43f5e', '#be123c', '#881337',
-  // 🟠 โทนส้ม / เหลือง / ทอง
   '#fff7ed', '#ffedd5', '#fed7aa', '#fdba74', '#fb923c', '#f59e0b', '#c2410c', '#7c2d12',
-  // 🟢 โทนเขียว / ธรรมชาติ
   '#f0fdf4', '#dcfce7', '#bbf7d0', '#86efac', '#4ade80', '#22c55e', '#15803d', '#14532d',
-  // 🔵 โทนฟ้า / น้ำเงิน / คราม
   '#f0f9ff', '#e0f2fe', '#bae6fd', '#7dd3fc', '#38bdf8', '#0ea5e9', '#1d4ed8', '#1e3a8a',
-  // 🟣 โทนม่วง / ไวน์
   '#faf5ff', '#f3e8ff', '#e9d5ff', '#d8b4fe', '#c084fc', '#a855f7', '#7e22ce', '#4c1d95',
-  // 🟤 โทนเอิร์ธโทน / มินิมอล
   '#faf4ed', '#f5eae1', '#eaddcf', '#e4d4c8', '#d6d3d1', '#a8a29e', '#57534e', '#292524'
 ];
 
-type SettingView = 'menu' | 'theme' | 'store' | 'cutoff'; // 🌟 เพิ่ม cutoff view
+type SettingView = 'menu' | 'theme' | 'store' | 'cutoff';
 type BgOption = 'cover' | 'contain' | 'repeat';
 
 interface Branch {
@@ -40,22 +33,28 @@ export default function SettingPage() {
   const [activeView, setActiveView] = useState<SettingView>('menu');
   const [isDragOver, setIsDragOver] = useState(false);
   
-  // 🌟 State จัดการสาขา
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
 
-  // ธีม State
   const [bgColor, setBgColor] = useState<string>('#f8fafc');
   const [bgImage, setBgImage] = useState<string | null>(null);
   const [bgOption, setBgOption] = useState<BgOption>('cover');
 
-  // 🌟 State จำกัดออเดอร์ไรเดอร์
   const [riderOrderLimit, setRiderOrderLimit] = useState<number>(3);
   const [isSavingLimit, setIsSavingLimit] = useState(false);
 
-  // 🌟 State ตัดยอด (ย้ายมาจาก Home)
-  const [cutOffHour, setCutOffHour] = useState<number>(4);
+  const [shift1Start, setShift1Start] = useState<string>('10:00');
+  const [shift1End, setShift1End] = useState<string>('17:00');
+  const [shift2Start, setShift2Start] = useState<string>('17:00');
+  const [shift2End, setShift2End] = useState<string>('03:00');
+  const [businessDayStart, setBusinessDayStart] = useState<string>('07:00');
+
   const [isSavingTime, setIsSavingTime] = useState(false);
+
+  // 🌟 State สำหรับระบบล้างบอร์ด
+  const [isClearBoardOpen, setIsClearBoardOpen] = useState(false);
+  const [clearTarget, setClearTarget] = useState("ALL");
+  const [isClearing, setIsClearing] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [toast, setToast] = useState<{show: boolean, message: string, type: 'success'|'error'}>({ show: false, message: '', type: 'success' });
@@ -65,7 +64,6 @@ export default function SettingPage() {
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
   }, []);
 
-  // 🌟 ดึงข้อมูลตอนเปิดหน้า (ย้ายฟังก์ชันมาเรียกใน useEffect โดยตรงแก้ ESLint Error)
   useEffect(() => {
     let isMounted = true;
 
@@ -78,7 +76,6 @@ export default function SettingPage() {
       
       if(isMounted) setCurrentUser(session.user);
 
-      // ดึงข้อมูลสาขาทั้งหมด
       const { data: branchData } = await supabase.from('branches').select('id, name').order('created_at', { ascending: true });
       if (branchData && isMounted) {
         setBranches(branchData);
@@ -87,11 +84,15 @@ export default function SettingPage() {
         }
       }
 
-      // ดึงค่าตั้งค่าระบบรวม (Limit ไรเดอร์ และ เวลาตัดยอด)
-      const { data: settings } = await supabase.from('store_settings').select('rider_order_limit, cut_off_hour').eq('id', 1).single();
+      const { data: settings } = await supabase.from('store_settings').select('rider_order_limit, shift1_start, shift1_end, shift2_start, shift2_end, business_day_start').eq('id', 1).single();
       if (settings && isMounted) {
         if (settings.rider_order_limit !== undefined) setRiderOrderLimit(settings.rider_order_limit);
-        if (settings.cut_off_hour !== undefined) setCutOffHour(settings.cut_off_hour);
+        
+        if (settings.shift1_start) setShift1Start(settings.shift1_start);
+        if (settings.shift1_end) setShift1End(settings.shift1_end);
+        if (settings.shift2_start) setShift2Start(settings.shift2_start);
+        if (settings.shift2_end) setShift2End(settings.shift2_end);
+        if (settings.business_day_start) setBusinessDayStart(settings.business_day_start);
       }
 
       if(isMounted) setLoading(false);
@@ -101,7 +102,6 @@ export default function SettingPage() {
     return () => { isMounted = false; };
   }, []);
 
-  // 🌟 ฟังก์ชันดึง Theme เมื่อเปลี่ยนสาขา
   useEffect(() => {
     let isMounted = true;
     const loadTheme = async () => {
@@ -203,7 +203,6 @@ export default function SettingPage() {
     showToast('เปลี่ยนรูปแบบการจัดวางสำเร็จ!');
   };
 
-  // 🌟 บันทึก Limit ไรเดอร์
   const handleSaveRiderLimit = async () => {
     setIsSavingLimit(true);
     const { error } = await supabase.from('store_settings').update({ rider_order_limit: riderOrderLimit }).eq('id', 1);
@@ -216,25 +215,58 @@ export default function SettingPage() {
     }
   };
 
-  // 🌟 บันทึก เวลาตัดยอด
   const handleSaveCutOffTime = async () => {
     setIsSavingTime(true);
-    const { error } = await supabase.from('store_settings').update({ cut_off_hour: cutOffHour }).eq('id', 1);
+    const { error } = await supabase.from('store_settings').update({ 
+      shift1_start: shift1Start,
+      shift1_end: shift1End,
+      shift2_start: shift2Start,
+      shift2_end: shift2End,
+      business_day_start: businessDayStart,
+      cut_off_hour: parseInt(businessDayStart.split(':')[0]) || 4 
+    }).eq('id', 1);
+    
     setIsSavingTime(false);
     if (error) {
       console.error(error);
-      showToast('เกิดข้อผิดพลาดในการบันทึกเวลาตัดยอด', 'error');
+      showToast('เกิดข้อผิดพลาดในการบันทึกเวลา', 'error');
     } else {
-      showToast('บันทึกเวลาตัดยอดสำเร็จ!');
+      showToast('บันทึกเวลาทำการสำเร็จ!');
+    }
+  };
+
+  // 🌟 ฟังก์ชันล้างบอร์ด
+  const handleClearBoard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const isConfirmed = window.confirm("⚠️ ยืนยันการปิดยอดจบวัน?\nออเดอร์ในสาขาที่เลือกจะถูกซ่อนออกจากกระดานทันที");
+    if (!isConfirmed) return;
+
+    setIsClearing(true);
+    try {
+      let query = supabase.from("orders").update({ is_archived: true }).neq("is_archived", true);
+      if (clearTarget !== "ALL") {
+        query = query.eq("branch_id", clearTarget);
+      }
+      
+      const { error } = await query;
+      if (error) throw error;
+      
+      showToast("🌙 ปิดยอดจบวัน (ล้างกระดาน) เรียบร้อย!");
+      setIsClearBoardOpen(false);
+    } catch (error) {
+      console.error(error);
+      showToast("เกิดข้อผิดพลาดในการล้างบอร์ด", "error");
+    } finally {
+      setIsClearing(false);
     }
   };
 
   if (loading) return <div className="min-h-screen bg-gray-50 flex justify-center items-center font-bold text-gray-400 animate-pulse">กำลังโหลดข้อมูล...</div>;
 
   return (
-    <div className="min-h-screen pb-12 transition-all duration-500 bg-slate-50">
+    <div className="min-h-screen pb-12 transition-all duration-500 bg-slate-50 relative">
       
-      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-50 ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
+      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-[150] ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
         {toast.type === 'error' ? <AlertTriangle size={18} className="text-red-400 mr-2" /> : <CheckCircle2 size={18} className="text-green-400 mr-2" />}
         <span className="font-bold text-sm tracking-wide">{toast.message}</span>
       </div>
@@ -255,14 +287,13 @@ export default function SettingPage() {
               {activeView === 'menu' && <><Settings className="mr-2 text-slate-600" size={24} /> ตั้งค่าระบบรวม</>}
               {activeView === 'theme' && <><PaintBucket className="mr-2 text-blue-500" size={24} /> ตั้งค่าธีมสาขา</>}
               {activeView === 'store' && <><MoonStar className="mr-2 text-indigo-500" size={24} /> ตั้งค่าไรเดอร์</>}
-              {activeView === 'cutoff' && <><Clock className="mr-2 text-emerald-500" size={24} /> ตั้งเวลาตัดยอดร้าน</>}
+              {activeView === 'cutoff' && <><Clock className="mr-2 text-emerald-500" size={24} /> ตั้งเวลาทำการ (Shift)</>}
             </h1>
           </div>
         </div>
       </div>
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        
         <div className="bg-white rounded-4xl p-6 md:p-8 shadow-sm border border-slate-200 min-h-[50vh] relative overflow-hidden">
           
           {/* เมนูหลัก */}
@@ -274,14 +305,14 @@ export default function SettingPage() {
               >
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform">
-                    <PaintBucket size={24} />
+                    <PaintBucket size={24} className="group-hover:animate-bounce" />
                   </div>
                   <div className="text-left">
                     <h3 className="font-black text-slate-800 text-lg">ตั้งค่าธีมประจำสาขา</h3>
                     <p className="text-xs font-medium text-slate-500 mt-0.5">เปลี่ยนสีพื้นหลังและรูปภาพของแต่ละสาขา</p>
                   </div>
                 </div>
-                <ChevronRight size={24} className="text-slate-300 group-hover:text-blue-500 transition-colors" />
+                <ChevronRight size={24} className="text-slate-300 group-hover:text-blue-500 transition-colors group-hover:translate-x-1" />
               </button>
 
               <button 
@@ -290,14 +321,14 @@ export default function SettingPage() {
               >
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-500 group-hover:scale-110 transition-transform">
-                    <MoonStar size={24} />
+                    <MoonStar size={24} className="group-hover:animate-pulse" />
                   </div>
                   <div className="text-left">
                     <h3 className="font-black text-slate-800 text-lg">ตั้งค่าการรับงาน (ไรเดอร์)</h3>
                     <p className="text-xs font-medium text-slate-500 mt-0.5">จำกัดจำนวนออเดอร์ที่ไรเดอร์รับได้พร้อมกัน</p>
                   </div>
                 </div>
-                <ChevronRight size={24} className="text-slate-300 group-hover:text-indigo-500 transition-colors" />
+                <ChevronRight size={24} className="text-slate-300 group-hover:text-indigo-500 transition-colors group-hover:translate-x-1" />
               </button>
 
               <button 
@@ -306,19 +337,36 @@ export default function SettingPage() {
               >
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-500 group-hover:scale-110 transition-transform">
-                    <Clock size={24} />
+                    <Clock size={24} className="group-hover:animate-spin-slow" />
                   </div>
                   <div className="text-left">
-                    <h3 className="font-black text-slate-800 text-lg">ตั้งเวลาตัดยอด (กะดึก)</h3>
-                    <p className="text-xs font-medium text-slate-500 mt-0.5">กำหนดเวลาเปลี่ยนวันใหม่ของระบบ (อิงตามเซิร์ฟเวอร์)</p>
+                    <h3 className="font-black text-slate-800 text-lg">ตั้งเวลาทำการ (Shift)</h3>
+                    <p className="text-xs font-medium text-slate-500 mt-0.5">กำหนดกะเช้า, กะดึก และเวลาเริ่มวันใหม่</p>
                   </div>
                 </div>
-                <ChevronRight size={24} className="text-slate-300 group-hover:text-emerald-500 transition-colors" />
+                <ChevronRight size={24} className="text-slate-300 group-hover:text-emerald-500 transition-colors group-hover:translate-x-1" />
+              </button>
+
+              {/* 🌟 เมนูล้างบอร์ด ย้ายมาที่นี่แล้ว! */}
+              <button 
+                onClick={() => setIsClearBoardOpen(true)}
+                className="w-full flex items-center justify-between p-5 bg-white border border-slate-100 hover:border-rose-200 hover:bg-rose-50/50 hover:shadow-md rounded-2xl transition-all cursor-pointer group"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-rose-100 rounded-xl flex items-center justify-center text-rose-500 group-hover:scale-110 transition-transform">
+                    <Trash2 size={24} className="group-hover:animate-wiggle" />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="font-black text-slate-800 text-lg">ปิดยอดจบวัน (ล้างบอร์ด)</h3>
+                    <p className="text-xs font-medium text-slate-500 mt-0.5">ซ่อนออเดอร์ทั้งหมดจากกระดาน (ดูย้อนหลังในสถิติ)</p>
+                  </div>
+                </div>
+                <ChevronRight size={24} className="text-slate-300 group-hover:text-rose-500 transition-colors group-hover:translate-x-1" />
               </button>
             </div>
           )}
 
-          {/* 🌟 หน้าตั้งค่าเวลาตัดยอดร้าน */}
+          {/* หน้าตั้งเวลาทำการ */}
           {activeView === 'cutoff' && (
             <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-6 py-4">
               <div className="bg-emerald-50/50 rounded-4xl p-6 md:p-8 border border-emerald-100 relative overflow-hidden">
@@ -327,30 +375,70 @@ export default function SettingPage() {
                     <Clock size={32} />
                   </div>
                   <div>
-                    <h4 className="font-black text-slate-800 text-xl">เวลาตัดยอดจบวัน</h4>
+                    <h4 className="font-black text-slate-800 text-xl">ตั้งเวลา 2 กะ (Shift)</h4>
                     <p className="text-sm font-medium text-slate-500 mt-1">
-                      ระบบจะใช้นับสถิติ (Dashboard) และประวัติของไรเดอร์ (ตั้งให้ตรงกันทุกสาขา)
+                      ระบบจะใช้นับเวลาเข้างานและรวมยอดขายให้ถูกต้องแม้ทำงานข้ามคืน
                     </p>
                   </div>
                 </div>
 
-                <div className="bg-white p-6 rounded-2xl border border-emerald-100 shadow-sm space-y-4">
-                  <label className="block text-sm font-black text-slate-700">
-                    ระบุเวลาตัดยอด (ระบุเป็นตัวเลข 0 - 23)
-                  </label>
-                  <div className="flex items-center gap-3">
+                <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm space-y-5">
+                  <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+                    <label className="block text-xs font-black text-indigo-800 mb-2 uppercase tracking-wide">
+                      🌅 เวลาเริ่มวันใหม่ของร้าน (Business Day Start)
+                    </label>
                     <input 
-                      type="number" 
-                      min="0" max="23"
-                      value={cutOffHour}
-                      onChange={(e) => setCutOffHour(Number(e.target.value))}
-                      className="w-24 text-center bg-slate-50 border border-slate-200 p-4 rounded-xl text-xl outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all font-black text-emerald-600 shadow-inner"
+                      type="time" 
+                      value={businessDayStart}
+                      onChange={(e) => setBusinessDayStart(e.target.value)}
+                      className="w-full bg-white border border-indigo-200 p-3 rounded-xl text-lg outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-black text-indigo-700 shadow-sm cursor-pointer"
                     />
-                    <span className="text-lg font-black text-slate-500">: 00 น.</span>
+                    <p className="text-[10px] text-indigo-500 font-bold mt-2 leading-relaxed">
+                      * สำคัญมาก: ยอดขายและการเข้างานหลังเที่ยงคืน จนถึงเวลานี้ จะถูกนับรวมเป็นสถิติของ &quot;เมื่อวาน&quot; อัตโนมัติ (เช่น ตั้ง 07:00 บิลตอนตี 3 จะอยู่ในยอดของเมื่อวาน)
+                    </p>
                   </div>
-                  <p className="text-xs text-slate-400 font-bold">
-                    * เช่น ถ้าร้านปิด 02:00 น. แนะนำให้ใส่เลข 4 (ตี 4)
-                  </p>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">☀️ กะเช้า (เวลาเริ่ม)</label>
+                      <input 
+                        type="time" 
+                        value={shift1Start}
+                        onChange={(e) => setShift1Start(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-black text-slate-700 cursor-pointer"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">กะเช้า (สิ้นสุด)</label>
+                      <input 
+                        type="time" 
+                        value={shift1End}
+                        onChange={(e) => setShift1End(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-black text-slate-700 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-5">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">🌙 กะดึก (เวลาเริ่ม)</label>
+                      <input 
+                        type="time" 
+                        value={shift2Start}
+                        onChange={(e) => setShift2Start(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-black text-slate-700 cursor-pointer"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">กะดึก (สิ้นสุดข้ามคืน)</label>
+                      <input 
+                        type="time" 
+                        value={shift2End}
+                        onChange={(e) => setShift2End(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-black text-slate-700 cursor-pointer"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <button 
@@ -358,13 +446,13 @@ export default function SettingPage() {
                   disabled={isSavingTime}
                   className="mt-6 w-full flex items-center justify-center py-4 text-white bg-emerald-600 hover:bg-emerald-700 rounded-2xl transition-all font-black shadow-lg cursor-pointer active:scale-95 disabled:bg-slate-300 disabled:cursor-not-allowed text-base"
                 >
-                  {isSavingTime ? 'กำลังบันทึก...' : 'บันทึกเวลาตัดยอด'}
+                  {isSavingTime ? 'กำลังบันทึก...' : 'บันทึกเวลาทำการทั้งหมด'}
                 </button>
               </div>
             </div>
           )}
 
-          {/* 🌟 หน้าตั้งค่าการรับงานไรเดอร์ */}
+          {/* หน้าตั้งค่าไรเดอร์ */}
           {activeView === 'store' && (
             <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-6 py-4">
               <div className="bg-indigo-50/50 rounded-4xl p-6 md:p-8 border border-indigo-100 relative overflow-hidden">
@@ -410,10 +498,9 @@ export default function SettingPage() {
             </div>
           )}
 
-          {/* 🌟 หน้าตั้งค่าธีมสาขา */}
+          {/* หน้าตั้งค่าธีม */}
           {activeView === 'theme' && (
             <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-8 pb-4">
-              
               <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
                 <label className="block text-xs font-black text-blue-800 mb-2 uppercase tracking-wide">จัดการธีมของสาขา</label>
                 <select 
@@ -527,6 +614,71 @@ export default function SettingPage() {
         </div>
       </div>
 
+      {/* 🌟 Modal: ล้างกระดานออเดอร์ (ย้ายมาใหม่และทำ Animation) */}
+      {isClearBoardOpen && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4 z-[100] animate-in fade-in duration-300">
+          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col p-8 text-center relative border border-white/20">
+            <div className="w-24 h-24 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner relative">
+              <div className="absolute inset-0 bg-rose-200 rounded-full animate-ping opacity-20"></div>
+              <Trash2 size={48} className="animate-wiggle drop-shadow-md" />
+            </div>
+            
+            <h3 className="text-2xl font-black text-slate-800 tracking-tight mb-2">
+              ล้างกระดานออเดอร์
+            </h3>
+            <p className="text-sm text-slate-500 font-medium mb-6 leading-relaxed px-2">
+              เลือกล้างออเดอร์เพื่อปิดยอดจบวัน ออเดอร์จะถูกซ่อนจากกระดาน (ดูย้อนหลังได้ในหน้าสถิติ)
+            </p>
+            
+            <form onSubmit={handleClearBoard} className="space-y-6">
+              <select 
+                value={clearTarget}
+                onChange={e => setClearTarget(e.target.value)}
+                className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl text-sm font-bold text-slate-800 outline-none focus:bg-white focus:ring-4 focus:ring-rose-500/10 focus:border-rose-500 transition-all cursor-pointer text-center shadow-sm"
+              >
+                <option value="ALL">⚠️ ล้างกระดานทุกสาขาพร้อมกัน</option>
+                {branches.map(b => (
+                  <option key={b.id} value={b.id}>เฉพาะ {b.name}</option>
+                ))}
+              </select>
+
+              <div className="flex gap-3">
+                <button 
+                  type="button" onClick={() => setIsClearBoardOpen(false)}
+                  className="flex-1 py-4 bg-slate-100 text-slate-600 font-black tracking-widest uppercase rounded-2xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-xs"
+                >
+                  ยกเลิก
+                </button>
+                <button 
+                  type="submit" disabled={isClearing}
+                  className="flex-[1.5] py-4 text-white font-black tracking-widest uppercase rounded-2xl transition-all cursor-pointer shadow-xl active:scale-95 text-xs bg-linear-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 shadow-rose-500/40 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none"
+                >
+                  {isClearing ? "กำลังล้าง..." : "ล้างกระดานเลย"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Global Animations CSS */}
+      <style jsx global>{`
+        @keyframes float {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-5px); }
+        }
+        @keyframes wiggle {
+          0%, 100% { transform: rotate(-3deg); }
+          50% { transform: rotate(3deg); }
+        }
+        @keyframes spin-slow {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        .animate-float { animation: float 3s ease-in-out infinite; }
+        .animate-wiggle { animation: wiggle 2s ease-in-out infinite; }
+        .animate-spin-slow { animation: spin-slow 8s linear infinite; }
+      `}</style>
     </div>
   );
 }

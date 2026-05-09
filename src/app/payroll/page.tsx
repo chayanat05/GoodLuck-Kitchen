@@ -41,7 +41,6 @@ interface EditForm {
   payment_slip_url: string | null;
 }
 
-// 🌟 สูตรคำนวณค่าน้ำมันอัตโนมัติแบบขั้นบันได
 const getAutoGasAllowance = (orders: number): number => {
   if (orders >= 71) return 350;
   if (orders >= 61) return 300;
@@ -50,7 +49,7 @@ const getAutoGasAllowance = (orders: number): number => {
   if (orders >= 31) return 150;
   if (orders >= 21) return 100;
   if (orders >= 10) return 50;
-  return 0; // ต่ำกว่า 10 ออเดอร์ไม่ได้ค่าน้ำมัน
+  return 0; 
 };
 
 export default function PayrollPage() {
@@ -85,7 +84,6 @@ export default function PayrollPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [viewSlip, setViewSlip] = useState<string | null>(null);
-
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
 
   useEffect(() => {
@@ -110,10 +108,19 @@ export default function PayrollPage() {
     
     setCurrentUser(session.user);
 
-    const startOfDay = new Date(dateStr);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(dateStr);
-    endOfDay.setHours(23, 59, 59, 999);
+    // 🌟 ดึงเวลาเริ่มวันใหม่จาก Database (รองรับกะดึกข้ามคืน)
+    const { data: settings } = await supabase.from('store_settings').select('business_day_start').eq('id', 1).single();
+    const bizTime = settings?.business_day_start || '07:00';
+    const [bizHour, bizMin] = bizTime.split(':').map(Number);
+
+    const [year, month, day] = dateStr.split('-').map(Number);
+    
+    // เริ่มตั้งแต่เวลาทำการของวันที่เลือก
+    const startOfDay = new Date(year, month - 1, day, bizHour, bizMin, 0, 0);
+    
+    // สิ้นสุดที่เวลาก่อนเริ่มทำการของวันถัดไป 1 มิลลิวินาที
+    const endOfDay = new Date(year, month - 1, day + 1, bizHour, bizMin, 0, 0);
+    endOfDay.setMilliseconds(endOfDay.getMilliseconds() - 1);
 
     const { data, error } = await supabase
       .from('rider_attendance')
@@ -166,7 +173,6 @@ export default function PayrollPage() {
     }
 
     const currentOrders = record.order_count || 0;
-    // 🌟 ดึงค่าน้ำมันอัตโนมัติถ้ากำลังทำงานอยู่
     const proposedGas = isWorking ? getAutoGasAllowance(currentOrders) : (record.gas_allowance || 0);
 
     setEditForm({
@@ -345,7 +351,6 @@ export default function PayrollPage() {
               const isWorking = !record.check_out;
               const isPaid = record.payment_status === 'จ่ายแล้ว';
               
-              // 🌟 คำนวณนาที, ค่าน้ำมัน และยอดจ่ายแบบ Realtime สำหรับการ์ดโชว์
               let displayMinutes = record.total_minutes || 0;
               if (isWorking) {
                 const checkInTime = new Date(record.check_in).getTime();
@@ -452,7 +457,7 @@ export default function PayrollPage() {
         )}
       </div>
 
-      {/* 🌟 Modal: จัดการเงิน */}
+      {/* Modal: จัดการเงิน */}
       {editingRecord && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60] animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
@@ -486,7 +491,6 @@ export default function PayrollPage() {
                 </div>
               </div>
 
-              {/* ข้อมูลรายวัน */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">เรทจ่าย (บาท/ชม.)</label>
@@ -516,7 +520,6 @@ export default function PayrollPage() {
                     value={editForm.order_count}
                     onChange={e => {
                       const newCount = Number(e.target.value);
-                      // 🌟 เมื่อเปลี่ยนจำนวนออเดอร์ จะอัปเดตค่าน้ำมันให้อัตโนมัติ!
                       setEditForm({
                         ...editForm, 
                         order_count: newCount,
@@ -633,7 +636,6 @@ export default function PayrollPage() {
         </div>
       )}
 
-      {/* 🌟 Modal: แสดงรูปสลิปแบบเต็มจอ */}
       {viewSlip && (
         <div 
           className="fixed inset-0 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4 z-[200] animate-in fade-in duration-200"

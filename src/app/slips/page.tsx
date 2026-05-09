@@ -1,6 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
-import Link from "next/link";
+import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../../lib/supabase";
 import {
   ChevronLeft,
@@ -17,12 +16,15 @@ import {
   CheckSquare,
   Square,
   ListChecks,
-  ScanLine
+  ScanLine,
+  Calendar // 🌟 เพิ่มไอคอน Calendar
 } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 type SlipStatus = "รอตรวจ" | "ผ่าน" | "ไม่ผ่าน";
+// 🌟 เพิ่ม Type สำหรับเวลา
+type TimeRange = "today" | "shift1" | "shift2" | "yesterday" | "7days" | "30days" | "cycle" | "custom" | "all";
 
 interface OrderSlip {
   id: string;
@@ -50,6 +52,16 @@ export default function SlipsManagementPage() {
   const [filter, setFilter] = useState<SlipStatus | "all">("รอตรวจ");
   const [searchQuery, setSearchQuery] = useState("");
 
+  // 🌟 State ใหม่สำหรับระบบเวลา
+  const [timeRange, setTimeRange] = useState<TimeRange>("today");
+  const [businessDayStart, setBusinessDayStart] = useState<string>("07:00");
+  const [shift1Start, setShift1Start] = useState<string>("10:00");
+  const [shift1End, setShift1End] = useState<string>("17:00");
+  const [shift2Start, setShift2Start] = useState<string>("17:00");
+  const [shift2End, setShift2End] = useState<string>("03:00");
+  const [customStartDate, setCustomStartDate] = useState<string>("");
+  const [customEndDate, setCustomEndDate] = useState<string>("");
+
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const router = useRouter();
@@ -70,9 +82,20 @@ export default function SlipsManagementPage() {
   
   const [isScanning, setIsScanning] = useState<string | null>(null);
 
-  // 🌟 นำฟังก์ชันดึงข้อมูลมาไว้ใน useEffect ตามมาตรฐาน React เพื่อแก้ Error
+  // 🌟 ดึงค่า Settings เวลา และ สลิปทั้งหมด
   useEffect(() => {
-    const loadSlips = async () => {
+    const loadSettingsAndSlips = async () => {
+      // 1. ดึงตั้งค่าเวลา
+      const { data: settings } = await supabase.from("store_settings").select("*").eq("id", 1).single();
+      if (settings) {
+        if (settings.business_day_start) setBusinessDayStart(settings.business_day_start);
+        if (settings.shift1_start) setShift1Start(settings.shift1_start);
+        if (settings.shift1_end) setShift1End(settings.shift1_end);
+        if (settings.shift2_start) setShift2Start(settings.shift2_start);
+        if (settings.shift2_end) setShift2End(settings.shift2_end);
+      }
+
+      // 2. ดึงสลิป (ยึดโค้ดเดิมทั้งหมด)
       const { data, error } = await supabase
         .from("orders")
         .select("id, order_number, total_price, created_at, slip_image, slip_status, rider_name")
@@ -89,7 +112,7 @@ export default function SlipsManagementPage() {
       setIsLoading(false);
     };
 
-    loadSlips();
+    loadSettingsAndSlips();
   }, []);
 
   const showToast = (message: string, type: "success" | "error" | "warning" = "success") => {
@@ -116,11 +139,98 @@ export default function SlipsManagementPage() {
     setSelectedIds(newSet);
   };
 
-  const filteredOrders = orders.filter((order) => {
-    const matchFilter = filter === "all" ? true : order.slip_status === filter || (!order.slip_status && filter === "รอตรวจ");
-    const matchSearch = order.order_number.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchFilter && matchSearch;
-  });
+  // 🌟 Step 1: กรองเฉพาะช่วงเวลา (Business Day / Shift) ก่อน
+  const timeFilteredOrders = useMemo(() => {
+    if (timeRange === "all") return orders;
+
+    const now = new Date();
+    let startDate = new Date(0); 
+    let endDate = new Date(8640000000000000); 
+
+    const [bizHour, bizMin] = businessDayStart.split(':').map(Number);
+    const currentBizDate = new Date(now);
+    if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
+      currentBizDate.setDate(currentBizDate.getDate() - 1);
+    }
+    const y = currentBizDate.getFullYear();
+    const m = currentBizDate.getMonth();
+    const d = currentBizDate.getDate();
+
+    if (timeRange === "today") {
+      startDate = new Date(y, m, d, bizHour, bizMin, 0, 0);
+      endDate = new Date(y, m, d + 1, bizHour, bizMin, 0, 0);
+      endDate.setMilliseconds(endDate.getMilliseconds() - 1);
+    } 
+    else if (timeRange === "shift1") {
+      const [sH, sM] = shift1Start.split(':').map(Number);
+      const [eH, eM] = shift1End.split(':').map(Number);
+      startDate = new Date(y, m, d, sH, sM, 0, 0);
+      endDate = new Date(y, m, d, eH, eM, 0, 0);
+      if (eH < sH) endDate.setDate(endDate.getDate() + 1); 
+    }
+    else if (timeRange === "shift2") {
+      const [sH, sM] = shift2Start.split(':').map(Number);
+      const [eH, eM] = shift2End.split(':').map(Number);
+      startDate = new Date(y, m, d, sH, sM, 0, 0);
+      endDate = new Date(y, m, d, eH, eM, 0, 0);
+      if (eH < sH) endDate.setDate(endDate.getDate() + 1); 
+    }
+    else if (timeRange === "yesterday") {
+      startDate = new Date(y, m, d - 1, bizHour, bizMin, 0, 0);
+      endDate = new Date(y, m, d, bizHour, bizMin, 0, 0);
+      endDate.setMilliseconds(endDate.getMilliseconds() - 1);
+    } 
+    else if (timeRange === "7days") {
+      startDate = new Date(y, m, d - 7, bizHour, bizMin, 0, 0);
+    } 
+    else if (timeRange === "30days") {
+      startDate = new Date(y, m, d - 30, bizHour, bizMin, 0, 0);
+    } 
+    else if (timeRange === "cycle") {
+      startDate = new Date(now);
+      if (now.getDate() >= 26) {
+        startDate.setDate(26);
+      } else {
+        startDate.setMonth(startDate.getMonth() - 1);
+        startDate.setDate(26);
+      }
+      startDate.setHours(0, 0, 0, 0);
+    }
+    else if (timeRange === "custom") {
+      if (customStartDate) {
+        startDate = new Date(customStartDate);
+        startDate.setHours(0, 0, 0, 0);
+      }
+      if (customEndDate) {
+        endDate = new Date(customEndDate);
+        endDate.setHours(23, 59, 59, 999);
+      }
+    }
+
+    return orders.filter(o => {
+      const orderDate = new Date(o.created_at);
+      return orderDate >= startDate && orderDate <= endDate;
+    });
+  }, [orders, timeRange, businessDayStart, shift1Start, shift1End, shift2Start, shift2End, customStartDate, customEndDate]);
+
+  // 🌟 Step 2: กรองตามสถานะ และ คำค้นหา (สำหรับแสดงผล)
+  const filteredOrders = useMemo(() => {
+    return timeFilteredOrders.filter((order) => {
+      const matchFilter = filter === "all" ? true : order.slip_status === filter || (!order.slip_status && filter === "รอตรวจ");
+      const matchSearch = order.order_number.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchFilter && matchSearch;
+    });
+  }, [timeFilteredOrders, filter, searchQuery]);
+
+  // 🌟 คำนวณสถิติจากช่วงเวลาที่เลือก
+  const stats = useMemo(() => {
+    return {
+      pending: timeFilteredOrders.filter((o) => !o.slip_status || o.slip_status === "รอตรวจ").length,
+      approved: timeFilteredOrders.filter((o) => o.slip_status === "ผ่าน").length,
+      rejected: timeFilteredOrders.filter((o) => o.slip_status === "ไม่ผ่าน").length,
+      total: timeFilteredOrders.length
+    };
+  }, [timeFilteredOrders]);
 
   const toggleSelectAll = () => {
     if (selectedIds.size === filteredOrders.length && filteredOrders.length > 0) {
@@ -176,27 +286,55 @@ export default function SlipsManagementPage() {
     }
   };
 
+  // 🌟 [อัปเกรด] ให้จำลองการอ่านยอดเงินมาเปรียบเทียบ
   const handleSimulateOCR = async (orderId: string) => {
-    setIsScanning(orderId);
-    showToast("กำลังส่งข้อมูลให้ AI ตรวจสอบ...", "warning");
-    
-    await new Promise(resolve => setTimeout(resolve, 2500));
-    
-    setIsScanning(null);
-    showToast("AI ตรวจสอบเรียบร้อย ยอดเงินตรงกัน!", "success");
-    setOrders(orders.map(o => o.id === orderId ? { ...o, slip_status: 'ผ่าน' } : o));
-  };
+    const targetOrder = orders.find(o => o.id === orderId);
+    if (!targetOrder) return;
 
-  const stats = {
-    pending: orders.filter((o) => !o.slip_status || o.slip_status === "รอตรวจ").length,
-    approved: orders.filter((o) => o.slip_status === "ผ่าน").length,
-    rejected: orders.filter((o) => o.slip_status === "ไม่ผ่าน").length,
+    setIsScanning(orderId);
+    showToast("กำลังส่งรูปให้ AI วิเคราะห์ยอดเงิน...", "warning");
+    
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // 🛑 โค้ดจำลอง (Mock) OCR อ่านตัวเลข
+    const mockOcrAmountStr = window.prompt(`[โหมดทดสอบ OCR]\nกรุณาระบุยอดเงินที่ AI อ่านได้จากรูป:\n(ยอดเรียกเก็บที่ต้องการคือ ฿${targetOrder.total_price})`, targetOrder.total_price.toString());
+
+    setIsScanning(null);
+
+    if (mockOcrAmountStr === null) {
+      showToast("ยกเลิกการตรวจสอบโดย AI", "warning");
+      return;
+    }
+
+    const extractedAmount = parseFloat(mockOcrAmountStr);
+
+    if (isNaN(extractedAmount)) {
+      showToast("ระบบ AI ไม่สามารถอ่านตัวเลขยอดเงินได้", "error");
+      setOrders(orders.map(o => o.id === orderId ? { ...o, slip_status: 'ไม่ผ่าน' } : o));
+      
+      // Update DB ทันที
+      await supabase.from("orders").update({ slip_status: "ไม่ผ่าน" }).eq("id", orderId);
+      return;
+    }
+
+    // 🌟 เช็คเงื่อนไข: ยอดโอนที่อ่านได้ ต้อง >= ยอดที่ตั้งไว้
+    if (extractedAmount < targetOrder.total_price) {
+      showToast(`สลิปไม่ผ่าน! ยอดโอน (฿${extractedAmount}) ไม่ครบตามยอดเรียกเก็บ (฿${targetOrder.total_price})`, "error");
+      setOrders(orders.map(o => o.id === orderId ? { ...o, slip_status: 'ไม่ผ่าน' } : o));
+      
+      await supabase.from("orders").update({ slip_status: "ไม่ผ่าน" }).eq("id", orderId);
+      return;
+    }
+    
+    showToast("AI ตรวจสอบเรียบร้อย ยอดเงินโอนถูกต้อง!", "success");
+    setOrders(orders.map(o => o.id === orderId ? { ...o, slip_status: 'ผ่าน' } : o));
+    await supabase.from("orders").update({ slip_status: "ผ่าน" }).eq("id", orderId);
   };
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans p-4 md:p-8 flex flex-col items-center pb-32">
       {/* Toast Notification */}
-      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center px-5 py-3 rounded-full shadow-2xl z-50 ${toast.type === "success" ? "bg-emerald-600 text-white" : toast.type === "warning" ? "bg-amber-500 text-white" : "bg-rose-600 text-white"} ${toast.show ? "translate-y-0 opacity-100" : "-translate-y-20 opacity-0 pointer-events-none"}`}>
+      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center px-5 py-3 rounded-full shadow-2xl z-[150] ${toast.type === "success" ? "bg-emerald-600 text-white" : toast.type === "warning" ? "bg-amber-500 text-white" : "bg-rose-600 text-white"} ${toast.show ? "translate-y-0 opacity-100" : "-translate-y-20 opacity-0 pointer-events-none"}`}>
         {toast.type === "success" ? <CheckCircle2 size={18} className="mr-2" /> : toast.type === "warning" ? <Loader2 size={18} className="mr-2 animate-spin" /> : <AlertCircle size={18} className="mr-2" />}
         <span className="font-bold text-sm tracking-wide text-white">{toast.message}</span>
       </div>
@@ -206,11 +344,11 @@ export default function SlipsManagementPage() {
         <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-4 w-full md:w-auto">
             <button 
-        onClick={() => router.back()} 
-        className="flex items-center text-slate-500 hover:text-slate-800 transition-colors cursor-pointer active:scale-95"
-          >
-          <ChevronLeft size={20} className="mr-1" /> ย้อนกลับ
-          </button>
+              onClick={() => router.back()} 
+              className="flex items-center text-slate-500 hover:text-slate-800 transition-colors cursor-pointer active:scale-95 bg-slate-50 px-3 py-2 rounded-xl"
+            >
+              <ChevronLeft size={20} className="mr-1" /> กลับ
+            </button>
             <div>
               <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
                 <ShieldCheck className="text-emerald-500" size={28} /> จัดการสลิปโอนเงิน
@@ -219,17 +357,60 @@ export default function SlipsManagementPage() {
             </div>
           </div>
 
-          <div className="flex w-full md:w-auto relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input
-              type="text"
-              placeholder="ค้นหาเลขที่ออเดอร์..."
-              value={searchQuery}
-              onChange={handleSearchChange}
-              className="w-full md:w-64 pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-700 outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all shadow-inner"
-            />
+          <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+            {/* 🌟 ตัวเลือกช่วงเวลา */}
+            <div className="flex items-center bg-slate-100 p-1 rounded-2xl border border-slate-200 shadow-inner w-full md:w-auto">
+              <Calendar size={14} className="text-slate-500 ml-3 mr-1 hidden sm:block" />
+              <select 
+                value={timeRange}
+                onChange={(e) => setTimeRange(e.target.value as TimeRange)}
+                className="bg-transparent text-sm font-black text-slate-700 outline-none cursor-pointer p-2 w-full md:w-auto"
+              >
+                <option value="today">🔥 วันนี้ (รวมทั้งหมด)</option>
+                <option value="shift1">☀️ เฉพาะกะเช้า</option>
+                <option value="shift2">🌙 เฉพาะกะดึก</option>
+                <option value="yesterday">⏪ เมื่อวาน</option>
+                <option value="7days">📅 ย้อนหลัง 7 วัน</option>
+                <option value="cycle">🔄 รอบบิลปัจจุบัน</option>
+                <option value="custom">⚙️ กำหนดเวลาเอง...</option>
+                <option value="all">📊 ดูสลิปทั้งหมด</option>
+              </select>
+            </div>
+            
+            {/* 🌟 ช่องค้นหา */}
+            <div className="relative w-full md:w-64">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                type="text"
+                placeholder="ค้นหาเลขออเดอร์..."
+                value={searchQuery}
+                onChange={handleSearchChange}
+                className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-700 outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all shadow-inner"
+              />
+            </div>
           </div>
         </div>
+
+        {/* 🌟 ตัวเลือกกำหนดวันที่เอง (ถ้าเลือก custom) */}
+        {timeRange === 'custom' && (
+          <div className="flex items-center gap-1.5 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm w-full md:w-auto justify-end animate-in fade-in slide-in-from-top-2">
+            <span className="text-slate-500 font-bold text-xs shrink-0">จากวันที่</span>
+            <input 
+              type="date" 
+              value={customStartDate}
+              onChange={(e) => setCustomStartDate(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+            />
+            <span className="text-slate-300 font-bold mx-1">-</span>
+            <span className="text-slate-500 font-bold text-xs shrink-0">ถึงวันที่</span>
+            <input 
+              type="date" 
+              value={customEndDate}
+              onChange={(e) => setCustomEndDate(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+            />
+          </div>
+        )}
 
         {/* Stats & Filters */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -262,7 +443,7 @@ export default function SlipsManagementPage() {
               <span className={`text-sm font-black tracking-wider uppercase ${filter === "all" ? "text-slate-300" : "text-slate-500"}`}>รายการทั้งหมด</span>
               <ImageIcon size={20} className={filter === "all" ? "text-white opacity-80" : "text-slate-500"} />
             </div>
-            <div className="text-3xl md:text-4xl font-black">{orders.length} <span className="text-sm font-bold opacity-80">บิล</span></div>
+            <div className="text-3xl md:text-4xl font-black">{stats.total} <span className="text-sm font-bold opacity-80">บิล</span></div>
           </button>
         </div>
 
@@ -308,7 +489,7 @@ export default function SlipsManagementPage() {
           <div className="p-4 border-b border-slate-100 flex justify-between items-center">
             <button 
               onClick={toggleSelectAll}
-              className="flex items-center gap-2 text-sm font-black text-slate-600 hover:text-indigo-600 transition-colors"
+              className="flex items-center gap-2 text-sm font-black text-slate-600 hover:text-indigo-600 transition-colors cursor-pointer"
             >
               {selectedIds.size === filteredOrders.length && filteredOrders.length > 0 ? (
                 <CheckSquare size={20} className="text-indigo-600" />
@@ -331,7 +512,7 @@ export default function SlipsManagementPage() {
                 <ListChecks size={32} className="text-slate-300" />
               </div>
               <h3 className="text-lg font-black text-slate-700 mb-1">ไม่พบรายการบิล</h3>
-              <p className="text-xs font-medium text-slate-400">ลองเปลี่ยนตัวกรอง หรือค้นหาใหม่นะครับ</p>
+              <p className="text-xs font-medium text-slate-400">ลองเปลี่ยนตัวกรองเวลา หรือค้นหาใหม่นะครับ</p>
             </div>
           ) : (
             <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 animate-in fade-in duration-500">
@@ -425,7 +606,7 @@ export default function SlipsManagementPage() {
                         {order.slip_image && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleSimulateOCR(order.id); }}
-                            className="flex-[0.4] py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-black rounded-xl transition-colors flex items-center justify-center text-[10px] shadow-sm border border-indigo-100 group/ocr"
+                            className="flex-[0.4] py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-black rounded-xl transition-colors flex items-center justify-center text-[10px] shadow-sm border border-indigo-100 group/ocr cursor-pointer"
                             title="ให้ AI ตรวจสลิป"
                           >
                             <ScanLine size={16} className="group-hover/ocr:animate-pulse" />
@@ -433,13 +614,13 @@ export default function SlipsManagementPage() {
                         )}
                         <button
                           onClick={(e) => { e.stopPropagation(); setPopup({ isOpen: true, type: "confirm", title: "ปฏิเสธสลิปนี้?", message: "สลิปยอดเงินไม่ตรง หรือเป็นสลิปปลอม?", targetIds: [order.id], action: "reject" }); }}
-                          className="flex-1 py-2.5 bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 text-slate-400 font-black rounded-xl transition-all flex items-center justify-center text-[11px] shadow-sm"
+                          className="flex-1 py-2.5 bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 text-slate-400 font-black rounded-xl transition-all flex items-center justify-center text-[11px] shadow-sm cursor-pointer"
                         >
                           <XCircle size={14} className="mr-1.5" /> ไม่ผ่าน
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); setPopup({ isOpen: true, type: "confirm", title: "อนุมัติสลิปนี้?", message: "ตรวจสอบยอดเงินเรียบร้อยถูกต้องใช่หรือไม่?", targetIds: [order.id], action: "approve" }); }}
-                          className="flex-1 py-2.5 bg-emerald-50 border border-emerald-100 text-emerald-600 hover:bg-emerald-500 hover:text-white hover:border-emerald-500 font-black rounded-xl transition-all flex items-center justify-center text-[11px] shadow-sm"
+                          className="flex-1 py-2.5 bg-emerald-50 border border-emerald-100 text-emerald-600 hover:bg-emerald-500 hover:text-white hover:border-emerald-500 font-black rounded-xl transition-all flex items-center justify-center text-[11px] shadow-sm cursor-pointer"
                         >
                           <CheckCircle2 size={14} className="mr-1.5" /> ผ่าน
                         </button>
@@ -455,8 +636,8 @@ export default function SlipsManagementPage() {
 
       {/* 🌟 Modal: ดูรูปภาพขนาดเต็ม */}
       {selectedImage && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl flex items-center justify-center z-50 animate-in fade-in duration-200" onClick={() => setSelectedImage(null)}>
-          <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors cursor-pointer active:scale-90 shadow-lg">
+        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl flex items-center justify-center z-[200] animate-in fade-in duration-200" onClick={() => setSelectedImage(null)}>
+          <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors cursor-pointer active:scale-90 shadow-lg z-[210]">
             <X size={24} strokeWidth={2.5} />
           </button>
           <div className="relative w-full h-full max-w-4xl max-h-screen p-8 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
@@ -468,7 +649,7 @@ export default function SlipsManagementPage() {
 
       {/* 🌟 Modal: ยืนยันการกระทำ (Approve / Reject / Clear / Delete) */}
       {popup.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 z-[150] animate-in fade-in duration-200">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-5 duration-300 border border-slate-100 flex flex-col p-8 text-center relative">
             {popup.action === "approve" && (
               <div className="w-20 h-20 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner">
