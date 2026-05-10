@@ -1,21 +1,21 @@
-'use client'
+"use client";
 import { GoogleMap, useJsApiLoader, MarkerF, InfoWindowF } from '@react-google-maps/api';
-import { useCallback, useState } from 'react';
-import { useMemo } from 'react';
+import { useCallback, useState, useMemo } from 'react';
 
-const containerStyle = { width: '100%', height: '400px', borderRadius: '0.75rem' };
+const containerStyle = { width: '100%', height: '100%', minHeight: '350px', borderRadius: '1.5rem' };
 const LIBRARIES: ("places" | "drawing" | "geometry" | "visualization")[] = ["places"];
 
 interface SavedLocation {
+  id?: string;
   name: string;
-  lat: number;
-  lng: number;
+  lat: number | string;
+  lng: number | string;
 }
 
 interface JobMapProps {
   lat?: number | null;
   lng?: number | null;
-  savedLocations?: SavedLocation[]; // 🌟 รับข้อมูลหมุดที่เซฟไว้มาโชว์
+  savedLocations?: SavedLocation[]; 
   onPinChange?: (lat: number, lng: number) => void;
   readOnly?: boolean;
 }
@@ -25,14 +25,18 @@ export default function JobMap({ lat, lng, savedLocations = [], onPinChange, rea
     id: 'google-map-script',
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
     libraries: LIBRARIES,
-    language: 'th', // 🌟 บังคับให้แผนที่เป็นภาษาไทย
+    language: 'th', 
     region: 'TH'
   });
 
   const [, setMap] = useState<google.maps.Map | null>(null);
   const [activeMarker, setActiveMarker] = useState<string | null>(null);
 
-  const center = lat && lng ? { lat, lng } : { lat: 16.248130, lng: 103.242206 };
+  // 🌟 บังคับให้ Center เป็น Number เสมอ
+  const center = useMemo(() => ({
+    lat: lat ? Number(lat) : 16.248130,
+    lng: lng ? Number(lng) : 103.242206
+  }), [lat, lng]);
 
   const onLoad = useCallback((map: google.maps.Map) => {
     setMap(map);
@@ -44,15 +48,11 @@ export default function JobMap({ lat, lng, savedLocations = [], onPinChange, rea
     setActiveMarker(null);
   };
 
-  const limitedLocations = useMemo(() => {
-  return savedLocations.slice(0, 50);
-}, [savedLocations]);
-
   if (loadError) return <div className="p-6 bg-red-50 text-red-500 rounded-xl font-medium flex items-center justify-center border border-red-100">เกิดข้อผิดพลาดในการโหลดแผนที่</div>;
-  if (!isLoaded) return <div className="h-400px bg-gray-100 animate-pulse flex items-center justify-center rounded-xl text-gray-400 font-medium">กำลังโหลดดาวเทียม...</div>;
+  if (!isLoaded) return <div className="h-[350px] w-full bg-slate-100 animate-pulse flex items-center justify-center rounded-3xl text-slate-400 font-bold tracking-widest uppercase">กำลังโหลดแผนที่...</div>;
 
   return (
-    <div className="border-2 border-gray-100 rounded-xl overflow-hidden shadow-sm relative transition-all hover:border-blue-200">
+    <div className="w-full h-full relative rounded-3xl overflow-hidden shadow-sm">
       <GoogleMap
         mapContainerStyle={containerStyle}
         center={center}
@@ -61,48 +61,44 @@ export default function JobMap({ lat, lng, savedLocations = [], onPinChange, rea
         onClick={onMapClick}
         options={{
           disableDefaultUI: false,
-          mapTypeControl: true, // สลับแผนที่/ดาวเทียม
+          mapTypeControl: true,
           zoomControl: true,
           streetViewControl: false,
           fullscreenControl: true,
-          mapTypeControlOptions: {
-            position: window.google?.maps?.ControlPosition?.TOP_LEFT, // 🌟 ย้ายมาซ้ายบนให้กดง่าย
-            style: window.google?.maps?.MapTypeControlStyle?.DROPDOWN_MENU
-          },
-          zoomControlOptions: {
-            position: window.google?.maps?.ControlPosition?.RIGHT_BOTTOM // ซูมไว้ขวาล่าง
-          }
         }}
       >
-        {/* 🌟 1. เรนเดอร์หมุดที่เคยบันทึกไว้ของร้าน (สีน้ำเงิน) */}
-        {limitedLocations.map((loc, idx) => (
-          <MarkerF
-            key={`saved-${idx}`}
-            position={{ lat: loc.lat, lng: loc.lng }}
-            icon="http://maps.google.com/mapfiles/ms/icons/blue-dot.png"
-            onClick={() => setActiveMarker(`saved-${idx}`)}
-          >
-            {activeMarker === `saved-${idx}` && (
-              <InfoWindowF onCloseClick={() => setActiveMarker(null)}>
-                <div className="p-1 max-w-150px text-center font-bold text-blue-700 text-xs">
-                  🏪 {loc.name}
-                </div>
-              </InfoWindowF>
-            )}
-          </MarkerF>
-        ))}
+        {/* 🌟 เรนเดอร์หมุดที่เคยบันทึกไว้ (เพิ่ม Number() ป้องกัน Error) */}
+        {savedLocations.map((loc, idx) => {
+          const position = { lat: Number(loc.lat), lng: Number(loc.lng) };
+          if (isNaN(position.lat) || isNaN(position.lng)) return null;
 
-        {/* 🌟 2. เรนเดอร์หมุดที่กำลังปักอยู่ (สีแดงปกติ) */}
+          return (
+            <MarkerF
+              key={loc.id || `saved-${idx}`}
+              position={position}
+              onClick={() => setActiveMarker(loc.id || `saved-${idx}`)}
+            >
+              {activeMarker === (loc.id || `saved-${idx}`) && (
+                <InfoWindowF onCloseClick={() => setActiveMarker(null)}>
+                  <div className="p-2 max-w-[180px] text-center font-black text-blue-700 text-sm">
+                    🏪 {loc.name}
+                  </div>
+                </InfoWindowF>
+              )}
+            </MarkerF>
+          );
+        })}
+
+        {/* 🌟 เรนเดอร์หมุดที่กำลังปัก */}
         {lat && lng && (
           <MarkerF 
-            position={{ lat, lng }} 
-            animation={window.google?.maps?.Animation?.DROP} 
+            position={{ lat: Number(lat), lng: Number(lng) }} 
           />
         )}
       </GoogleMap>
       
       {!readOnly && (
-        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 px-4 py-2 bg-white/90 backdrop-blur-sm text-gray-700 text-xs font-bold rounded-full shadow-lg border border-gray-200 pointer-events-none">
+        <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 px-5 py-2.5 bg-slate-900/90 backdrop-blur-sm text-white text-xs font-black rounded-full shadow-2xl pointer-events-none tracking-widest border border-white/10">
           📍 จิ้มบนแผนที่เพื่อปักหมุด
         </div>
       )}

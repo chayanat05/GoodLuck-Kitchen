@@ -7,7 +7,7 @@ import {
   Store, MapPin, ChevronRight, Activity, 
   LogOut, Loader2, Clock, ShieldCheck, Package, Menu, X, 
   Settings, AlertTriangle, CheckCircle2, Users, ScanSearch,
-  Search, CheckSquare, Banknote, LayoutDashboard, Landmark
+  Search, CheckSquare, Banknote, LayoutDashboard, Landmark,PieChart
 } from "lucide-react";
 
 interface Branch {
@@ -50,6 +50,16 @@ export default function BranchSelectorPage() {
 
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
 
+  const [businessDayStart, setBusinessDayStart] = useState<string>("07:00");
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000); 
+    return () => clearInterval(timer);
+  }, []);
+
   const showToast = useCallback((message: string, type = "success") => {
     setToast({ show: true, message, type });
     setTimeout(() => setToast({ show: false, message: "", type: "success" }), 3000);
@@ -89,7 +99,8 @@ export default function BranchSelectorPage() {
     const { data: activeOrders } = await supabase
       .from("orders")
       .select("branch_id")
-      .in("status", ["New", "กำลังทำ", "รับงาน"]);
+      .in("status", ["New", "กำลังทำ", "รับงาน"])
+      .or("is_archived.is.null,is_archived.eq.false");
 
     const branchList = branchesData.map(branch => {
       const count = activeOrders?.filter(o => o.branch_id === branch.id).length || 0;
@@ -103,6 +114,11 @@ export default function BranchSelectorPage() {
       .select("id, username, branch_id, role");
     
     if (employeeData) setEmployees(employeeData);
+
+    const { data: settings } = await supabase.from('store_settings').select('business_day_start').eq('id', 1).single();
+    if (settings && settings.business_day_start) {
+      setBusinessDayStart(settings.business_day_start);
+    }
 
     const today = new Date().toISOString().split('T')[0];
     const { data: attendanceData } = await supabase
@@ -265,7 +281,7 @@ export default function BranchSelectorPage() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans p-6 md:p-12 flex flex-col items-center pb-20">
       
-      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-[150] ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
+      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-150 ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
         {toast.type === 'error' ? <AlertTriangle size={18} className="text-rose-400 mr-2" /> : <CheckCircle2 size={18} className="text-emerald-400 mr-2" />}
         <span className="font-bold text-sm tracking-wide">{toast.message}</span>
       </div>
@@ -372,6 +388,17 @@ export default function BranchSelectorPage() {
               </Link>
 
               <Link
+                href="/accounting"
+                prefetch={false}
+                className="w-full flex items-center p-4 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 rounded-2xl transition-all font-bold border border-transparent hover:border-emerald-100 group"
+              >
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                  <PieChart size={20} className="text-emerald-600" />
+                </div>
+                ระบบบัญชีร้าน (Accounting)
+              </Link>
+              
+              <Link
                 href="/stock"
                 prefetch={false}
                 className="w-full flex items-center p-4 text-slate-600 hover:bg-orange-50 hover:text-orange-700 rounded-2xl transition-all font-bold border border-transparent hover:border-orange-100 group"
@@ -472,7 +499,7 @@ export default function BranchSelectorPage() {
                       </div>
                       <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
                         <Clock size={14} className="text-emerald-500 shrink-0" />
-                        เวลาตัดยอด (ตี): {branch.cut_off_hour}:00 น.
+                        เวลาตัดยอด (เริ่มวันใหม่): {businessDayStart} น.
                       </div>
                     </div>
                   </div>
@@ -490,7 +517,7 @@ export default function BranchSelectorPage() {
 
         {/* 🟢 ฝั่งขวา: ระบบลงเวลาพนักงาน (HR) */}
         <div className="lg:col-span-2">
-          <div className="bg-white rounded-4xl p-6 shadow-sm border border-slate-100 flex flex-col h-full max-h-[800px]">
+          <div className="bg-white rounded-4xl p-6 shadow-sm border border-slate-100 flex flex-col h-full max-h-200">
             <h2 className="text-lg font-black text-slate-700 flex items-center gap-2 mb-4 shrink-0">
               <Users size={20} className="text-emerald-500" /> ควบคุมเวลาเข้างาน (HR)
             </h2>
@@ -552,6 +579,12 @@ export default function BranchSelectorPage() {
                 const isActive = att && !att.check_out; 
                 const isSelected = selectedEmployees.includes(employee.id);
                 
+                let displayMinutes = 0;
+                if (isActive) {
+                  const checkInTime = new Date(att.check_in).getTime();
+                  displayMinutes = Math.floor((currentTime.getTime() - checkInTime) / 60000);
+                }
+                
                 return (
                   <div key={employee.id} className={`flex items-center p-3 sm:p-4 border rounded-2xl transition-all cursor-pointer ${isActive ? 'bg-white border-emerald-200 shadow-sm shadow-emerald-500/5' : 'bg-slate-50 border-slate-100 opacity-80'} ${isSelected ? 'ring-2 ring-emerald-400' : ''}`} onClick={() => toggleEmployeeSelect(employee.id)}>
                     
@@ -577,10 +610,16 @@ export default function BranchSelectorPage() {
                       </div>
 
                       {isActive ? (
-                        <p className="text-[10px] text-emerald-600 font-bold flex items-center">
-                          <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5 animate-pulse"></span>
-                          เข้างาน: {new Date(att.check_in).toLocaleTimeString('th-TH', { hour: '2-digit', minute:'2-digit' })} น.
-                        </p>
+                        <div className="flex flex-col gap-0.5 mt-1">
+                          <p className="text-[10px] text-emerald-600 font-bold flex items-center">
+                            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5 animate-pulse"></span>
+                            เข้างาน: {new Date(att.check_in).toLocaleTimeString('th-TH', { hour: '2-digit', minute:'2-digit' })} น.
+                          </p>
+                          <p className="text-[10px] text-blue-600 font-bold flex items-center ml-3">
+                            <Clock size={10} className="mr-1" />
+                            เวลาทำ: {displayMinutes >= 60 ? `${Math.floor(displayMinutes / 60)} ชม. ${displayMinutes % 60} นาที` : `${displayMinutes} นาที`}
+                          </p>
+                        </div>
                       ) : (
                         <p className="text-[10px] text-slate-400 font-bold flex items-center">
                           <span className="w-1.5 h-1.5 bg-slate-300 rounded-full mr-1.5"></span>

@@ -78,6 +78,26 @@ export default function DashboardView({
   const [imgScale, setImgScale] = useState(1);
   const galleryRef = useRef<HTMLDivElement>(null);
 
+  const [showHistory, setShowHistory] = useState(false);
+  const [attendanceHistory, setAttendanceHistory] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const fetchAttendanceHistory = async () => {
+    setLoadingHistory(true);
+    setShowHistory(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      const { data } = await supabase
+        .from('rider_attendance')
+        .select('*')
+        .eq('rider_id', session.user.id)
+        .order('check_in', { ascending: false })
+        .limit(30);
+      if (data) setAttendanceHistory(data);
+    }
+    setLoadingHistory(false);
+  };
+
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
   const [payrollStats, setPayrollStats] = useState({
     isWorking: false,
@@ -311,15 +331,20 @@ export default function DashboardView({
             <h3 className="font-black text-slate-700 text-sm flex items-center">
               <Coins size={18} className="mr-2 text-emerald-500" /> กระเป๋าเงินของฉัน (วันนี้)
             </h3>
-            {payrollStats.isWorking ? (
-              <span className="flex items-center gap-1 text-[10px] font-black uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 shadow-sm">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> ทำงานอยู่
-              </span>
-            ) : (
-              <span className="text-[10px] font-black uppercase text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 shadow-sm">
-                ไม่ได้เข้างาน
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              <button onClick={fetchAttendanceHistory} className="text-[10px] font-black uppercase text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-md border border-blue-200 transition-colors shadow-sm flex items-center gap-1 cursor-pointer">
+                <Clock size={12} /> ประวัติ
+              </button>
+              {payrollStats.isWorking ? (
+                <span className="flex items-center gap-1 text-[10px] font-black uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> ทำงานอยู่
+                </span>
+              ) : (
+                <span className="text-[10px] font-black uppercase text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 shadow-sm">
+                  ไม่ได้เข้างาน
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 mb-4">
@@ -330,7 +355,7 @@ export default function DashboardView({
             <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 flex flex-col justify-center">
               <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2">
                 <span className="flex items-center"><Clock size={12} className="mr-1 text-blue-500"/> เวลาทำ</span>
-                <span className="text-blue-700 font-black">{liveMinutes} นาที</span>
+                <span className="text-blue-700 font-black">{liveMinutes >= 60 ? `${Math.floor(liveMinutes / 60)} ชม. ${liveMinutes % 60} นาที` : `${liveMinutes} นาที`}</span>
               </div>
               <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2">
                 <span className="flex items-center"><Package size={12} className="mr-1 text-orange-500"/> สำเร็จแล้ว</span>
@@ -411,7 +436,7 @@ export default function DashboardView({
           )}
 
           <div className="flex overflow-x-auto gap-2 pb-2 pt-1 hide-scrollbar">
-            {['all', 'ร้าน', 'รับหิ้ว', 'รับส่ง'].map(type => (
+            {['all', 'ร้าน'].map(type => (
               <button
                 key={type}
                 onClick={() => setJobTypeFilter(type)}
@@ -636,6 +661,49 @@ export default function DashboardView({
             <button onClick={() => setImgScale(prev => Math.min(4, prev + 0.5))} className={`p-2 rounded-full transition-all cursor-pointer ${imgScale >= 4 ? 'text-slate-500 cursor-not-allowed' : 'text-white hover:bg-white/20'}`} disabled={imgScale >= 4}>
               <ZoomIn size={24} />
             </button>
+          </div>
+        </div>
+      )}
+
+      {showHistory && (
+        <div className="fixed inset-0 bg-slate-900/60 z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col max-h-[90vh]">
+            <div className="bg-blue-600 p-6 flex justify-between items-center text-white shrink-0">
+              <h3 className="font-black flex items-center text-lg tracking-tight">
+                <Clock size={20} className="mr-2"/> ประวัติรายได้ย้อนหลัง
+              </h3>
+              <button onClick={() => setShowHistory(false)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-all cursor-pointer active:scale-90 duration-300"><X size={18} strokeWidth={2} /></button>
+            </div>
+            
+            <div className="p-4 space-y-3 overflow-y-auto hide-scrollbar bg-slate-50">
+              {loadingHistory ? (
+                <div className="text-center py-10 text-slate-400">กำลังโหลด...</div>
+              ) : attendanceHistory.length === 0 ? (
+                <div className="text-center py-10 text-slate-400 font-bold">ไม่มีประวัติรายได้</div>
+              ) : (
+                attendanceHistory.map(record => (
+                  <div key={record.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="text-xs font-black text-slate-600">
+                        {new Date(record.check_in).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+                      </div>
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase border ${record.payment_status === 'จ่ายแล้ว' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}>
+                        {record.payment_status || 'รอชำระ'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center bg-slate-50 p-2 rounded-xl mb-2">
+                      <div className="text-[10px] font-bold text-slate-500">ยอดเงินที่ได้</div>
+                      <div className="text-sm font-black text-emerald-600">฿{(record.total_pay || 0).toLocaleString()}</div>
+                    </div>
+                    {record.payment_slip_url && (
+                      <button onClick={() => setImageGallery({urls: [record.payment_slip_url], startIndex: 0})} className="w-full mt-1 py-1.5 bg-indigo-50 text-indigo-600 text-[10px] font-black rounded-lg border border-indigo-100 flex items-center justify-center gap-1 cursor-pointer hover:bg-indigo-100 transition-colors">
+                        <ImageIcon size={12} /> ดูสลิปโอนเงิน
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}

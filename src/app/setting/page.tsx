@@ -266,7 +266,7 @@ export default function SettingPage() {
   return (
     <div className="min-h-screen pb-12 transition-all duration-500 bg-slate-50 relative">
       
-      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-[150] ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
+      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-150 ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
         {toast.type === 'error' ? <AlertTriangle size={18} className="text-red-400 mr-2" /> : <CheckCircle2 size={18} className="text-green-400 mr-2" />}
         <span className="font-bold text-sm tracking-wide">{toast.message}</span>
       </div>
@@ -616,7 +616,7 @@ export default function SettingPage() {
 
       {/* 🌟 Modal: ล้างกระดานออเดอร์ (ย้ายมาใหม่และทำ Animation) */}
       {isClearBoardOpen && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4 z-[100] animate-in fade-in duration-300">
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4 z-100 animate-in fade-in duration-300">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col p-8 text-center relative border border-white/20">
             <div className="w-24 h-24 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner relative">
               <div className="absolute inset-0 bg-rose-200 rounded-full animate-ping opacity-20"></div>

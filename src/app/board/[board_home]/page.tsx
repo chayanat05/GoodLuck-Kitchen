@@ -443,7 +443,8 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         service.getPlacePredictions(
           {
             input: text,
-            componentRestrictions: { country: "th" },
+            componentRestrictions: { country: "th" },//จำกัดผลการค้นหาให้อยู่ในประเทศไทย
+            // บีบอัดผลการค้นหาให้อยู่ในรัศมี 20 กม. จากร้าน เพื่อให้ได้ผลที่ใกล้เคียงและเกี่ยวข้องมากขึ้น
             locationBias: { radius: 20000, center: { lat: SHOP_LAT, lng: SHOP_LNG } },
           },
           (predictions, status) => {
@@ -811,15 +812,17 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     });
   };
 
+  const pendingOrders = useMemo(() => orders.filter(o => ["New", "กำลังทำ", "รับงาน"].includes(o.status)), [orders]);
+
   const filteredOrders = useMemo(() => {
     const q = debouncedQuery.toLowerCase();
-    return orders.filter(
+    return pendingOrders.filter(
       (order) =>
         (order.order_number?.toLowerCase() || "").includes(q) ||
         (order.address?.toLowerCase() || "").includes(q) ||
         (order.rider_name?.toLowerCase() || "").includes(q),
     );
-  }, [orders, debouncedQuery]);
+  }, [pendingOrders, debouncedQuery]);
 
   if (!currentUser || !isMounted || !currentBranchId) 
     return (
@@ -877,11 +880,10 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
             <h1 className="text-base md:text-lg font-black text-slate-800 flex items-center whitespace-nowrap tracking-tight">
               KANBAN{" "}
               <span className="text-blue-600 ml-1 mr-2 md:mr-3">BOARD</span>
-              <span className="text-xs md:text-sm text-slate-500 font-bold border-l-2 border-slate-200 pl-2 md:pl-3 py-1">
-                ออเดอร์ทั้งหมด :{" "}
-                <span className="text-blue-600 font-black">
-                  {orders.length}
-                </span>
+              <span className="text-xs md:text-sm text-slate-500 font-bold border-l-2 border-slate-200 pl-2 md:pl-3 py-1 flex items-center gap-2">
+                <span>ทั้งหมด: <span className="text-blue-600 font-black">{orders.length}</span></span>
+                <span className="text-slate-300">|</span>
+                <span>ค้าง: <span className="text-amber-500 font-black animate-pulse">{pendingOrders.length}</span></span>
               </span>
             </h1>
           </div>
@@ -1249,7 +1251,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
       {/* 🌟 Modal เปลี่ยนสถานะออเดอร์สุดล้ำ */}
       {statusModal.isOpen && statusModal.order && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-[150]">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-150">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col relative border border-white/20">
             <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white">
               <div className="flex items-center gap-3">
@@ -1387,7 +1389,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                   </select>
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase flex items-center">
+                  <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase items-center">
                     <Lock size={12} className="mr-1" /> ลิ้งค์ติดต่อ (ซ่อนเป็นความลับ)
                   </label>
                   <input
@@ -1886,7 +1888,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
       {/* 🌟 Modal ยืนยันการลบออเดอร์ */}
       {deleteConfirm.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-[150]">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-150">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col p-8 text-center relative border border-white/20">
             <div className="w-20 h-20 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner">
               <Trash2 size={40} className="animate-wiggle" />
@@ -1919,7 +1921,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
       {/* 🌟 Modal ยืนยันการออกจากระบบ */}
       {alertModal.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-[150]">
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-150">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col p-8 text-center relative border border-white/20">
             <div className="flex justify-center">{alertModal.icon}</div>
             <h3 className="text-xl font-black text-slate-800 tracking-tight mb-2">
@@ -1987,13 +1989,13 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
       {imageGallery && (
         <div
-          className="fixed inset-0 bg-gray-900/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200 z-[200]"
+          className="fixed inset-0 bg-gray-900/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200 z-200"
           onClick={() => {
             setImageGallery(null);
             setImgScale(1);
           }}
         >
-          <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-[210] text-white pointer-events-none">
+          <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-210 text-white pointer-events-none">
             <span className="font-bold text-xs bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm">
               คลิก 2 ครั้งเพื่อซูม / ใช้ปุ่มลูกศรเลื่อน
             </span>
@@ -2015,7 +2017,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                   e.stopPropagation();
                   scrollGallery("left");
                 }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-[210] transition-all cursor-pointer hidden md:block"
+                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-210 transition-all cursor-pointer hidden md:block"
               >
                 <ChevronLeft size={24} />
               </button>
@@ -2024,7 +2026,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                   e.stopPropagation();
                   scrollGallery("right");
                 }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-[210] transition-all cursor-pointer hidden md:block"
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-210 transition-all cursor-pointer hidden md:block"
               >
                 <ChevronRight size={24} />
               </button>
@@ -2032,7 +2034,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
           )}
           <div
             ref={galleryRef}
-            className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory thin-scrollbar z-[200]"
+            className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory thin-scrollbar z-200"
           >
             {imageGallery.urls.map((url, i) => (
               <div
@@ -2060,7 +2062,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
             ))}
           </div>
           <div
-            className="absolute bottom-10 left-1/2 transform -translate-x-1/2 flex items-center gap-6 bg-gray-800/80 px-6 py-3 rounded-full backdrop-blur-md shadow-2xl z-[210]"
+            className="absolute bottom-10 left-1/2 transform -translate-x-1/2 flex items-center gap-6 bg-gray-800/80 px-6 py-3 rounded-full backdrop-blur-md shadow-2xl z-210"
             onClick={(e) => e.stopPropagation()}
           >
             <button

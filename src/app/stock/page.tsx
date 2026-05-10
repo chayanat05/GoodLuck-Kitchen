@@ -3,9 +3,9 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { 
-  ArrowLeft, Package, Plus, Search, Filter, AlertTriangle, 
+  ArrowLeft, Package, Plus, Search, AlertTriangle, 
   Layers, Store, X, CheckCircle2, PackagePlus, Box, ShoppingCart, Target, Edit,
-  Trash2, RefreshCw, PlusCircle, MinusCircle, Settings2
+  Trash2, RefreshCw, PlusCircle, MinusCircle, Settings2, DollarSign
 } from "lucide-react";
 
 interface Branch {
@@ -25,8 +25,9 @@ interface StockItem {
   unit: string;
   min_alert: number;
   target_quantity: number;
+  price_per_unit: number; // 🌟 เพิ่มราคาต่อหน่วย
   current_quantity: number; 
-  raw_balances: RawBalance[]; // 🌟 เก็บข้อมูลสต๊อกดิบของทุกสาขาไว้คำนวณ
+  raw_balances: RawBalance[]; 
 }
 
 export default function StockPage() {
@@ -49,6 +50,7 @@ export default function StockPage() {
     unit: "ชิ้น",
     min_alert: 10,
     target_quantity: 50,
+    price_per_unit: 0, // 🌟 เพิ่มราคาต่อหน่วย
     initial_qty: 0,
     initial_branch: ""
   });
@@ -71,7 +73,6 @@ export default function StockPage() {
     setTimeout(() => setToast({ show: false, message: "", type: "success" }), 3000);
   };
 
-  // 🌟 ฟังก์ชันดึงข้อมูล (ฉลาดขึ้น: ดึงมาทั้งหมดแล้วค่อยกรอง)
   const fetchStockData = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -82,7 +83,6 @@ export default function StockPage() {
 
       if (itemsError) throw itemsError;
 
-      // ดึง Balance ทั้งหมดมาเลย เพื่อให้เปิด Modal ปรับยอดแล้วรู้ยอดปัจจุบันทันที
       const { data: balancesData, error: balancesError } = await supabase
         .from("stock_balances")
         .select("*");
@@ -92,7 +92,6 @@ export default function StockPage() {
       const mergedData = (itemsData || []).map((item) => {
         const itemBalances = (balancesData || []).filter((b) => b.item_id === item.id);
         
-        // ถ้าเลือกสาขาเดียว ก็บวกเลขแค่สาขานั้น ถ้ารวม ก็บวกทั้งหมด
         const filteredBalances = selectedBranch === "ALL" 
           ? itemBalances 
           : itemBalances.filter(b => b.branch_id === selectedBranch);
@@ -102,6 +101,7 @@ export default function StockPage() {
         return {
           ...item,
           target_quantity: item.target_quantity || 0,
+          price_per_unit: item.price_per_unit || 0, // 🌟 ดึงราคาต่อหน่วย
           current_quantity: totalQty,
           raw_balances: itemBalances
         };
@@ -133,7 +133,6 @@ export default function StockPage() {
     fetchStockData();
   }, [fetchStockData]);
 
-  // 🌟 เปิด Modal สำหรับ "เพิ่มสินค้าใหม่"
   const openAddModal = () => {
     setEditingId(null);
     setFormData({
@@ -142,13 +141,13 @@ export default function StockPage() {
       unit: "ชิ้น",
       min_alert: 10,
       target_quantity: 50,
+      price_per_unit: 0,
       initial_qty: 0,
       initial_branch: selectedBranch !== "ALL" ? selectedBranch : (branches[0]?.id || "")
     });
     setIsModalOpen(true);
   };
 
-  // 🌟 เปิด Modal สำหรับ "แก้ไขข้อมูล Master"
   const openEditModal = (item: StockItem) => {
     setEditingId(item.id);
     setFormData({
@@ -157,13 +156,13 @@ export default function StockPage() {
       unit: item.unit,
       min_alert: item.min_alert,
       target_quantity: item.target_quantity,
+      price_per_unit: item.price_per_unit,
       initial_qty: 0, 
       initial_branch: ""
     });
     setIsModalOpen(true);
   };
 
-  // 🌟 เปิด Modal สำหรับ "ปรับยอดสต๊อก"
   const openAdjustModal = (item: StockItem) => {
     setAdjustData({
       itemId: item.id,
@@ -176,7 +175,6 @@ export default function StockPage() {
     setIsAdjustModalOpen(true);
   };
 
-  // 🌟 บันทึก ข้อมูลสินค้าหลัก (เพิ่ม/แก้ไข)
   const handleSubmitItem = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -187,7 +185,8 @@ export default function StockPage() {
         category: formData.category,
         unit: formData.unit.trim(),
         min_alert: formData.min_alert,
-        target_quantity: formData.target_quantity
+        target_quantity: formData.target_quantity,
+        price_per_unit: formData.price_per_unit // 🌟 เซฟลงฐานข้อมูล
       };
 
       if (editingId) {
@@ -226,7 +225,6 @@ export default function StockPage() {
     }
   };
 
-  // 🌟 ฟังก์ชันลบสินค้าแบบปลอดภัย (มี Confirm)
   const handleDeleteItem = async (id: string, name: string) => {
     const isConfirmed = window.confirm(`⚠️ คำเตือน: คุณกำลังจะลบสินค้า "${name}"\n\nข้อมูลสต๊อกของสินค้านี้ใน "ทุกสาขา" จะถูกลบทิ้งถาวร แน่ใจหรือไม่?`);
     if (!isConfirmed) return;
@@ -242,25 +240,21 @@ export default function StockPage() {
     }
   };
 
-  // 🌟 ฟังก์ชันบันทึกการปรับยอดสต๊อก
   const handleAdjustStock = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
-      // 1. หายอดปัจจุบันของสาขาที่เลือกก่อน
       const currentItem = stockItems.find(i => i.id === adjustData.itemId);
       const currentBalance = currentItem?.raw_balances.find(b => b.branch_id === adjustData.branchId)?.quantity || 0;
 
-      // 2. คำนวณยอดใหม่
       let newQuantity = currentBalance;
       const adjustVal = Number(adjustData.amount);
 
       if (adjustData.type === "add") newQuantity += adjustVal;
-      else if (adjustData.type === "deduct") newQuantity = Math.max(0, newQuantity - adjustVal); // ห้ามติดลบ
+      else if (adjustData.type === "deduct") newQuantity = Math.max(0, newQuantity - adjustVal); 
       else if (adjustData.type === "set") newQuantity = Math.max(0, adjustVal);
 
-      // 3. อัปเดตลง Database
       const { error } = await supabase.from("stock_balances").upsert(
         { item_id: adjustData.itemId, branch_id: adjustData.branchId, quantity: newQuantity },
         { onConflict: 'item_id, branch_id' }
@@ -286,8 +280,10 @@ export default function StockPage() {
 
   const totalItems = stockItems.length;
   const lowStockItems = stockItems.filter(item => item.current_quantity <= item.min_alert).length;
+  
+  // 🌟 คำนวณมูลค่าสต๊อกรวม
+  const totalStockValue = stockItems.reduce((sum, item) => sum + (item.current_quantity * item.price_per_unit), 0);
 
-  // คำนวณยอดคงเหลือที่จะโชว์ใน Modal ปรับยอด
   const activeAdjustItem = stockItems.find(i => i.id === adjustData.itemId);
   const activeAdjustBalance = activeAdjustItem?.raw_balances.find(b => b.branch_id === adjustData.branchId)?.quantity || 0;
 
@@ -353,7 +349,8 @@ export default function StockPage() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+        {/* 🌟 3 กล่องสถิติ (เพิ่มมูลค่าสต๊อกรวม) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
           <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center justify-between">
             <div>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">รายการทั้งหมด (แบบ)</p>
@@ -372,6 +369,13 @@ export default function StockPage() {
             </div>
             <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${lowStockItems > 0 ? 'bg-rose-50 text-rose-500 animate-pulse' : 'bg-emerald-50 text-emerald-500'}`}>
               {lowStockItems > 0 ? <ShoppingCart size={28} /> : <CheckCircle2 size={28} />}
+            </div>
+          </div>
+          <div className="bg-emerald-500 p-6 rounded-3xl border border-emerald-400 shadow-lg shadow-emerald-500/20 flex items-center justify-between text-white relative overflow-hidden">
+            <DollarSign className="absolute -right-4 -bottom-4 text-emerald-600 opacity-50" size={100} />
+            <div className="relative z-10">
+              <p className="text-xs font-bold text-emerald-100 uppercase tracking-widest mb-1">มูลค่าสต๊อกรวม (ต้นทุน)</p>
+              <h2 className="text-3xl font-black">฿{totalStockValue.toLocaleString()}</h2>
             </div>
           </div>
         </div>
@@ -406,13 +410,14 @@ export default function StockPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[900px]">
+              <table className="w-full text-left border-collapse min-w-250">
                 <thead>
                   <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-100">
-                    {/* 🌟 ย้ายปุ่มลบมาไว้คอลัมน์แรกสุด ไกลจากปุ่มแก้ไขที่สุด */}
                     <th className="p-4 font-black w-16 text-center border-r border-slate-100">ลบ</th>
                     <th className="p-4 font-black">ชื่อสินค้า / หมวดหมู่</th>
                     <th className="p-4 font-black text-center border-l border-slate-100">ปริมาณคงเหลือ</th>
+                    <th className="p-4 font-black text-center border-l border-slate-100">ราคา/หน่วย</th>
+                    <th className="p-4 font-black text-center border-l border-slate-100">มูลค่ารวม</th>
                     <th className="p-4 font-black text-center text-slate-600 border-l border-slate-100">เป้าหมาย (ควรมี)</th>
                     <th className="p-4 font-black text-center text-rose-500 border-l border-slate-100">ต้องซื้อเพิ่ม</th>
                     <th className="p-4 font-black text-center border-l border-slate-100">สถานะ</th>
@@ -427,8 +432,6 @@ export default function StockPage() {
 
                     return (
                       <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                        
-                        {/* 🌟 ปุ่มลบ (ไกลจากแก้ไขสุดๆ) */}
                         <td className="p-4 text-center border-r border-slate-50">
                           <button 
                             onClick={() => handleDeleteItem(item.id, item.name)}
@@ -452,6 +455,19 @@ export default function StockPage() {
                           </span>
                           <span className="text-xs text-slate-500 font-bold ml-1">{item.unit}</span>
                           <div className="text-[10px] text-slate-400 mt-1 font-bold">(เตือนเมื่อต่ำกว่า {item.min_alert})</div>
+                        </td>
+
+                        {/* 🌟 ราคาต่อหน่วย */}
+                        <td className="p-4 text-center border-l border-slate-50">
+                          <div className="font-bold text-slate-600">฿{item.price_per_unit.toLocaleString()}</div>
+                          <div className="text-[10px] text-slate-400 mt-0.5">/{item.unit}</div>
+                        </td>
+
+                        {/* 🌟 มูลค่ารวม */}
+                        <td className="p-4 text-center border-l border-slate-50">
+                          <div className="font-black text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-100 inline-block">
+                            ฿{(item.current_quantity * item.price_per_unit).toLocaleString()}
+                          </div>
                         </td>
 
                         <td className="p-4 text-center border-l border-slate-50">
@@ -488,7 +504,6 @@ export default function StockPage() {
                           )}
                         </td>
 
-                        {/* 🌟 รวมปุ่ม ปรับยอด (สีเขียว) และ แก้ไขข้อมูลหลัก (สีฟ้า) */}
                         <td className="p-4 text-center border-l border-slate-50">
                           <div className="flex items-center justify-center gap-2">
                             <button 
@@ -566,6 +581,21 @@ export default function StockPage() {
                       onChange={e => setFormData({...formData, unit: e.target.value})}
                       className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
                       placeholder="เช่น ชิ้น, กก., แพ็ค"
+                    />
+                  </div>
+                </div>
+
+                {/* 🌟 ช่องใส่ราคาต่อหน่วย */}
+                <div>
+                  <label className="block text-xs font-black text-slate-500 mb-2 uppercase tracking-wide">ราคาต่อหน่วย (บาท) *</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-black">฿</span>
+                    <input 
+                      type="number" min="0" step="0.01" required
+                      value={formData.price_per_unit || ""}
+                      onChange={e => setFormData({...formData, price_per_unit: parseFloat(e.target.value) || 0})}
+                      className="w-full pl-8 pr-4 py-3.5 bg-white border border-emerald-200 rounded-xl text-sm font-black text-emerald-700 outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all shadow-inner"
+                      placeholder="0.00"
                     />
                   </div>
                 </div>
@@ -649,7 +679,7 @@ export default function StockPage() {
         </div>
       )}
 
-      {/* 🌟 Modal 2: ป๊อปอัปปรับยอดสต๊อก (เข้า/ออก/ตั้งค่าใหม่) */}
+      {/* 🌟 Modal 2: ป๊อปอัปปรับยอดสต๊อก */}
       {isAdjustModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300">

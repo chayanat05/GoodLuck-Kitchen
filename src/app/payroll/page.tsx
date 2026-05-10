@@ -281,7 +281,7 @@ export default function PayrollPage() {
     <div className="min-h-screen pb-12 transition-all duration-500 bg-slate-50 font-sans">
       
       {/* Toast */}
-      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-[150] ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
+      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-150 ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
         {toast.type === 'error' ? <AlertTriangle size={18} className="text-red-400 mr-2" /> : <CheckCircle2 size={18} className="text-green-400 mr-2" />}
         <span className="font-bold text-sm tracking-wide">{toast.message}</span>
       </div>
@@ -423,7 +423,7 @@ export default function PayrollPage() {
                   <div className="grid grid-cols-2 gap-y-3 gap-x-2 text-xs font-bold text-slate-600 mb-4 relative z-10">
                     <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
                       <Clock size={14} className="text-blue-500 shrink-0"/> 
-                      <span>{displayMinutes} นาที</span> 
+                      <span>{displayMinutes >= 60 ? `${Math.floor(displayMinutes / 60)} ชม. ${displayMinutes % 60} นาที` : `${displayMinutes} นาที`}</span> 
                     </div>
                     <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
                       <Package size={14} className="text-orange-500 shrink-0"/> 
@@ -459,7 +459,7 @@ export default function PayrollPage() {
 
       {/* Modal: จัดการเงิน */}
       {editingRecord && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60] animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-60 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-800 text-white shrink-0">
               <h3 className="text-lg font-black flex items-center gap-2">
@@ -502,7 +502,7 @@ export default function PayrollPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide text-blue-600">แก้ไขเวลา (นาที)</label>
+                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">แก้ไขเวลา (นาที)</label>
                   <input 
                     type="number" min="0" required
                     value={editForm.total_minutes}
@@ -603,7 +603,7 @@ export default function PayrollPage() {
               </div>
 
               <div className="mt-4 pt-4 border-t border-slate-100">
-                <label className="block text-xs font-black text-slate-800 mb-2 uppercase tracking-wide flex items-center gap-1.5">
+                <label className="block text-xs font-black text-slate-800 mb-2 uppercase tracking-wide items-center gap-1.5">
                   <DollarSign size={16} className="text-emerald-500"/> ยอดจ่ายรายวันสุทธิ (บาท)
                 </label>
                 <input 
@@ -638,7 +638,7 @@ export default function PayrollPage() {
 
       {viewSlip && (
         <div 
-          className="fixed inset-0 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4 z-[200] animate-in fade-in duration-200"
+          className="fixed inset-0 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4 z-200 animate-in fade-in duration-200"
           onClick={() => setViewSlip(null)}
         >
           <div className="relative max-w-2xl w-full h-[80vh] flex flex-col items-center justify-center">
