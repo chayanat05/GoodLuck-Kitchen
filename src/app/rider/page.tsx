@@ -135,7 +135,7 @@ export default function RiderPage() {
       return;
     }
 
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("saved_locations")
       .select("image_url")
       .eq("name", addressName)
@@ -482,6 +482,11 @@ export default function RiderPage() {
   const availableOrders = orders.filter((o) => !o.rider_id && ["New", "กำลังทำ", "รับงาน"].includes(o.status));
   const activeOrders = orders.filter((o) => o.rider_id === currentUser?.id && o.status !== "ส่งแล้ว/เสร็จ");
   const completedOrders = orders.filter((o) => o.rider_id === currentUser?.id && o.status === "ส่งแล้ว/เสร็จ");
+  // 🌟 คำนวณหาออเดอร์ในมือที่เลท (เกิน 35 นาที)
+  const lateRiderOrders = activeOrders.filter(o => 
+    o.status === "รับงาน" && Math.floor((currentTime - new Date(o.created_at).getTime()) / 60000) >= 35
+  );
+  const hasLateRiderOrder = lateRiderOrders.length > 0;
 
   const shiftCompletedOrders = useMemo(() => {
     const now = new Date();
@@ -527,8 +532,12 @@ export default function RiderPage() {
     const isNearLate = elapsedMinutes >= (order.status === "รับงาน" ? 30 : 4);
 
     return (
-      // 🌟 เอา alertClass ออกไปแล้ว ปล่อยให้การ์ดใช้สีสาขาแบบคลีนๆ เหมือนเดิม
-      <div key={order.id} className={`${isCompact ? "w-[42vw] sm:w-42.5" : "w-[82vw] sm:w-[320px]"} h-full shrink-0 snap-center rounded-2xl shadow-md border overflow-hidden flex flex-col transition-all duration-300 ${cardBgClass}`} style={{ animation: `fadeIn 0.5s ease-out ${idx * 0.05}s both` }}>
+          <div 
+        key={order.id} 
+        className={`${isCompact ? "w-[42vw] sm:w-42.5" : "w-[82vw] sm:w-[320px]"} h-full shrink-0 snap-center rounded-2xl shadow-md border overflow-hidden flex flex-col transition-all duration-300 ${cardBgClass} ${isLate ? 'ring-offset-2 ring-rose-500 animate-pulse shadow-[0_0_20px_rgba(244,63,94,0.6)]' : ''}`} 
+        style={{ animation: isLate ? undefined : `fadeIn 0.5s ease-out ${idx * 0.05}s both` }}
+      >
+
         <div className="flex-1 overflow-y-auto hide-scrollbar p-2.5 sm:p-3 relative border-b border-white/10 flex flex-col">
           
           <div className="flex justify-between items-start mb-2 shrink-0 gap-1">
@@ -558,6 +567,7 @@ export default function RiderPage() {
                   {elapsedMinutes} นาที {isLate ? "ด่วน!" : ""}
                 </div>
               )}
+
 
               {!isCompact && (
                 <button onClick={(e) => { e.stopPropagation(); setSelectedViewOrder(order); setShowContactInfo(false); }} className="bg-white/20 text-white px-1.5 py-0.5 rounded text-[8px] uppercase font-black flex items-center hover:bg-white/30 active:scale-95 transition-colors">
@@ -605,7 +615,7 @@ export default function RiderPage() {
           )}
 
           {order.image_url && (
-             <div className="flex flex-col gap-1.5 shrink-0 mb-2 items-center">
+            <div className="flex flex-col gap-1.5 shrink-0 mb-2 items-center">
               {order.image_url.split(",").filter(Boolean).map((url, i) => (
                 <div key={i} onClick={(e) => { e.stopPropagation(); setImageGallery({ urls: order.image_url!.split(",").filter(Boolean), startIndex: i }); }} className="relative w-[65%] rounded-lg overflow-hidden border border-white/20 shadow-sm cursor-pointer group/img bg-black/10" style={{ aspectRatio: "9/16" }}>
                   <Image src={url} fill sizes="(max-width: 768px) 100vw, 33vw" alt="Order Evidence" className="object-cover block group-hover/img:scale-105 transition-transform duration-500" />
@@ -759,6 +769,21 @@ export default function RiderPage() {
           {riderName}
         </div>
       </div>
+
+      {/* 🌟 [เพิ่มใหม่] ป้ายคาดจอเตือนภัยขั้นสุด จะโผล่มาแค่ตอนมีงานเลท */}
+      {hasLateRiderOrder && (
+        <div className="absolute top-16 left-0 right-0 z-40 px-4 pointer-events-none animate-in slide-in-from-top-5 duration-300">
+          <div className="bg-linear-to-r from-rose-600 to-red-600 text-white p-3.5 rounded-2xl shadow-xl shadow-rose-500/50 flex items-center gap-3 border border-rose-400">
+            <div className="bg-white/20 p-2 rounded-full animate-pulse shrink-0">
+              <AlertTriangle size={24} className="text-white animate-wiggle" />
+            </div>
+            <div>
+              <div className="font-black text-sm drop-shadow-md">ด่วน! คุณมีออเดอร์เกินกำหนดเวลา</div>
+              <div className="text-[10px] font-bold opacity-90 mt-0.5">กรุณารีบนำส่งลูกค้า ({lateRiderOrders.length} รายการ)</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 w-full max-w-5xl mx-auto overflow-hidden flex flex-col relative">
         
@@ -978,8 +1003,8 @@ export default function RiderPage() {
                   <Store size={16} className="text-indigo-600" />
                 </div>
                 <div className="text-left">
-                  <div className="leading-tight">คลังหอพัก</div>
-                  <div className="text-[9px] text-slate-400 uppercase tracking-widest mt-0.5">Dormitory Bank</div>
+                  <div className="leading-tight">เพิ่มหมุดที่อยู่</div>
+                  <div className="text-[9px] text-slate-400 uppercase tracking-widest mt-0.5">ปักหมุดที่ยังไม่มีหรือยังไม่เคยไปหรืออัพเดทที่มีอยู่</div>
                 </div>
               </Link>
             </div>
@@ -1226,10 +1251,7 @@ export default function RiderPage() {
 
       {/* 🌟 Modal โชว์รูปหอพัก */}
       {dormImageModal.isOpen && (
-        <div 
-          className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[350] flex items-center justify-center p-4 animate-in fade-in" 
-          onClick={() => setDormImageModal({ isOpen: false, url: null, isLoading: false })}
-        >
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-350 flex items-center justify-center p-4 animate-in fade-in" onClick={() => setDormImageModal({ isOpen: false, url: null, isLoading: false })}>
           <button className="absolute top-6 right-6 text-white hover:bg-white/20 p-2 rounded-full transition-colors z-50 cursor-pointer">
             <X size={32} />
           </button>
@@ -1241,13 +1263,7 @@ export default function RiderPage() {
             </div>
           ) : dormImageModal.url ? (
             <div className="relative w-full max-w-lg aspect-square sm:h-[70vh] animate-in zoom-in-95 duration-300">
-              <Image 
-              src={dormImageModal.url} 
-              alt="Dorm" 
-              fill 
-              sizes="(max-width: 768px) 100vw, 800px" 
-              className="object-contain rounded-2xl" 
-/>
+              <Image src={dormImageModal.url} alt="Dorm" fill sizes="(max-width: 768px) 100vw, 800px" className="object-contain rounded-2xl" />
             </div>
           ) : (
             <div className="bg-white p-8 rounded-4xl flex flex-col items-center max-w-xs text-center animate-in zoom-in-95 duration-300 border border-slate-100 shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -1355,6 +1371,21 @@ export default function RiderPage() {
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .touch-pinch-zoom { touch-action: pinch-zoom; }
+
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(-2px) rotate(-1deg); }
+          50% { transform: translateX(2px) rotate(1deg); }
+          75% { transform: translateX(-2px) rotate(-1deg); }
+        }
+
+        @keyframes wiggle {
+          0%, 100% { transform: rotate(-5deg); }
+          50% { transform: rotate(5deg); }
+        }
+        .animate-shake { animation: shake 0.5s ease-in-out infinite; }
+        .animate-wiggle { animation: wiggle 1s ease-in-out infinite; }
+
       `}</style>
     </div>
   );

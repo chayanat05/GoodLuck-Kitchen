@@ -4,10 +4,10 @@ import { supabase } from "@/lib/supabase";
 import JobMap from "@/components/JobMap"; 
 import { 
   ArrowLeft, Search, MapPin, Plus, X, 
-  Building2, ExternalLink, ImagePlus, 
+  ExternalLink, ImagePlus, 
   Loader2, Trash2, ImageIcon, Camera, Edit, Lock, Key
 } from "lucide-react";
-import Link from "next/link";
+//import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
@@ -97,6 +97,7 @@ export default function DormDatabasePage() {
       const { data } = supabase.storage.from('order-images').getPublicUrl(filePath);
       setFormData(prev => ({ ...prev, image_url: data.publicUrl }));
       setPreviewUrl(data.publicUrl);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
       alert("อัปโหลดรูปภาพไม่สำเร็จ");
     } finally {
@@ -158,6 +159,7 @@ export default function DormDatabasePage() {
       setAdminPassInput("");
       setSearchQuery(""); // 🌟 ล้างช่องค้นหาหลังลบเสร็จ จะได้กลับไปโชว์ข้อมูลหอพักทั้งหมดที่เหลืออยู่
       fetchDorms();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
       alert("เกิดข้อผิดพลาดในการลบ");
     } finally {
@@ -187,8 +189,11 @@ export default function DormDatabasePage() {
                 <Camera className="text-indigo-500" size={28} /> Dormitory Bank
               </h1>
               <p className="text-xs font-bold text-slate-400 mt-1">คลังรูปและพิกัดหอพักสารคาม (ระบบจัดการโดย {userRole})</p>
+              
             </div>
+            
           </div>
+          <p className="text-x font-bold text-slate-800 mt-1">กรุณาระบุชื่อตึก/ซอยให้ชัดเจน</p>
           <button 
             onClick={openAddModal}
             className="w-full md:w-auto px-6 py-3 bg-slate-900 text-white font-black rounded-2xl flex items-center justify-center gap-2 hover:bg-indigo-600 transition-all active:scale-95 shadow-lg shadow-slate-900/10"
@@ -274,7 +279,7 @@ export default function DormDatabasePage() {
 
       {/* Modal ยืนยันการลบ */}
       {deleteId && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-200 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-sm shadow-2xl animate-in zoom-in-95">
             <div className="w-16 h-16 bg-rose-100 text-rose-500 rounded-2xl flex items-center justify-center mb-6 mx-auto">
               <Lock size={32} />
@@ -312,7 +317,7 @@ export default function DormDatabasePage() {
 
       {/* Full Image Preview */}
       {selectedFullImage && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl z-[300] flex items-center justify-center p-4 animate-in fade-in" onClick={() => setSelectedFullImage(null)}>
+        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl z-300 flex items-center justify-center p-4 animate-in fade-in" onClick={() => setSelectedFullImage(null)}>
           <button className="absolute top-6 right-6 text-white p-2 hover:bg-white/10 rounded-full transition-colors cursor-pointer">
             <X size={32} />
           </button>
@@ -324,7 +329,7 @@ export default function DormDatabasePage() {
 
       {/* Modal เพิ่ม/แก้ไข */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[150] animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-150 animate-in fade-in duration-200">
           <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 border border-slate-100">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
               <h3 className="text-xl font-black text-slate-800 flex items-center gap-2 uppercase tracking-tighter">
@@ -382,7 +387,7 @@ export default function DormDatabasePage() {
 
                 <div className="space-y-4">
                   <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Pin Location</label>
-                  <div className="h-[400px] rounded-3xl overflow-hidden border-2 border-slate-200 shadow-sm relative">
+                  <div className="h-100 rounded-3xl overflow-hidden border-2 border-slate-200 shadow-sm relative">
                     <JobMap 
                       lat={formData.lat}
                       lng={formData.lng}
@@ -402,7 +407,7 @@ export default function DormDatabasePage() {
               </button>
               <button 
                 type="submit" form="dorm-form" disabled={isSubmitting || isUploading}
-                className="flex-[2] py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-indigo-600 transition-all cursor-pointer shadow-lg shadow-indigo-200 active:scale-95 disabled:bg-slate-300 text-xs uppercase tracking-widest flex items-center justify-center gap-2"
+                className="flex-2 py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-indigo-600 transition-all cursor-pointer shadow-lg shadow-indigo-200 active:scale-95 disabled:bg-slate-300 text-xs uppercase tracking-widest flex items-center justify-center gap-2"
               >
                 {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : null}
                 {editingId ? "Update Dorm" : "Save to Database"}

@@ -1812,7 +1812,7 @@ export default function BoardPage({
                         target="_blank"
                         className="inline-flex items-center gap-1.5 text-[10px] font-black text-indigo-600 hover:text-white hover:bg-indigo-500 transition-colors uppercase tracking-widest bg-indigo-50 border border-indigo-100 px-3 py-2 rounded-xl active:scale-95 cursor-pointer shadow-sm"
                       >
-                        <Plus size={12} strokeWidth={3} /> ไปหน้าคลังหอพัก
+                        <Plus size={12} strokeWidth={3} /> ไปหน้าเพิ่มที่อยู่ใหม่หากยังไม่มีข้อมูลในระบบร้าน
                       </Link>
                     </div>
                   </div>
