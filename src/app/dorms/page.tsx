@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 
 interface DormLocation {
   id: string;
@@ -20,6 +21,7 @@ interface DormLocation {
 }
 
 export default function DormDatabasePage() {
+  const router = useRouter();
   const [dorms, setDorms] = useState<DormLocation[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -173,9 +175,13 @@ export default function DormDatabasePage() {
         
         <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-8">
           <div className="flex items-center gap-4 w-full">
-            <Link href="/home" className="p-2 bg-white rounded-full shadow-sm border border-slate-200 hover:bg-slate-100 transition-colors active:scale-95">
+            {/* 🌟 เปลี่ยน Link เป็น button และใช้ router.back() */}
+            <button 
+              onClick={() => router.back()} 
+              className="p-2 bg-white rounded-full shadow-sm border border-slate-200 hover:bg-slate-100 transition-colors active:scale-95 cursor-pointer"
+            >
               <ArrowLeft size={20} className="text-slate-500" />
-            </Link>
+            </button>
             <div>
               <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2 uppercase tracking-tighter">
                 <Camera className="text-indigo-500" size={28} /> Dormitory Bank

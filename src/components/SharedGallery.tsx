@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { ImagePlus, X, Loader2, Trash2, Filter, FolderPlus, Tag, Camera } from "lucide-react";
 import Image from "next/image";
 
+
 interface GalleryImage {
   id: string;
   image_url: string;
