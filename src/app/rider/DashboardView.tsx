@@ -56,6 +56,16 @@ interface DashboardViewProps {
   allCompletedOrders: Order[]; 
   cutOffHour: number; 
 }
+interface AttendanceRecord {
+  id: string;
+  rider_id: string;
+  check_in: string;
+  check_out: string | null; // เป็น null ได้ถ้ายังไม่เลิกงาน
+  created_at?: string;
+  payment_status?: string | null; 
+  total_pay?: number | null;      
+  payment_slip_url?: string | null;
+}
 
 type FilterMode = 'today' | 'date' | 'month' | 'all';
 
@@ -79,8 +89,7 @@ export default function DashboardView({
   const galleryRef = useRef<HTMLDivElement>(null);
 
   const [showHistory, setShowHistory] = useState(false);
-  const [attendanceHistory, setAttendanceHistory] = useState<any[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const fetchAttendanceHistory = async () => {
     setLoadingHistory(true);
@@ -133,7 +142,7 @@ export default function DashboardView({
         .gte('check_in', shiftStart.toISOString())
         .order('check_in', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       const cycle = getCycleDetails();
       const { data: monthlyData } = await supabase
@@ -666,7 +675,7 @@ export default function DashboardView({
       )}
 
       {showHistory && (
-        <div className="fixed inset-0 bg-slate-900/60 z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm">
+        <div className="fixed inset-0 bg-slate-900/60 z-100 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm">
           <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col max-h-[90vh]">
             <div className="bg-blue-600 p-6 flex justify-between items-center text-white shrink-0">
               <h3 className="font-black flex items-center text-lg tracking-tight">
@@ -696,7 +705,7 @@ export default function DashboardView({
                       <div className="text-sm font-black text-emerald-600">฿{(record.total_pay || 0).toLocaleString()}</div>
                     </div>
                     {record.payment_slip_url && (
-                      <button onClick={() => setImageGallery({urls: [record.payment_slip_url], startIndex: 0})} className="w-full mt-1 py-1.5 bg-indigo-50 text-indigo-600 text-[10px] font-black rounded-lg border border-indigo-100 flex items-center justify-center gap-1 cursor-pointer hover:bg-indigo-100 transition-colors">
+                      <button onClick={() => setImageGallery({urls: [record.payment_slip_url!], startIndex: 0})} className="w-full mt-1 py-1.5 bg-indigo-50 text-indigo-600 text-[10px] font-black rounded-lg border border-indigo-100 flex items-center justify-center gap-1 cursor-pointer hover:bg-indigo-100 transition-colors">
                         <ImageIcon size={12} /> ดูสลิปโอนเงิน
                       </button>
                     )}

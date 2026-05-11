@@ -1,16 +1,15 @@
 "use client";
 import { useState, useEffect, useRef, useMemo, useCallback, use } from "react";
 import Link from "next/link";
-import OrderCard, { Order } from "../../../components/OrderCard";
-import JobMap from "../../../components/JobMap";
-import SlipScanner from "../../../components/SlipScanner";
+import OrderCard, { Order } from "@/components/OrderCard";
+import SlipScanner from "@/components/SlipScanner";
 import {
   DragDropContext,
   Droppable,
   Draggable,
   DropResult,
 } from "@hello-pangea/dnd";
-import { supabase } from "../../../lib/supabase";
+import { supabase } from "@/lib/supabase";
 import {
   X,
   ClipboardCheck,
@@ -39,7 +38,9 @@ import {
   ArrowRightLeft,
   Lock,
   Contact,
-  ClipboardList
+  ClipboardList,
+  MapPin,
+  Plus
 } from "lucide-react";
 import {
   useJsApiLoader,
@@ -49,9 +50,9 @@ import {
 } from "@react-google-maps/api";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import Image from "next/image";
+import SharedGallery from "@/components/SharedGallery";
 
 const NOTIFICATION_SOUND_URL = "/audio-shop.mp3";
-const LIBRARIES: "places"[] = ["places"];
 const SHOP_LAT = 16.24813;
 const SHOP_LNG = 103.242206;
 
@@ -159,6 +160,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
   const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
   const [adminName, setAdminName] = useState<string>("กำลังโหลด...");
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
 
   useEffect(() => {
     const fetchBranchAndTheme = async () => {
@@ -228,11 +230,11 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
   const [showRiderMap, setShowRiderMap] = useState<boolean>(false);
   const [ridersLoc, setRidersLoc] = useState<RiderLocation[]>([]);
   const [selectedRiderMapInfo, setSelectedRiderMapInfo] = useState<RiderLocation | null>(null);
-
+  const [mapLibraries] = useState<"places"[]>(["places"]);
   const { isLoaded } = useJsApiLoader({
     id: "google-map-script",
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "",
-    libraries: LIBRARIES,
+    libraries: mapLibraries, 
     language: "th",
     region: "TH",
   });
@@ -243,7 +245,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     menu: "",
     details: "",
     location_name: "",
-    new_pin_name: "",
     address: "",
     total_price: "",
     payment_method: "โอน",
@@ -443,8 +444,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         service.getPlacePredictions(
           {
             input: text,
-            componentRestrictions: { country: "th" },//จำกัดผลการค้นหาให้อยู่ในประเทศไทย
-            // บีบอัดผลการค้นหาให้อยู่ในรัศมี 20 กม. จากร้าน เพื่อให้ได้ผลที่ใกล้เคียงและเกี่ยวข้องมากขึ้น
+            componentRestrictions: { country: "th" },
             locationBias: { radius: 20000, center: { lat: SHOP_LAT, lng: SHOP_LNG } },
           },
           (predictions, status) => {
@@ -509,7 +509,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       menu: "",
       details: "",
       location_name: "",
-      new_pin_name: "",
       address: "",
       total_price: "",
       payment_method: "โอน",
@@ -533,7 +532,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       menu: order.menu || "",
       details: order.details || "",
       location_name: order.address || "",
-      new_pin_name: "",
       address: "",
       total_price: order.total_price.toString(),
       payment_method: order.payment_method || "โอน",
@@ -653,18 +651,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     setExistingImages([]);
     if (isEdit) showToast("อัปเดตข้อมูลสำเร็จ! 📝");
     else showToast("สร้างออเดอร์สำเร็จ! 🚀");
-
-    if (!isEdit && formData.new_pin_name.trim() && formData.lat && formData.lng && formData.job_type !== "shopee") {
-      await supabase.from("saved_locations").upsert(
-        {
-          name: formData.new_pin_name.trim(),
-          address: formData.location_name,
-          lat: formData.lat,
-          lng: formData.lng,
-        },
-        { onConflict: "name" },
-      );
-    }
 
     if (filesToUpload.length > 0 && targetId) {
       const uploadedUrls: string[] = [];
@@ -812,17 +798,19 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     });
   };
 
+  // 🌟 นับเฉพาะงานที่ยังไม่เสร็จ เพื่อเอาไปโชว์ตัวเลข "ค้าง: X" ด้านบน
   const pendingOrders = useMemo(() => orders.filter(o => ["New", "กำลังทำ", "รับงาน"].includes(o.status)), [orders]);
 
+  // 🌟 เปลี่ยนมาใช้ 'orders' ตรงๆ เพื่อให้แสดงผลทุกสถานะรวมถึง "ส่งแล้ว/เสร็จ" ด้วย
   const filteredOrders = useMemo(() => {
     const q = debouncedQuery.toLowerCase();
-    return pendingOrders.filter(
+    return orders.filter(
       (order) =>
         (order.order_number?.toLowerCase() || "").includes(q) ||
         (order.address?.toLowerCase() || "").includes(q) ||
         (order.rider_name?.toLowerCase() || "").includes(q),
     );
-  }, [pendingOrders, debouncedQuery]);
+  }, [orders, debouncedQuery]);
 
   if (!currentUser || !isMounted || !currentBranchId) 
     return (
@@ -862,7 +850,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       }}
     >
       <div
-        className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-50 ${toast.show ? "translate-y-0 opacity-100 scale-100" : "-translate-y-20 opacity-0 scale-95 pointer-events-none"}`}
+        className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-[200] ${toast.show ? "translate-y-0 opacity-100 scale-100" : "-translate-y-20 opacity-0 scale-95 pointer-events-none"}`}
       >
         <CheckCircle2 size={18} className="text-green-400 mr-2" />
         <span className="font-bold text-sm tracking-wide">{toast.message}</span>
@@ -976,6 +964,36 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 </Link>
               )}
 
+              <div className="h-px bg-slate-100 my-2"></div>
+              <button 
+    onClick={() => { setIsMenuOpen(false); setIsGalleryOpen(true); }}
+    className="flex items-center gap-6 p-4 w-full text-left rounded-xl hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 transition-colors font-bold group cursor-pointer"
+  >
+    <div className="w-8 h-8 bg-slate-100 group-hover:bg-indigo-100 rounded-lg flex items-center justify-center transition-colors">
+      <ImagePlus size={20} className="text-slate-500 group-hover:text-indigo-600" />
+    </div>
+    <div>
+      <div className="text-l font-black">คลังรูปภาพสาขา</div>
+      <div className="text-[15px] text-slate-400 font-bold uppercase tracking-widest">Branch Gallery</div>
+    </div>
+  </button>
+              <div className="h-px bg-slate-100 my-2"></div>
+
+              <Link 
+                href="/dorms"
+                className="flex items-center gap-6 p-4 w-full text-left rounded-xl hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 transition-colors font-bold group"
+                >
+              <div className="w-8 h-8 bg-slate-100 group-hover:bg-indigo-100 rounded-lg flex items-center justify-center transition-colors">
+                <MapPin size={20} className="text-slate-500 group-hover:text-indigo-600" />
+              </div>
+              <div>
+              <div className="text-l font-black">ที่ปักหมุด</div>
+              <div className="text-[15px] text-slate-400 font-bold uppercase tracking-widest">ฐานข้อมูลหอพัก</div>
+              </div>
+              </Link>
+
+              <div className="h-px bg-slate-100 my-2"></div>
+
               {currentUserRole === 'kitchen' && (
                 <Link
                   href="/kitchen"
@@ -1001,6 +1019,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                     </div>
                     Dashboard สถิติร้าน
                   </Link>
+                <div className="h-px bg-slate-100 my-2"></div>
 
                   <Link
                     href="/setting"
@@ -1202,7 +1221,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                       key={order.id}
                       draggableId={order.id}
                       index={index}
-                      isDragDisabled={currentUserRole === 'kitchen'} // 🌟 แม่ครัวลากการ์ดไม่ได้
+                      isDragDisabled={currentUserRole === 'kitchen'} 
                     >
                       {(provided, snapshot) => (
                         <div
@@ -1246,7 +1265,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
               )}
             </Droppable>
           </DragDropContext>
-        )}
+          )}
       </div>
 
       {/* 🌟 Modal เปลี่ยนสถานะออเดอร์สุดล้ำ */}
@@ -1374,6 +1393,9 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 />
               </div>
               
+              {/* 🌟 นำปีกกาเงื่อนไขมาครอบส่วนนี้ไว้ */}
+              {formData.job_type !== "shopee" && (
+                <>
               <div className="grid grid-cols-3 gap-5">
                 <div className="col-span-1">
                   <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase">
@@ -1416,6 +1438,9 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                   placeholder="ระบุข้อความถึงไรเดอร์..."
                 />
               </div>
+                </>
+              )}
+              {/* 🌟 จบส่วนที่ถูกซ่อน */}
 
               <div className="pt-2">
                 <label className="block text-xs font-black text-slate-500 mb-3 tracking-wide uppercase">
@@ -1543,13 +1568,15 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                       >
                         <option value="โอน">📱 เงินโอน</option>
                         <option value="เงินสด">💵 เงินสด (เก็บปลายทาง)</option>
+                        <option value="คนละครึ่ง">🔵 คนละครึ่ง</option>
                       </select>
                     </div>
                   </div>
 
+                  {/* 🌟 ปรับปรุงช่องค้นหาสถานที่จัดส่งให้รองรับการวางลิงก์ และลิงก์ไปยัง /dorms */}
                   <div className="relative p-5 bg-white border border-slate-200/60 rounded-3xl shadow-sm">
                     <label className="text-xs font-black text-blue-600 mb-3 tracking-wide flex items-center uppercase">
-                      <Search size={14} className="mr-1.5" /> ค้นหาสถานที่จัดส่ง
+                      <Search size={14} className="mr-1.5" /> สถานที่จัดส่ง / ลิงก์แผนที่ *
                     </label>
                     <input
                       type="text"
@@ -1562,7 +1589,8 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                       onBlur={() =>
                         setTimeout(() => setShowSuggestions(false), 200)
                       }
-                      placeholder="พิมพ์ชื่อหอพัก... (ไม่ระบุก็ได้)"
+                      placeholder="พิมพ์ชื่อหอพัก หรือ วางลิงก์ Google Maps ที่ลูกค้าแชร์มา..."
+                      
                     />
 
                     {showSuggestions && unifiedResults.length > 0 && (
@@ -1608,36 +1636,14 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                       </ul>
                     )}
 
-                    <div className="mt-5 pt-5 border-t border-slate-50">
-                      <label className="block text-xs font-black text-slate-400 mb-3 tracking-wide uppercase">
-                        ตรวจสอบหรือปรับแก้จุดปักหมุด
-                      </label>
-                      <JobMap
-                        lat={formData.lat}
-                        lng={formData.lng}
-                        savedLocations={savedLocations}
-                        onPinChange={(lat, lng) =>
-                          setFormData({ ...formData, lat, lng })
-                        }
-                      />
-                    </div>
-
-                    <div className="mt-5 pt-5 border-t border-slate-50">
-                      <label className="block text-xs font-black text-slate-600 mb-3 tracking-wide items-center">
-                        📍 บันทึกเป็นหมุดใหม่ของร้าน (ตั้งชื่อ)
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full bg-blue-50/50 border border-blue-200 p-4 rounded-2xl text-sm outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all placeholder-slate-400 font-bold"
-                        value={formData.new_pin_name}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            new_pin_name: e.target.value,
-                          })
-                        }
-                        placeholder="ตั้งชื่อสถานที่ให้หมุดนี้..."
-                      />
+                    <div className="flex justify-end pt-4">
+                      <Link 
+                        href="/dorms" 
+                        target="_blank" 
+                        className="inline-flex items-center gap-1.5 text-[10px] font-black text-indigo-600 hover:text-white hover:bg-indigo-500 transition-colors uppercase tracking-widest bg-indigo-50 border border-indigo-100 px-3 py-2 rounded-xl active:scale-95 cursor-pointer shadow-sm"
+                      >
+                        <Plus size={12} strokeWidth={3} /> ไปหน้าคลังหอพัก
+                      </Link>
                     </div>
                   </div>
                 </div>
@@ -1846,8 +1852,12 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                       size={16}
                       className="mr-2 mt-0.5 text-red-500 shrink-0"
                     />
-                    <span className="leading-relaxed">
-                      {selectedViewOrder.address}
+                    <span className="leading-relaxed break-all">
+                      {selectedViewOrder.address.startsWith("http") ? (
+                        <a href={selectedViewOrder.address} target="_blank" rel="noreferrer" className="text-blue-600 underline cursor-pointer">{selectedViewOrder.address}</a>
+                      ) : (
+                        selectedViewOrder.address
+                      )}
                     </span>
                   </div>
                 </div>
@@ -1989,13 +1999,13 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
       {imageGallery && (
         <div
-          className="fixed inset-0 bg-gray-900/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200 z-200"
+          className="fixed inset-0 bg-gray-900/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200 z-[200]"
           onClick={() => {
             setImageGallery(null);
             setImgScale(1);
           }}
         >
-          <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-210 text-white pointer-events-none">
+          <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-[210] text-white pointer-events-none">
             <span className="font-bold text-xs bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm">
               คลิก 2 ครั้งเพื่อซูม / ใช้ปุ่มลูกศรเลื่อน
             </span>
@@ -2017,7 +2027,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                   e.stopPropagation();
                   scrollGallery("left");
                 }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-210 transition-all cursor-pointer hidden md:block"
+                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-[210] transition-all cursor-pointer hidden md:block"
               >
                 <ChevronLeft size={24} />
               </button>
@@ -2026,7 +2036,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                   e.stopPropagation();
                   scrollGallery("right");
                 }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-210 transition-all cursor-pointer hidden md:block"
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-[210] transition-all cursor-pointer hidden md:block"
               >
                 <ChevronRight size={24} />
               </button>
@@ -2034,7 +2044,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
           )}
           <div
             ref={galleryRef}
-            className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory thin-scrollbar z-200"
+            className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory thin-scrollbar z-[200]"
           >
             {imageGallery.urls.map((url, i) => (
               <div
@@ -2062,7 +2072,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
             ))}
           </div>
           <div
-            className="absolute bottom-10 left-1/2 transform -translate-x-1/2 flex items-center gap-6 bg-gray-800/80 px-6 py-3 rounded-full backdrop-blur-md shadow-2xl z-210"
+            className="absolute bottom-10 left-1/2 transform -translate-x-1/2 flex items-center gap-6 bg-gray-800/80 px-6 py-3 rounded-full backdrop-blur-md shadow-2xl z-[210]"
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -2123,6 +2133,14 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         .animate-float { animation: float 3s ease-in-out infinite; }
         .animate-wiggle { animation: wiggle 2s ease-in-out infinite; }
       `}</style>
+      {isGalleryOpen && (
+    <SharedGallery 
+      branchId={currentBranchId} 
+      userName={adminName} 
+      userRole={currentUserRole} 
+      onClose={() => setIsGalleryOpen(false)} 
+    />
+  )}
     </div>
   );
 }

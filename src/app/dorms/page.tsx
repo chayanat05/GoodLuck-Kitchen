@@ -1,11 +1,11 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { supabase } from "../../lib/supabase";
-import JobMap from "../../components/JobMap"; 
+import { supabase } from "@/lib/supabase";
+import JobMap from "@/components/JobMap"; 
 import { 
   ArrowLeft, Search, MapPin, Plus, X, 
-  Building2, Phone, ExternalLink, ImagePlus, 
-  Loader2, Trash2, ImageIcon, Camera, Edit
+  Building2, ExternalLink, ImagePlus, 
+  Loader2, Trash2, ImageIcon, Camera, Edit, Lock, Key
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
@@ -14,7 +14,6 @@ interface DormLocation {
   id: string;
   name: string;
   address: string | null;
-  phone: string | null;
   lat: number;
   lng: number;
   image_url: string | null;
@@ -28,8 +27,16 @@ export default function DormDatabasePage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  const [editingId, setEditingId] = useState<string | null>(null);
+  // 🌟 User Role State
+  const [userRole, setUserRole] = useState<string | null>(null);
+  
+  // 🌟 Delete Confirmation State
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [adminPassInput, setAdminPassInput] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [selectedFullImage, setSelectedFullImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -37,21 +44,32 @@ export default function DormDatabasePage() {
   const [formData, setFormData] = useState({
     name: "",
     address: "",
-    phone: "",
     lat: 16.248130,
     lng: 103.242206,
     image_url: "" as string | null
   });
 
   useEffect(() => {
-    fetchDorms();
+    const initPage = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single();
+        setUserRole(profile?.role || 'rider');
+      }
+      fetchDorms();
+    };
+    initPage();
   }, []);
 
   const fetchDorms = async () => {
     setIsLoading(true);
     const { data } = await supabase
       .from("saved_locations")
-      .select("*")
+      .select("id, name, address, lat, lng, image_url")
       .order("name");
       
     if (data) setDorms(data as DormLocation[]);
@@ -79,7 +97,6 @@ export default function DormDatabasePage() {
       setPreviewUrl(data.publicUrl);
     } catch (error) {
       alert("อัปโหลดรูปภาพไม่สำเร็จ");
-      console.error(error);
     } finally {
       setIsUploading(false);
     }
@@ -87,7 +104,7 @@ export default function DormDatabasePage() {
 
   const openAddModal = () => {
     setEditingId(null);
-    setFormData({ name: "", address: "", phone: "", lat: 16.248130, lng: 103.242206, image_url: null });
+    setFormData({ name: "", address: "", lat: 16.248130, lng: 103.242206, image_url: null });
     setPreviewUrl(null);
     setIsModalOpen(true);
   };
@@ -97,9 +114,8 @@ export default function DormDatabasePage() {
     setFormData({
       name: dorm.name,
       address: dorm.address || "",
-      phone: dorm.phone || "",
-      lat: dorm.lat,
-      lng: dorm.lng,
+      lat: Number(dorm.lat),
+      lng: Number(dorm.lng),
       image_url: dorm.image_url
     });
     setPreviewUrl(dorm.image_url);
@@ -126,17 +142,24 @@ export default function DormDatabasePage() {
     setIsSubmitting(false);
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    const isConfirmed = window.confirm(`⚠️ คำเตือน: คุณกำลังจะลบหอพัก "${name}" ออกจากระบบ\n\nแน่ใจหรือไม่?`);
-    if (!isConfirmed) return;
-
+  const handleConfirmDelete = async () => {
+    if (adminPassInput !== "8888") {
+      alert("รหัสผ่านไม่ถูกต้อง! ไม่สามารถลบได้");
+      return;
+    }
+    
+    setIsDeleting(true);
     try {
-      const { error } = await supabase.from("saved_locations").delete().eq("id", id);
+      const { error } = await supabase.from("saved_locations").delete().eq("id", deleteId);
       if (error) throw error;
+      setDeleteId(null);
+      setAdminPassInput("");
+      setSearchQuery(""); // 🌟 ล้างช่องค้นหาหลังลบเสร็จ จะได้กลับไปโชว์ข้อมูลหอพักทั้งหมดที่เหลืออยู่
       fetchDorms();
     } catch (error) {
-      console.error("Error deleting dorm:", error);
-      alert("เกิดข้อผิดพลาดในการลบข้อมูล");
+      alert("เกิดข้อผิดพลาดในการลบ");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -154,17 +177,17 @@ export default function DormDatabasePage() {
               <ArrowLeft size={20} className="text-slate-500" />
             </Link>
             <div>
-              <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-                <Camera className="text-orange-500" size={28} /> คลังรูปภาพและพิกัดหอพัก
+              <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2 uppercase tracking-tighter">
+                <Camera className="text-indigo-500" size={28} /> Dormitory Bank
               </h1>
-              <p className="text-xs font-bold text-slate-400 mt-1">บันทึกรูปหน้าหอเพื่อช่วยยืนยันตำแหน่งให้ไรเดอร์</p>
+              <p className="text-xs font-bold text-slate-400 mt-1">คลังรูปและพิกัดหอพักสารคาม (ระบบจัดการโดย {userRole})</p>
             </div>
           </div>
           <button 
             onClick={openAddModal}
-            className="w-full md:w-auto px-6 py-3 bg-slate-900 text-white font-black rounded-2xl flex items-center justify-center gap-2 hover:bg-blue-600 transition-all active:scale-95 shadow-lg"
+            className="w-full md:w-auto px-6 py-3 bg-slate-900 text-white font-black rounded-2xl flex items-center justify-center gap-2 hover:bg-indigo-600 transition-all active:scale-95 shadow-lg shadow-slate-900/10"
           >
-            <Plus size={20} /> เพิ่มหอพักใหม่
+            <Plus size={20} /> เพิ่มหอพัก
           </button>
         </div>
 
@@ -172,22 +195,22 @@ export default function DormDatabasePage() {
           <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
           <input 
             type="text"
-            placeholder="ค้นหาชื่อหอพักที่บันทึกไว้..."
+            placeholder="ค้นหาชื่อหอพัก..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-14 pr-6 py-5 bg-white border border-slate-200 rounded-3xl shadow-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-bold text-slate-700"
+            className="w-full pl-14 pr-6 py-5 bg-white border border-slate-200 rounded-3xl shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-bold text-slate-700"
           />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-in fade-in duration-500">
           {isLoading ? (
             <div className="col-span-full py-20 text-center text-slate-400 font-bold flex flex-col items-center gap-3">
-              <Loader2 className="animate-spin text-blue-500" size={40} />
-              กำลังดึงข้อมูลฐานข้อมูล...
+              <Loader2 className="animate-spin text-indigo-500" size={40} />
+              <p className="tracking-widest uppercase text-[10px]">Loading Database...</p>
             </div>
           ) : filteredDorms.length === 0 ? (
-            <div className="col-span-full py-20 text-center text-slate-400 font-bold bg-white rounded-4xl border-2 border-dashed border-slate-200">
-              ไม่พบข้อมูลหอพักที่ค้นหา
+            <div className="col-span-full py-20 text-center text-slate-400 font-bold bg-white rounded-4xl border-2 border-dashed border-slate-200 uppercase tracking-widest text-xs">
+              ไม่พบข้อมูลหอพัก
             </div>
           ) : filteredDorms.map((dorm) => (
             <div key={dorm.id} className="bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-xl transition-all group flex flex-col h-full">
@@ -197,51 +220,44 @@ export default function DormDatabasePage() {
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-slate-300">
                     <ImageIcon size={48} strokeWidth={1} />
-                    <span className="text-[10px] font-black uppercase tracking-widest mt-2">ไม่มีรูปภาพ</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest mt-2">No Photo</span>
                   </div>
                 )}
-                <div className="absolute inset-0 bg-linear-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                  <span className="text-white text-xs font-bold flex items-center gap-1.5">
-                    <ExternalLink size={14} /> คลิกเพื่อดูรูปขยาย
-                  </span>
-                </div>
               </div>
 
               <div className="p-5 flex-1 flex flex-col">
                 <h3 className="text-lg font-black text-slate-800 mb-1 line-clamp-1">{dorm.name}</h3>
                 <p className="text-slate-500 text-xs font-medium mb-4 flex items-start gap-1.5 h-8 line-clamp-2">
-                  <MapPin size={12} className="shrink-0 mt-0.5 text-slate-400" /> {dorm.address || 'ไม่มีที่อยู่'}
+                  <MapPin size={12} className="shrink-0 mt-0.5 text-indigo-400" /> {dorm.address || 'ไม่ได้ระบุจุดสังเกต'}
                 </p>
                 
                 <div className="mt-auto pt-4 border-t border-slate-50 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-blue-600 font-bold text-xs bg-blue-50 px-2.5 py-1.5 rounded-lg">
-                    <Phone size={12} /> {dorm.phone || '-'}
+                  <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
+                    ID: {dorm.id.slice(0, 5)}
                   </div>
                   
                   <div className="flex items-center gap-1">
                     <a 
-                      href={`https://www.google.com/maps?q=${dorm.lat},${dorm.lng}`}
-                      target="_blank"
-                      rel="noreferrer"
+                      href={`http://googleusercontent.com/maps.google.com/maps?q=${dorm.lat},${dorm.lng}`}
+                      target="_blank" rel="noreferrer"
                       className="p-2 bg-slate-50 text-slate-500 hover:bg-emerald-500 hover:text-white rounded-xl transition-all active:scale-90"
-                      title="เปิดใน Google Maps"
                     >
-                      <MapPin size={16} />
+                      <ExternalLink size={16} />
                     </a>
                     <button 
                       onClick={() => openEditModal(dorm)}
-                      className="p-2 bg-slate-50 text-slate-500 hover:bg-blue-500 hover:text-white rounded-xl transition-all active:scale-90 cursor-pointer"
-                      title="แก้ไขข้อมูลหอพัก"
+                      className="p-2 bg-slate-50 text-slate-500 hover:bg-indigo-500 hover:text-white rounded-xl transition-all active:scale-90 cursor-pointer"
                     >
                       <Edit size={16} />
                     </button>
-                    <button 
-                      onClick={() => handleDelete(dorm.id, dorm.name)}
-                      className="p-2 bg-slate-50 text-slate-500 hover:bg-rose-500 hover:text-white rounded-xl transition-all active:scale-90 cursor-pointer"
-                      title="ลบหอพัก"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    {userRole === 'admin' && (
+                      <button 
+                        onClick={() => { setDeleteId(dorm.id); setDeleteConfirmName(dorm.name); }}
+                        className="p-2 bg-slate-50 text-slate-500 hover:bg-rose-500 hover:text-white rounded-xl transition-all active:scale-90 cursor-pointer"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -250,9 +266,48 @@ export default function DormDatabasePage() {
         </div>
       </div>
 
+      {/* Modal ยืนยันการลบ */}
+      {deleteId && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-sm shadow-2xl animate-in zoom-in-95">
+            <div className="w-16 h-16 bg-rose-100 text-rose-500 rounded-2xl flex items-center justify-center mb-6 mx-auto">
+              <Lock size={32} />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 text-center mb-2">ยืนยันการลบ</h3>
+            <p className="text-sm text-slate-500 text-center mb-6 font-bold">
+              กรุณาใส่รหัสผ่านแอดมินเพื่อลบ <br/>
+              <span className="text-rose-600">&quot;{deleteConfirmName}&quot;</span>
+            </p>
+            <div className="relative mb-6">
+              <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input 
+                type="password"
+                autoComplete="new-password" /* 🌟 ป้องกันบราวเซอร์เด้งรหัสผ่านเก่ามายัดใส่ */
+                className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:bg-white focus:border-rose-500 transition-all font-black text-center tracking-widest"
+                placeholder="รหัสผ่านยืนยัน"
+                value={adminPassInput}
+                onChange={e => setAdminPassInput(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => { setDeleteId(null); setAdminPassInput(""); }} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl cursor-pointer hover:bg-slate-200">ยกเลิก</button>
+              <button 
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                className="flex-1 py-3 bg-rose-600 text-white font-black rounded-xl shadow-lg shadow-rose-200 flex justify-center items-center gap-2 cursor-pointer hover:bg-rose-700 disabled:bg-rose-300"
+              >
+                {isDeleting ? <Loader2 className="animate-spin" size={18} /> : "ยืนยันลบ"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full Image Preview */}
       {selectedFullImage && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl z-[100] flex items-center justify-center p-4 animate-in fade-in" onClick={() => setSelectedFullImage(null)}>
-          <button className="absolute top-6 right-6 text-white p-2 hover:bg-white/10 rounded-full transition-colors cursor-pointer z-50">
+        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl z-[300] flex items-center justify-center p-4 animate-in fade-in" onClick={() => setSelectedFullImage(null)}>
+          <button className="absolute top-6 right-6 text-white p-2 hover:bg-white/10 rounded-full transition-colors cursor-pointer">
             <X size={32} />
           </button>
           <div className="relative w-full max-w-5xl h-full max-h-[80vh]">
@@ -261,13 +316,14 @@ export default function DormDatabasePage() {
         </div>
       )}
 
+      {/* Modal เพิ่ม/แก้ไข */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[150] animate-in fade-in duration-200">
           <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 border border-slate-100">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
-              <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
-                {editingId ? <Edit className="text-blue-500" /> : <Plus className="text-blue-500" />} 
-                {editingId ? "แก้ไขข้อมูลหอพัก" : "ลงทะเบียนหอพักใหม่"}
+              <h3 className="text-xl font-black text-slate-800 flex items-center gap-2 uppercase tracking-tighter">
+                {editingId ? <Edit className="text-indigo-500" /> : <Plus className="text-indigo-500" />} 
+                {editingId ? "Edit Dormitory" : "New Dormitory"}
               </h3>
               <button onClick={() => setIsModalOpen(false)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors active:scale-90 cursor-pointer">
                 <X size={20} strokeWidth={2.5} />
@@ -278,59 +334,48 @@ export default function DormDatabasePage() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <form id="dorm-form" onSubmit={handleSave} className="space-y-6">
                   <div className="space-y-2">
-                    <label className="block text-xs font-black text-slate-500 uppercase tracking-wide">รูปภาพหน้าหอพัก</label>
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Photo Preview</label>
                     <div 
                       onClick={() => fileInputRef.current?.click()}
-                      className={`relative aspect-video rounded-3xl border-2 border-dashed transition-all flex flex-col items-center justify-center cursor-pointer overflow-hidden ${previewUrl ? 'border-blue-500 bg-white' : 'border-slate-300 bg-slate-100 hover:bg-white hover:border-blue-400'}`}
+                      className={`relative aspect-video rounded-3xl border-2 border-dashed transition-all flex flex-col items-center justify-center cursor-pointer overflow-hidden ${previewUrl ? 'border-indigo-500 bg-white' : 'border-slate-300 bg-slate-100 hover:bg-white hover:border-indigo-400'}`}
                     >
                       {previewUrl ? (
-                        <Image src={previewUrl} alt="Preview" fill sizes="(max-width: 768px) 100vw, 400px" className="object-cover" />
+                        <Image src={previewUrl} alt="Preview" fill className="object-cover" />
                       ) : (
                         <>
-                          {isUploading ? <Loader2 className="animate-spin text-blue-500" size={32} /> : <ImagePlus size={40} className="text-slate-400" />}
-                          <span className="text-xs font-bold text-slate-500 mt-2">{isUploading ? 'กำลังอัปโหลด...' : 'คลิกเพื่อเลือกรูปภาพ'}</span>
+                          {isUploading ? <Loader2 className="animate-spin text-indigo-500" size={32} /> : <ImagePlus size={40} className="text-slate-400" />}
+                          <span className="text-[10px] font-bold text-slate-500 mt-2 uppercase tracking-widest">{isUploading ? 'Uploading...' : 'Tap to Upload'}</span>
                         </>
                       )}
                     </div>
                     <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-black text-slate-500 uppercase mb-2 tracking-wide">ชื่อหอพัก *</label>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 ml-1">Dormitory Name *</label>
                       <input 
                         required
-                        className="w-full p-4 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 font-bold text-slate-800 transition-all shadow-sm"
+                        className="w-full p-4 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 font-bold text-slate-800 transition-all shadow-sm"
                         value={formData.name}
                         onChange={e => setFormData({...formData, name: e.target.value})}
-                        placeholder="เช่น หอพักมารวย"
+                        placeholder="กรอกชื่อหอพัก..."
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-black text-slate-500 uppercase mb-2 tracking-wide">เบอร์โทร</label>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 ml-1">จุดสังเกต / ซอย</label>
                       <input 
-                        className="w-full p-4 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 font-bold text-slate-800 transition-all shadow-sm"
-                        value={formData.phone}
-                        onChange={e => setFormData({...formData, phone: e.target.value})}
-                        placeholder="08X-XXX-XXXX"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-black text-slate-500 uppercase mb-2 tracking-wide">จุดสังเกต</label>
-                      <input 
-                        className="w-full p-4 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 font-bold text-slate-800 transition-all shadow-sm"
+                        className="w-full p-4 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 font-bold text-slate-800 transition-all shadow-sm"
                         value={formData.address}
                         onChange={e => setFormData({...formData, address: e.target.value})}
-                        placeholder="เช่น ซอยตรงข้าม 7-11"
+                        placeholder="เช่น ซอยตรงข้ามเซเว่น..."
                       />
                     </div>
                   </div>
                 </form>
 
                 <div className="space-y-4">
-                  <label className="block text-xs font-black text-slate-500 uppercase tracking-wide">
-                    ปักหมุดพิกัดหอพัก (ลากแผนที่)
-                  </label>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Pin Location</label>
                   <div className="h-[400px] rounded-3xl overflow-hidden border-2 border-slate-200 shadow-sm relative">
                     <JobMap 
                       lat={formData.lat}
@@ -338,26 +383,23 @@ export default function DormDatabasePage() {
                       onPinChange={(lat, lng) => setFormData({...formData, lat, lng})}
                     />
                   </div>
-                  <div className="bg-blue-50 text-blue-700 p-4 rounded-2xl border border-blue-100 text-[11px] font-bold leading-relaxed">
-                    💡 <span className="font-black">วิธีใช้งาน:</span> ค้นหาหอพักในแผนที่ แล้วคลิกจิ้มให้หมุดสีแดงตรงกับหน้าหอพักตามรูปที่คุณอัปโหลด ข้อมูลนี้จะช่วยให้ไรเดอร์ใหม่ไปส่งถูกที่แน่นอน!
-                  </div>
                 </div>
               </div>
             </div>
             
-            <div className="p-4 border-t border-slate-100 bg-white flex gap-3 shrink-0 hidden md:flex">
+            <div className="p-4 border-t border-slate-100 bg-white flex gap-3 shrink-0">
               <button 
                 type="button" onClick={() => setIsModalOpen(false)}
-                className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors cursor-pointer text-sm"
+                className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition-colors cursor-pointer text-xs uppercase tracking-widest"
               >
-                ยกเลิก
+                Cancel
               </button>
               <button 
                 type="submit" form="dorm-form" disabled={isSubmitting || isUploading}
-                className="flex-[2] py-3.5 bg-slate-900 text-white font-black rounded-xl hover:bg-blue-600 transition-all cursor-pointer shadow-lg shadow-blue-500/30 active:scale-95 text-sm uppercase tracking-widest flex items-center justify-center gap-2"
+                className="flex-[2] py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-indigo-600 transition-all cursor-pointer shadow-lg shadow-indigo-200 active:scale-95 disabled:bg-slate-300 text-xs uppercase tracking-widest flex items-center justify-center gap-2"
               >
                 {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : null}
-                {editingId ? "บันทึกการแก้ไข" : "บันทึกลงฐานข้อมูลหอพัก"}
+                {editingId ? "Update Dorm" : "Save to Database"}
               </button>
             </div>
           </div>
@@ -367,8 +409,8 @@ export default function DormDatabasePage() {
       <style jsx global>{`
         .thin-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
         .thin-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .thin-scrollbar::-webkit-scrollbar-thumb { background: rgba(203, 213, 225, 1); border-radius: 10px; }
-        .thin-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 1); }
+        .thin-scrollbar::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.2); border-radius: 10px; }
+        .thin-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.4); }
       `}</style>
     </div>
   );

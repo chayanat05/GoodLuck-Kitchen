@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { 
   ArrowLeft, Banknote, Calendar, Loader2, CheckCircle2, AlertTriangle, 
   Search, Edit3, X, Save, Clock, Package, DollarSign, Fuel, Trophy, User, ImagePlus, Check,

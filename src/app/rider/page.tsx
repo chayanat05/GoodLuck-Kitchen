@@ -25,15 +25,17 @@ import {
   ZoomIn,
   ZoomOut,
   Store,
-  Lock 
+  Lock, 
+  Link as LinkIcon
 } from "lucide-react";
 import { Order } from "../../components/OrderCard";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import DashboardView from "./DashboardView";
 import Image from "next/image";
+import Link from "next/link";
 import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from "@react-google-maps/api"; 
 
-const LIBRARIES: "places"[] = ["places"];
+
 const SHOP_LAT = 16.24813;
 const SHOP_LNG = 103.242206;
 
@@ -72,7 +74,6 @@ export default function RiderPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(null);
   
-  // 🌟 กู้คืนตัวแปร shopLocation
   const [shopLocation, setShopLocation] = useState<{ lat: number; lng: number }>({ lat: SHOP_LAT, lng: SHOP_LNG });
   
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -105,10 +106,14 @@ export default function RiderPage() {
   const [ridersLoc, setRidersLoc] = useState<RiderLocation[]>([]);
   const [selectedRiderMapInfo, setSelectedRiderMapInfo] = useState<RiderLocation | null>(null);
 
+  // 🌟 State สำหรับเปิดรูปหอพัก (ดึงจากฐานข้อมูล)
+  const [dormImageModal, setDormImageModal] = useState<{ isOpen: boolean; url: string | null; isLoading: boolean }>({ isOpen: false, url: null, isLoading: false });
+  
+  const [mapLibraries] = useState<"places"[]>(["places"]);
   const { isLoaded } = useJsApiLoader({
     id: "google-map-script",
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "",
-    libraries: LIBRARIES,
+    libraries: mapLibraries, 
     language: "th",
     region: "TH",
   });
@@ -120,6 +125,29 @@ export default function RiderPage() {
   
   const closePopup = () => setPopup((prev) => ({ ...prev, isOpen: false }));
 
+  // 🌟 ฟังก์ชันดึงรูปหอพักจาก Database (จากชื่อสถานที่จัดส่ง)
+  const handleViewDormImage = async (addressName: string) => {
+    setDormImageModal({ isOpen: true, url: null, isLoading: true });
+    
+    // ถ้า address เป็น Link ให้ข้ามไปเลย เพราะไม่มีชื่อหอให้ค้นหา
+    if (addressName.startsWith("http")) {
+      setDormImageModal({ isOpen: true, url: null, isLoading: false });
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("saved_locations")
+      .select("image_url")
+      .eq("name", addressName)
+      .single();
+
+    if (data?.image_url) {
+      setDormImageModal({ isOpen: true, url: data.image_url, isLoading: false });
+    } else {
+      setDormImageModal({ isOpen: true, url: null, isLoading: false });
+    }
+  };
+
   const fetchOrdersAndBranches = useCallback(async (userId: string) => {
     if (!userId) return;
 
@@ -129,17 +157,21 @@ export default function RiderPage() {
     const { data: bData } = await supabase.from("branches").select("*").order("created_at", { ascending: true });
     if (bData) setBranches(bData as Branch[]);
 
+    // 🌟 ดึงงานของตัวเอง (ไม่เอางานที่โดนลบ / is_archived)
     const { data: myJobs } = await supabase
       .from("orders")
       .select("*")
       .eq("rider_id", userId)
+      .or("is_archived.is.null,is_archived.eq.false") // กรองงานที่ถูกลบหรือเก็บออกไป
       .order("created_at", { ascending: false });
 
+    // 🌟 ดึงงานว่าง (ไม่เอา shopee และไม่เอางานที่ถูกลบ)
     const { data: availableJobs } = await supabase
       .from("orders")
       .select("*")
       .is("rider_id", null)
       .or("job_type.is.null,job_type.neq.shopee")
+      .or("is_archived.is.null,is_archived.eq.false") // กรองงานที่ถูกลบหรือเก็บออกไป
       .in("status", ["New", "กำลังทำ", "รับงาน"])
       .order("created_at", { ascending: false });
 
@@ -216,14 +248,12 @@ export default function RiderPage() {
       return;
     }
 
-    // 🌟 ฟังก์ชันแยกสำหรับขอพิกัดปัจจุบันก่อน แล้วค่อยไป watch
     const initLocation = () => {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           setGpsEnabled(true);
           setLocationError(null);
           setMyLocation({ lat: position.coords.latitude, lng: position.coords.longitude });
-          // บันทึกลงฐานข้อมูลรอบแรกทันที
           supabase.from("profiles").update({
             last_lat: position.coords.latitude,
             last_lng: position.coords.longitude,
@@ -239,7 +269,6 @@ export default function RiderPage() {
       );
     };
 
-    // 🌟 ฟังก์ชันจัดการ Error ให้ชัดเจนขึ้น
     const handleLocationError = (error: GeolocationPositionError) => {
       let msg = "กรุณาเปิด GPS";
       switch(error.code) {
@@ -248,15 +277,13 @@ export default function RiderPage() {
         case error.TIMEOUT: msg = "หมดเวลาค้นหาพิกัด (ลองเปิดแอปใหม่)"; break;
       }
       setLocationError(msg);
-      // ถ้าระบบหาไม่เจอ ให้เคลียร์ State หมุนๆ ออกด้วย
       if(error.code !== error.PERMISSION_DENIED) {
         setMyLocation(null); 
       }
     };
 
-    initLocation(); // ดึงรอบแรกก่อนเลย
+    initLocation(); 
 
-    // 🌟 เริ่ม Watch แบบปรับ Option ใหม่
     const watchId = navigator.geolocation.watchPosition(
       async (position) => {
         setGpsEnabled(true);
@@ -275,7 +302,6 @@ export default function RiderPage() {
       },
       (error) => {
         console.error("GPS Watch Error:", error);
-        // ถ้ายกเลิกสิทธิ์ระหว่างทาง
         if(error.code === error.PERMISSION_DENIED) {
           setGpsEnabled(false);
         }
@@ -283,7 +309,7 @@ export default function RiderPage() {
       },
       { 
         enableHighAccuracy: true, 
-        maximumAge: 10000, // บน iOS การให้มีอายุข้อมูลเก่าได้นิดหน่อยจะช่วยลดอาการค้าง
+        maximumAge: 10000,
         timeout: 20000 
       }
     );
@@ -293,7 +319,6 @@ export default function RiderPage() {
 
   useEffect(() => {
     if (showRiderMap) {
-      // ✅ แก้ไข ESLint Warning react-hooks/set-state-in-effect โดยการครอบฟังก์ชัน
       const initMap = async () => {
         await fetchRidersLocation();
       };
@@ -409,11 +434,34 @@ export default function RiderPage() {
     );
   };
 
+  // 🌟 ฟังก์ชันนำทางแบบอัจฉริยะ (แยกระหว่าง ลิงก์ vs พิกัดละติจูด vs ชื่อสถานที่)
   const calculateRoute = (order: RiderOrder) => {
-    if (!myLocation) { showAlert("รอก่อนนะ", "กำลังหาตำแหน่งของคุณอยู่ครับ 📡", "warning"); return; }
-    if (!order.lat || !order.lng) { showAlert("ขออภัย", "ออเดอร์นี้แอดมินไม่ได้ปักพิกัดไว้ครับ", "error"); return; }
-    const url = `https://www.google.com/maps/dir/?api=1&origin=${myLocation.lat},${myLocation.lng}&destination=${order.lat},${order.lng}&travelmode=driving`;
-    window.open(url, "_blank");
+    // 1. ถ้าที่อยู่เป็น Link Google Maps (มีคำว่า http หรือ maps.app.goo.gl) ให้เปิดลิงก์ตรงๆ เลย
+    if (order.address && (order.address.startsWith("http") || order.address.includes("maps."))) {
+      window.open(order.address, "_blank");
+      return;
+    }
+
+    if (!myLocation) { 
+      showAlert("รอก่อนนะ", "กำลังหาตำแหน่งของคุณอยู่ครับ 📡", "warning"); 
+      return; 
+    }
+
+    // 2. ถ้ามี lat, lng (ปักหมุดไว้) ให้นำทางแบบเส้นทางพิกัดเป๊ะๆ
+    if (order.lat && order.lng) { 
+      const url = `http://googleusercontent.com/maps.google.com/9${myLocation.lat},${myLocation.lng}&destination=${order.lat},${order.lng}&travelmode=driving`;
+      window.open(url, "_blank");
+      return;
+    }
+
+    // 3. ถ้าไม่มีทั้งคู่ แต่มีชื่อสถานที่ (address) ให้โยนไปค้นหาใน Google Maps
+    if (order.address) {
+      const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.address)}`;
+      window.open(url, "_blank");
+      return;
+    }
+
+    showAlert("ขออภัย", "ออเดอร์นี้ไม่มีทั้งลิงก์แผนที่และไม่มีการระบุสถานที่ครับ", "error"); 
   };
 
   const handleLogout = () => {
@@ -439,7 +487,6 @@ export default function RiderPage() {
     });
   }, [completedOrders, cutOffHour]);
 
-  // 🌟 กู้คืนฟังก์ชันสีสถานะ
   const getRiderStatusDisplay = (status: string) => {
     if (status === "New") return { text: "ออเดอร์เข้าใหม่", color: "bg-blue-500/20 text-blue-300 border-blue-400/30" };
     if (status === "กำลังทำ") return { text: "ครัวกำลังทำอาหาร", color: "bg-amber-500/20 text-amber-300 border-amber-400/30", icon: <ChefHat size={12} className="mr-1" /> };
@@ -462,6 +509,9 @@ export default function RiderPage() {
       ? "bg-gradient-to-br from-red-500 to-red-600 border-red-700 shadow-red-500/30" 
       : "bg-gradient-to-br from-blue-900 to-slate-900 border-blue-950 shadow-blue-900/30";
     
+    // Check if address is URL
+    const isAddressUrl = order.address && (order.address.startsWith("http") || order.address.includes("maps."));
+
     return (
       <div key={order.id} className={`${isCompact ? "w-[42vw] sm:w-42.5" : "w-[82vw] sm:w-[320px]"} h-full shrink-0 snap-center rounded-2xl shadow-md border overflow-hidden flex flex-col transition-all duration-300 ${cardBgClass}`} style={{ animation: `fadeIn 0.5s ease-out ${idx * 0.05}s both` }}>
         <div className="flex-1 overflow-y-auto hide-scrollbar p-2.5 sm:p-3 relative border-b border-white/10 flex flex-col">
@@ -491,9 +541,29 @@ export default function RiderPage() {
           </div>
 
           {order.address && (
-            <div className={`mb-2 shrink-0 flex items-start text-[10px] sm:text-xs p-2 text-white bg-black/20 border border-white/10 rounded-lg font-bold shadow-inner`}>
-              <MapPin size={isCompact ? 12 : 14} className="mr-1.5 mt-0.5 shrink-0 text-white/80" />
-              <span className={`leading-relaxed ${isCompact ? "line-clamp-2" : "line-clamp-3"}`}>{order.address}</span>
+            <div className={`mb-2 shrink-0 flex items-center justify-between text-[10px] sm:text-xs p-2 text-white bg-black/20 border border-white/10 rounded-lg font-bold shadow-inner`}>
+              <div className="flex items-start flex-1 overflow-hidden">
+                <MapPin size={isCompact ? 12 : 14} className="mr-1.5 mt-0.5 shrink-0 text-white/80" />
+                <span className={`leading-relaxed ${isCompact ? "line-clamp-2" : "line-clamp-3"}`}>
+                  {isAddressUrl ? (
+                    <span className="text-blue-300 underline italic flex items-center">
+                      <LinkIcon size={10} className="mr-1 inline" /> ลิงก์แผนที่ลูกค้า
+                    </span>
+                  ) : (
+                    order.address
+                  )}
+                </span>
+              </div>
+              
+              {/* 🌟 ปุ่มดูรูปหอพัก (ไม่แสดงถ้าเป็นลิงก์) */}
+              {!isAddressUrl && (
+                <button 
+                  onClick={() => handleViewDormImage(order.address!)} 
+                  className="shrink-0 ml-2 px-2 py-1 bg-white/10 hover:bg-white/20 text-[9px] uppercase tracking-widest font-black rounded flex items-center gap-1 transition-colors active:scale-90"
+                >
+                  <ImageIcon size={10} /> ดูรูปหอ
+                </button>
+              )}
             </div>
           )}
 
@@ -865,7 +935,24 @@ export default function RiderPage() {
                 </div>
                 พิกัดเพื่อนไรเดอร์ (รวมสาขา)
               </button>
+
+              <div className="h-px bg-slate-200 my-2"></div>
+              
+              {/* 🌟 ปุ่มเข้าคลังหอพัก */}
+              <Link 
+                href="/dorms"
+                className="w-full flex items-center p-3 text-slate-700 bg-white hover:bg-indigo-50 hover:text-indigo-700 rounded-xl transition-all text-sm font-bold cursor-pointer border border-slate-200 shadow-sm group"
+              >
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center mr-3 group-hover:bg-indigo-100 transition-colors">
+                  <Store size={16} className="text-indigo-600" />
+                </div>
+                <div className="text-left">
+                  <div className="leading-tight">คลังหอพัก</div>
+                  <div className="text-[9px] text-slate-400 uppercase tracking-widest mt-0.5">Dormitory Bank</div>
+                </div>
+              </Link>
             </div>
+            
             <div className="p-4 border-t border-slate-200 bg-white">
               <button onClick={() => { setIsMenuOpen(false); handleLogout(); }} className="w-full flex items-center justify-center p-3 text-rose-600 bg-rose-50 border border-rose-100 hover:bg-rose-600 hover:text-white rounded-xl transition-all text-sm font-black cursor-pointer shadow-sm active:scale-95">
                 <LogOut size={16} className="mr-2" /> ออกจากระบบ
@@ -929,8 +1016,23 @@ export default function RiderPage() {
                   <div className="text-[10px] font-black text-slate-500 uppercase tracking-wider">สถานที่จัดส่ง</div>
                   <div className="flex items-start text-xs text-red-700 bg-red-50 p-4 rounded-xl border border-red-100 font-bold shadow-inner">
                     <MapIcon size={16} className="mr-2 mt-0.5 text-red-500 shrink-0" />
-                    <span className="leading-relaxed">{selectedViewOrder.address}</span>
+                    <span className="leading-relaxed break-all">
+                      {selectedViewOrder.address.startsWith("http") || selectedViewOrder.address.includes("maps.") ? (
+                        <a href={selectedViewOrder.address} target="_blank" rel="noreferrer" className="text-blue-600 underline">เปิดลิงก์แผนที่</a>
+                      ) : (
+                        selectedViewOrder.address
+                      )}
+                    </span>
                   </div>
+                  {/* 🌟 ปุ่มดูรูปหอพักใน Modal */}
+                  {selectedViewOrder.address && !selectedViewOrder.address.startsWith("http") && (
+                    <button 
+                      onClick={() => handleViewDormImage(selectedViewOrder.address!)} 
+                      className="w-full py-2 bg-indigo-50 text-indigo-600 border border-indigo-100 hover:bg-indigo-100 hover:text-indigo-700 text-xs font-black uppercase tracking-widest rounded-xl transition-colors active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <ImageIcon size={14} /> ตรวจสอบรูปภาพหน้าหอพัก
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -994,7 +1096,6 @@ export default function RiderPage() {
         </div>
       )}
 
-      {/* 🌟 แสดง Rider Map (กู้คืนครบ) */}
       {showRiderMap && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col h-5/6">
@@ -1092,6 +1193,51 @@ export default function RiderPage() {
         </div>
       )}
 
+      {/* 🌟 Modal โชว์รูปหอพัก */}
+      {dormImageModal.isOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[350] flex items-center justify-center p-4 animate-in fade-in" 
+          onClick={() => setDormImageModal({ isOpen: false, url: null, isLoading: false })}
+        >
+          <button className="absolute top-6 right-6 text-white hover:bg-white/20 p-2 rounded-full transition-colors z-50 cursor-pointer">
+            <X size={32} />
+          </button>
+          
+          {dormImageModal.isLoading ? (
+            <div className="flex flex-col items-center text-white">
+              <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
+              <span className="font-black tracking-widest uppercase animate-pulse">กำลังค้นหารูปภาพ...</span>
+            </div>
+          ) : dormImageModal.url ? (
+            <div className="relative w-full max-w-lg aspect-square sm:h-[70vh] animate-in zoom-in-95 duration-300">
+              <Image 
+              src={dormImageModal.url} 
+              alt="Dorm" 
+              fill 
+              sizes="(max-width: 768px) 100vw, 800px" 
+              className="object-contain rounded-2xl" 
+/>
+            </div>
+          ) : (
+            <div className="bg-white p-8 rounded-4xl flex flex-col items-center max-w-xs text-center animate-in zoom-in-95 duration-300 border border-slate-100 shadow-2xl" onClick={e => e.stopPropagation()}>
+              <div className="w-20 h-20 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mb-5 shadow-inner border border-slate-100">
+                <ImageIcon size={40} strokeWidth={1.5} />
+              </div>
+              <h3 className="text-lg font-black text-slate-800 mb-2">ไม่พบรูปภาพ</h3>
+              <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                อาจจะเป็นเพราะยังไม่มีใครอัปโหลดรูปของหอพักนี้ หรือพิมพ์ชื่อไม่ตรงกับในคลังครับ
+              </p>
+              <button 
+                onClick={() => setDormImageModal({ isOpen: false, url: null, isLoading: false })}
+                className="mt-6 w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black rounded-xl transition-all cursor-pointer active:scale-95 text-xs uppercase tracking-widest"
+              >
+                รับทราบ
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {imageGallery && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200" onClick={() => { setImageGallery(null); setImgScale(1); }} style={{ zIndex: 300 }}>
           <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-50 text-white pointer-events-none">
@@ -1139,23 +1285,30 @@ export default function RiderPage() {
         </div>
       )}
 
+      {/* 🌟 ป๊อปอัพแอนิเมชันเด้งดึ๋ง */}
       {popup.isOpen && (
-        <div className="fixed inset-0 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200" style={{ zIndex: 350 }}>
-          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm p-6 text-center animate-in zoom-in-95 slide-in-from-bottom-5 duration-300 border border-slate-100">
-            {renderPopupIcon(popup.icon || "info")}
-            <h3 className="text-lg font-black text-slate-800 mb-2 tracking-tight">{popup.title}</h3>
-            <p className="text-slate-500 text-xs mb-6 font-medium leading-relaxed">{popup.message}</p>
+        <div className="fixed inset-0 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200" style={{ zIndex: 350 }}>
+          <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-sm p-8 text-center animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 flex flex-col items-center">
+            {/* วงกลมไอคอนมีเอฟเฟกต์คลื่น */}
+            <div className="relative mb-6">
+              <div className="absolute inset-0 rounded-full animate-ping opacity-20 bg-current" style={{ color: popup.icon === "success" ? "#10b981" : popup.icon === "error" ? "#f43f5e" : popup.icon === "warning" ? "#f59e0b" : "#3b82f6" }}></div>
+              {renderPopupIcon(popup.icon || "info")}
+            </div>
+            
+            <h3 className="text-xl font-black text-slate-800 mb-2 tracking-tight">{popup.title}</h3>
+            <p className="text-slate-500 text-sm mb-8 font-medium leading-relaxed px-2">{popup.message}</p>
+            
             {popup.type === "alert" ? (
-              <button onClick={closePopup} className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl active:scale-95 transition-all shadow-lg shadow-blue-600/30 cursor-pointer text-sm">
-                ตกลง
+              <button onClick={closePopup} className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-2xl active:scale-95 transition-all shadow-lg shadow-slate-900/20 cursor-pointer text-sm uppercase tracking-widest">
+                รับทราบ
               </button>
             ) : (
-              <div className="flex gap-3">
-                <button onClick={closePopup} className="flex-[0.8] py-3.5 bg-slate-100 border border-slate-200 hover:bg-slate-200 text-slate-600 font-black rounded-xl active:scale-95 transition-all cursor-pointer text-sm">
-                  ยกเลิก
+              <div className="flex gap-3 w-full">
+                <button onClick={closePopup} className="flex-[0.8] py-4 bg-slate-100 border border-slate-200 hover:bg-slate-200 text-slate-600 font-black rounded-2xl active:scale-95 transition-all cursor-pointer text-sm uppercase tracking-widest">
+                  {popup.cancelText || "ยกเลิก"}
                 </button>
-                <button onClick={popup.onConfirm} className="flex-[1.2] py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl active:scale-95 transition-all shadow-lg shadow-blue-600/30 cursor-pointer text-sm">
-                  ยืนยัน
+                <button onClick={popup.onConfirm} className={`flex-[1.2] py-4 text-white font-black rounded-2xl active:scale-95 transition-all shadow-lg cursor-pointer text-sm uppercase tracking-widest ${popup.icon === "error" ? "bg-rose-500 hover:bg-rose-600 shadow-rose-500/30" : "bg-blue-600 hover:bg-blue-700 shadow-blue-600/30"}`}>
+                  {popup.confirmText || "ยืนยัน"}
                 </button>
               </div>
             )}

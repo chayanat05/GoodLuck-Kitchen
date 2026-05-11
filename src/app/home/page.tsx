@@ -2,13 +2,15 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { 
   Store, MapPin, ChevronRight, Activity, 
   LogOut, Loader2, Clock, ShieldCheck, Package, Menu, X, 
   Settings, AlertTriangle, CheckCircle2, Users, ScanSearch,
-  Search, CheckSquare, Banknote, LayoutDashboard, Landmark,PieChart
+  Search, CheckSquare, Banknote, LayoutDashboard, Landmark,PieChart,
+  ImagePlus
 } from "lucide-react";
+import SharedGallery from "@/components/SharedGallery";
 
 interface Branch {
   id: string;
@@ -52,6 +54,11 @@ export default function BranchSelectorPage() {
 
   const [businessDayStart, setBusinessDayStart] = useState<string>("07:00");
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
+
+  const [adminName, setAdminName] = useState<string>("กำลังโหลด...");
+  const [currentUserRole, setCurrentUserRole] = useState<string>("admin");
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -277,6 +284,25 @@ export default function BranchSelectorPage() {
       setSelectedEmployees(Array.from(newSelection));
     }
   };
+  
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("username, role")
+          .eq("id", session.user.id)
+          .single();
+        
+        if (profile) {
+          setAdminName(profile.username || "แอดมิน");
+          setCurrentUserRole(profile.role || "admin");
+        }
+      }
+    };
+    fetchUserProfile();
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans p-6 md:p-12 flex flex-col items-center pb-20">
@@ -374,6 +400,16 @@ export default function BranchSelectorPage() {
                 Dashboard สถิติรวม
               </Link>
 
+              <button 
+    onClick={() => { setIsMenuOpen(false); setIsGalleryOpen(true); }}
+    className="w-full flex items-center p-3 text-slate-700 bg-white hover:bg-indigo-50 hover:text-indigo-700 rounded-xl transition-all text-sm font-bold cursor-pointer border border-slate-200 shadow-sm"
+  >
+    <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center mr-3">
+      <ImagePlus size={16} className="text-indigo-600" />
+    </div>
+    คลังรูปภาพส่วนกลาง
+  </button>
+  
               <div className="h-px bg-slate-100 my-2"></div>
 
               <Link
@@ -386,6 +422,21 @@ export default function BranchSelectorPage() {
                 </div>
                 จัดการพนักงาน / สาขา
               </Link>
+
+              <Link 
+            href="/dorms"
+            className="flex items-center gap-6 p-4 w-full text-left rounded-xl hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 transition-colors font-bold group"
+            >
+            <div className="w-8 h-8 bg-slate-100 group-hover:bg-indigo-100 rounded-lg flex items-center justify-center transition-colors">
+              <MapPin size={20} className="text-slate-500 group-hover:text-indigo-600" />
+            </div>
+            <div>
+            <div className="text-l font-black">ฐานข้อมูลหอพัก</div>
+            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Dormitory Bank</div>
+            </div>
+            </Link>
+
+            <div className="h-px bg-slate-100 my-2"></div>
 
               <Link
                 href="/accounting"
@@ -655,13 +706,22 @@ export default function BranchSelectorPage() {
         </div>
 
       </div>
-
+              
       <style jsx global>{`
         .thin-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
         .thin-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .thin-scrollbar::-webkit-scrollbar-thumb { background: rgba(203, 213, 225, 1); border-radius: 10px; }
         .thin-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 1); }
       `}</style>
+
+      {isGalleryOpen && (
+    <SharedGallery 
+      userName={adminName}  // 🌟 ใช้ชื่อที่ดึงมาจากฐานข้อมูลจริง
+      userRole={currentUserRole} 
+      onClose={() => setIsGalleryOpen(false)} 
+    />
+  )}
+
     </div>
   );
 }

@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { 
   ArrowLeft, PaintBucket, Image as ImageIcon, Trash2, MoonStar, Settings, CheckCircle2, ChevronRight, AlertTriangle, Palette, ImagePlus, Maximize, Minimize, LayoutGrid, Clock
 } from 'lucide-react';
