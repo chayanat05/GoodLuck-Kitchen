@@ -192,6 +192,14 @@ export default function RiderPage() {
     if (data) setRidersLoc(data as RiderLocation[]);
   }, []);
 
+  // 🌟 เพิ่ม State ตัวจับเวลาให้อัปเดตทุก 30 วินาที
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
   useEffect(() => {
     let currentUserId = "";
 
@@ -509,10 +517,17 @@ export default function RiderPage() {
       ? "bg-gradient-to-br from-red-500 to-red-600 border-red-700 shadow-red-500/30" 
       : "bg-gradient-to-br from-blue-900 to-slate-900 border-blue-950 shadow-blue-900/30";
     
-    // Check if address is URL
     const isAddressUrl = order.address && (order.address.startsWith("http") || order.address.includes("maps."));
 
+    // 🌟 คำนวณเวลา
+    const elapsedMinutes = Math.floor((currentTime - new Date(order.created_at).getTime()) / 60000);
+    const isKitchenLate = (order.status === "New" || order.status === "กำลังทำ") && elapsedMinutes >= 5;
+    const isRiderLate = order.status === "รับงาน" && elapsedMinutes >= 35;
+    const isLate = isKitchenLate || isRiderLate;
+    const isNearLate = elapsedMinutes >= (order.status === "รับงาน" ? 30 : 4);
+
     return (
+      // 🌟 เอา alertClass ออกไปแล้ว ปล่อยให้การ์ดใช้สีสาขาแบบคลีนๆ เหมือนเดิม
       <div key={order.id} className={`${isCompact ? "w-[42vw] sm:w-42.5" : "w-[82vw] sm:w-[320px]"} h-full shrink-0 snap-center rounded-2xl shadow-md border overflow-hidden flex flex-col transition-all duration-300 ${cardBgClass}`} style={{ animation: `fadeIn 0.5s ease-out ${idx * 0.05}s both` }}>
         <div className="flex-1 overflow-y-auto hide-scrollbar p-2.5 sm:p-3 relative border-b border-white/10 flex flex-col">
           
@@ -528,12 +543,28 @@ export default function RiderPage() {
                 {order.job_type}
               </span>
             </div>
+            
             <div className="shrink-0 flex items-center gap-1">
+              {/* 🌟 ป้ายบอกเวลา (แบบใหม่ ตัดกับพื้นหลังทุกสี) */}
+              {order.status !== "ส่งแล้ว/เสร็จ" && (
+                <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black uppercase shadow-sm transition-all ${
+                  isLate 
+                    ? "bg-white text-rose-600 animate-pulse border border-rose-100 scale-105 shadow-[0_0_10px_rgba(255,255,255,0.5)]" 
+                    : isNearLate 
+                      ? "bg-amber-400 text-amber-900 border border-amber-300" 
+                      : "bg-black/40 text-white"
+                }`}>
+                  {isLate ? <AlertTriangle size={10} className="animate-wiggle" /> : <Clock size={10} />}
+                  {elapsedMinutes} นาที {isLate ? "ด่วน!" : ""}
+                </div>
+              )}
+
               {!isCompact && (
                 <button onClick={(e) => { e.stopPropagation(); setSelectedViewOrder(order); setShowContactInfo(false); }} className="bg-white/20 text-white px-1.5 py-0.5 rounded text-[8px] uppercase font-black flex items-center hover:bg-white/30 active:scale-95 transition-colors">
                   <Eye size={10} className="mr-0.5" /> ข้อมูล
                 </button>
               )}
+              
               <span className="text-[8px] sm:text-[9px] px-1.5 py-0.5 font-black rounded uppercase shadow-sm bg-white/20 text-white">
                 {order.status === "รับงาน" ? "ไปส่งเลย!" : order.status}
               </span>

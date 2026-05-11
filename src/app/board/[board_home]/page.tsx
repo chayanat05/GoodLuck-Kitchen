@@ -40,7 +40,7 @@ import {
   Contact,
   ClipboardList,
   MapPin,
-  Plus
+  Plus,
 } from "lucide-react";
 import {
   useJsApiLoader,
@@ -100,10 +100,14 @@ const calculateDistance = (
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 };
 
-export default function BoardPage({ params }: { params: Promise<{ board_home: string }> }) {
+export default function BoardPage({
+  params,
+}: {
+  params: Promise<{ board_home: string }>;
+}) {
   const resolvedParams = use(params);
-  const branchSlug = resolvedParams.board_home; 
-  
+  const branchSlug = resolvedParams.board_home;
+
   const [currentBranchId, setCurrentBranchId] = useState<string>("");
 
   const [isMounted, setIsMounted] = useState<boolean>(false);
@@ -113,15 +117,20 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
   const [bgColor, setBgColor] = useState<string>("#f8fafc");
   const [bgImage, setBgImage] = useState<string | null>(null);
-  const [bgOption, setBgOption] = useState<"cover" | "contain" | "repeat">("cover");
+  const [bgOption, setBgOption] = useState<"cover" | "contain" | "repeat">(
+    "cover",
+  );
 
   const [isCompact, setIsCompact] = useState<boolean>(false);
 
-  const defaultMapCenter = useMemo(() => ({ lat: SHOP_LAT, lng: SHOP_LNG }), []);
+  const defaultMapCenter = useMemo(
+    () => ({ lat: SHOP_LAT, lng: SHOP_LNG }),
+    [],
+  );
 
   const [alertModal, setAlertModal] = useState<{
     isOpen: boolean;
-    type: "logout" | null; 
+    type: "logout" | null;
     title: string;
     message: string;
     confirmText: string;
@@ -169,12 +178,13 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         .select("id, theme_bg_color, theme_bg_image, theme_bg_option")
         .eq("slug", branchSlug)
         .single();
-        
+
       if (data) {
         setCurrentBranchId(data.id);
         if (data.theme_bg_color) setBgColor(data.theme_bg_color);
         if (data.theme_bg_image) setBgImage(data.theme_bg_image);
-        if (data.theme_bg_option) setBgOption(data.theme_bg_option as "cover" | "contain" | "repeat");
+        if (data.theme_bg_option)
+          setBgOption(data.theme_bg_option as "cover" | "contain" | "repeat");
       } else {
         setCurrentBranchId(branchSlug);
       }
@@ -185,16 +195,28 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       .channel("public:branches:theme")
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "branches", filter: `slug=eq.${branchSlug}` },
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "branches",
+          filter: `slug=eq.${branchSlug}`,
+        },
         (payload) => {
-          if (payload.new.theme_bg_color) setBgColor(payload.new.theme_bg_color);
-          if (payload.new.theme_bg_image) setBgImage(payload.new.theme_bg_image);
-          if (payload.new.theme_bg_option) setBgOption(payload.new.theme_bg_option as "cover" | "contain" | "repeat");
-        }
+          if (payload.new.theme_bg_color)
+            setBgColor(payload.new.theme_bg_color);
+          if (payload.new.theme_bg_image)
+            setBgImage(payload.new.theme_bg_image);
+          if (payload.new.theme_bg_option)
+            setBgOption(
+              payload.new.theme_bg_option as "cover" | "contain" | "repeat",
+            );
+        },
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(themeChannel); };
+    return () => {
+      supabase.removeChannel(themeChannel);
+    };
   }, [branchSlug]);
 
   useEffect(() => {
@@ -207,15 +229,25 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const [selectedViewOrder, setSelectedViewOrder] = useState<Order | null>(null);
-  const [imageGallery, setImageGallery] = useState<{ urls: string[]; startIndex: number; } | null>(null);
+  const [selectedViewOrder, setSelectedViewOrder] = useState<Order | null>(
+    null,
+  );
+  const [imageGallery, setImageGallery] = useState<{
+    urls: string[];
+    startIndex: number;
+  } | null>(null);
   const [imgScale, setImgScale] = useState(1);
   const galleryRef = useRef<HTMLDivElement>(null);
 
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>([]);
-  const [unifiedResults, setUnifiedResults] = useState<UnifiedSearchResult[]>([]);
+  const [unifiedResults, setUnifiedResults] = useState<UnifiedSearchResult[]>(
+    [],
+  );
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
-  const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: "" });
+  const [toast, setToast] = useState<{ show: boolean; message: string }>({
+    show: false,
+    message: "",
+  });
 
   const dbTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const googleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -229,12 +261,13 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
   const [showRiderMap, setShowRiderMap] = useState<boolean>(false);
   const [ridersLoc, setRidersLoc] = useState<RiderLocation[]>([]);
-  const [selectedRiderMapInfo, setSelectedRiderMapInfo] = useState<RiderLocation | null>(null);
+  const [selectedRiderMapInfo, setSelectedRiderMapInfo] =
+    useState<RiderLocation | null>(null);
   const [mapLibraries] = useState<"places"[]>(["places"]);
   const { isLoaded } = useJsApiLoader({
     id: "google-map-script",
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "",
-    libraries: mapLibraries, 
+    libraries: mapLibraries,
     language: "th",
     region: "TH",
   });
@@ -251,7 +284,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     lat: null as number | null,
     lng: null as number | null,
     contact_link: "",
-    contact_source: "เพจหลัก" 
+    contact_source: "เพจหลัก",
   });
 
   const showToast = useCallback((msg: string) => {
@@ -272,8 +305,10 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
     if (orderError) console.error("Error fetching orders:", orderError);
     if (orderData) {
-      if (currentUserRole === 'kitchen') {
-        const kitchenOrders = (orderData as Order[]).filter(o => o.job_type === 'ร้าน');
+      if (currentUserRole === "kitchen") {
+        const kitchenOrders = (orderData as Order[]).filter(
+          (o) => o.job_type === "ร้าน",
+        );
         setOrders(kitchenOrders);
       } else {
         setOrders(orderData as Order[]);
@@ -306,7 +341,9 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     notificationAudio.current = new Audio(NOTIFICATION_SOUND_URL);
 
     const checkAuthAndInit = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session) {
         window.location.href = "/login";
         return;
@@ -316,16 +353,22 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         .select("role, username")
         .eq("id", session.user.id)
         .single();
-        
-      if (error || !profile || (profile.role !== "admin" && profile.role !== "kitchen")) {
+
+      if (
+        error ||
+        !profile ||
+        (profile.role !== "admin" && profile.role !== "kitchen")
+      ) {
         alert("สิทธิ์การเข้าถึงถูกปฏิเสธ! คุณถูกพาไปยังหน้าของไรเดอร์");
         window.location.href = "/rider";
         return;
       }
-      
+
       setCurrentUser(session.user);
-      setAdminName(profile.username || (profile.role === 'admin' ? "แอดมิน" : "แม่ครัว"));
-      setCurrentUserRole(profile.role); 
+      setAdminName(
+        profile.username || (profile.role === "admin" ? "แอดมิน" : "แม่ครัว"),
+      );
+      setCurrentUserRole(profile.role);
       setIsMounted(true);
       fetchOrdersAndLocations();
     };
@@ -336,28 +379,47 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       .channel("public:orders")
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "orders",filter: `branch_id=eq.${currentBranchId}`},
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "orders",
+          filter: `branch_id=eq.${currentBranchId}`,
+        },
         (payload) => {
           if (!payload.new.is_archived) {
             notificationAudio.current?.play().catch(() => {});
-            showToast(`🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`);
+            showToast(
+              `🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`,
+            );
           }
           fetchOrdersAndLocations();
         },
       )
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "orders",filter: `branch_id=eq.${currentBranchId}` },
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "orders",
+          filter: `branch_id=eq.${currentBranchId}`,
+        },
         () => fetchOrdersAndLocations(),
       )
       .on(
         "postgres_changes",
-        { event: "DELETE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` },
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "orders",
+          filter: `branch_id=eq.${currentBranchId}`,
+        },
         () => fetchOrdersAndLocations(),
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(orderChannel); };
+    return () => {
+      supabase.removeChannel(orderChannel);
+    };
   }, [fetchOrdersAndLocations, showToast, currentBranchId]);
 
   useEffect(() => {
@@ -369,7 +431,11 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       const interval = setInterval(fetchRidersLocation, 10000);
       const profileChannel = supabase
         .channel("public:profiles")
-        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles" }, () => fetchRidersLocation())
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "profiles" },
+          () => fetchRidersLocation(),
+        )
         .subscribe();
       return () => {
         clearInterval(interval);
@@ -380,7 +446,9 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
   useEffect(() => {
     if (imageGallery && galleryRef.current) {
-      const target = galleryRef.current.children[imageGallery.startIndex] as HTMLElement;
+      const target = galleryRef.current.children[
+        imageGallery.startIndex
+      ] as HTMLElement;
       if (target) galleryRef.current.scrollLeft = target.offsetLeft;
     }
   }, [imageGallery]);
@@ -398,12 +466,16 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     const fileExt = file.name.split(".").pop();
     const fileName = `${Math.random()}.${fileExt}`;
     const filePath = `order-photos/${fileName}`;
-    const { error: uploadError } = await supabase.storage.from("order-images").upload(filePath, file);
+    const { error: uploadError } = await supabase.storage
+      .from("order-images")
+      .upload(filePath, file);
     if (uploadError) {
       console.error("Upload error:", uploadError);
       return null;
     }
-    const { data } = supabase.storage.from("order-images").getPublicUrl(filePath);
+    const { data } = supabase.storage
+      .from("order-images")
+      .getPublicUrl(filePath);
     return data.publicUrl;
   };
 
@@ -445,15 +517,22 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
           {
             input: text,
             componentRestrictions: { country: "th" },
-            locationBias: { radius: 20000, center: { lat: SHOP_LAT, lng: SHOP_LNG } },
+            locationBias: {
+              radius: 20000,
+              center: { lat: SHOP_LAT, lng: SHOP_LNG },
+            },
           },
           (predictions, status) => {
-            if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
+            if (
+              status === window.google.maps.places.PlacesServiceStatus.OK &&
+              predictions
+            ) {
               const googleResults = predictions.slice(0, 3).map((p) => ({
                 type: "google" as const,
                 place_id: p.place_id,
                 name: p.structured_formatting.main_text,
-                address: p.structured_formatting.secondary_text || "Google Maps",
+                address:
+                  p.structured_formatting.secondary_text || "Google Maps",
               }));
               setUnifiedResults((prev) => {
                 const combined = [...prev, ...googleResults];
@@ -496,7 +575,9 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
   };
 
   const openCreateModal = () => {
-    const storeOrders = orders.filter(o => o.job_type === 'ร้าน' && !isNaN(Number(o.order_number)));
+    const storeOrders = orders.filter(
+      (o) => o.job_type === "ร้าน" && !isNaN(Number(o.order_number)),
+    );
     let nextNum = "1";
     if (storeOrders.length > 0) {
       nextNum = (Number(storeOrders[0].order_number) + 1).toString();
@@ -504,7 +585,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
 
     setEditingId(null);
     setFormData({
-      order_number: nextNum, 
+      order_number: nextNum,
       job_type: "ร้าน",
       menu: "",
       details: "",
@@ -515,7 +596,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       lat: null,
       lng: null,
       contact_link: "",
-      contact_source: "เพจหลัก"
+      contact_source: "เพจหลัก",
     });
     setImageFiles([]);
     setImagePreviews([]);
@@ -524,7 +605,9 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     setIsModalOpen(true);
   };
 
-  const openEditModal = (order: Order & { contact_link?: string; contact_source?: string }) => {
+  const openEditModal = (
+    order: Order & { contact_link?: string; contact_source?: string },
+  ) => {
     setEditingId(order.id);
     setFormData({
       order_number: order.order_number,
@@ -537,7 +620,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       payment_method: order.payment_method || "โอน",
       lat: order.lat || null,
       lng: order.lng || null,
-      contact_link: order.contact_link || "", 
+      contact_link: order.contact_link || "",
       contact_source: order.contact_source || "เพจหลัก",
     });
     if (order.image_url) {
@@ -552,12 +635,15 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
   };
 
   const handleAddFiles = (files: FileList | File[]) => {
-    const validFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    const validFiles = Array.from(files).filter((f) =>
+      f.type.startsWith("image/"),
+    );
     if (validFiles.length === 0) return;
     setImageFiles((prev) => [...prev, ...validFiles]);
     validFiles.forEach((file) => {
       const reader = new FileReader();
-      reader.onloadend = () => setImagePreviews((prev) => [...prev, reader.result as string]);
+      reader.onloadend = () =>
+        setImagePreviews((prev) => [...prev, reader.result as string]);
       reader.readAsDataURL(file);
     });
   };
@@ -598,7 +684,10 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     let finalOrderNumber = formData.order_number.trim();
     if (formData.job_type === "shopee" && !finalOrderNumber) {
       finalOrderNumber = `#SHP-${Math.floor(1000 + Math.random() * 9000)}`;
-    } else if (formData.job_type === "shopee" && !finalOrderNumber.startsWith("#")) {
+    } else if (
+      formData.job_type === "shopee" &&
+      !finalOrderNumber.startsWith("#")
+    ) {
       finalOrderNumber = "#" + finalOrderNumber;
     }
 
@@ -615,11 +704,12 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       address: formData.job_type === "shopee" ? null : formData.location_name,
       image_url: currentExisting.join(","),
       total_price: cleanPrice,
-      payment_method: formData.job_type === "shopee" ? "โอน" : formData.payment_method,
+      payment_method:
+        formData.job_type === "shopee" ? "โอน" : formData.payment_method,
       lat: formData.job_type === "shopee" ? null : formData.lat,
       lng: formData.job_type === "shopee" ? null : formData.lng,
       contact_link: formData.contact_link.trim(),
-      contact_source: formData.contact_source.trim(), 
+      contact_source: formData.contact_source.trim(),
     };
 
     let targetId = editingId;
@@ -632,7 +722,10 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         .eq("branch_id", currentBranchId)
         .eq("id", editingId)
         .select();
-      if (data) setOrders(orders.map((o) => (o.id === editingId ? (data[0] as Order) : o)));
+      if (data)
+        setOrders(
+          orders.map((o) => (o.id === editingId ? (data[0] as Order) : o)),
+        );
     } else {
       const { data } = await supabase
         .from("orders")
@@ -675,7 +768,9 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     if (!statusModal.order) return;
     const targetOrder = statusModal.order;
 
-    const updateData: { status: string; end_time?: string } = { status: newStatus };
+    const updateData: { status: string; end_time?: string } = {
+      status: newStatus,
+    };
     if (newStatus === "ส่งแล้ว/เสร็จ" && targetOrder.job_type === "shopee") {
       updateData.end_time = new Date().toISOString();
     }
@@ -692,7 +787,9 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       console.error(error);
       showToast("เกิดข้อผิดพลาดในการเปลี่ยนสถานะ ❌");
     } else if (data) {
-      setOrders(orders.map((o) => (o.id === targetOrder.id ? { ...o, ...data[0] } : o)));
+      setOrders(
+        orders.map((o) => (o.id === targetOrder.id ? { ...o, ...data[0] } : o)),
+      );
       showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`);
       setSelectedViewOrder(null);
     }
@@ -717,7 +814,9 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     const targetOrder = orders.find((o) => o.id === orderId);
     const isShopee = targetOrder?.job_type === "shopee";
     const nextStatus = isShopee ? "ส่งแล้ว/เสร็จ" : "รับงาน";
-    const updateData: { status: string; end_time?: string } = { status: nextStatus };
+    const updateData: { status: string; end_time?: string } = {
+      status: nextStatus,
+    };
     if (isShopee) updateData.end_time = new Date().toISOString();
 
     const { data, error } = await supabase
@@ -729,7 +828,11 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     if (error) console.error(error);
     if (data) {
       setOrders(orders.map((o) => (o.id === orderId ? (data[0] as Order) : o)));
-      showToast(isShopee ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦" : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵");
+      showToast(
+        isShopee
+          ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦"
+          : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵",
+      );
       setSelectedViewOrder(null);
     }
   };
@@ -799,7 +902,10 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
   };
 
   // 🌟 นับเฉพาะงานที่ยังไม่เสร็จ เพื่อเอาไปโชว์ตัวเลข "ค้าง: X" ด้านบน
-  const pendingOrders = useMemo(() => orders.filter(o => ["New", "กำลังทำ", "รับงาน"].includes(o.status)), [orders]);
+  const pendingOrders = useMemo(
+    () => orders.filter((o) => ["New", "กำลังทำ", "รับงาน"].includes(o.status)),
+    [orders],
+  );
 
   // 🌟 เปลี่ยนมาใช้ 'orders' ตรงๆ เพื่อให้แสดงผลทุกสถานะรวมถึง "ส่งแล้ว/เสร็จ" ด้วย
   const filteredOrders = useMemo(() => {
@@ -812,7 +918,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
     );
   }, [orders, debouncedQuery]);
 
-  if (!currentUser || !isMounted || !currentBranchId) 
+  if (!currentUser || !isMounted || !currentBranchId)
     return (
       <div
         className="min-h-screen w-full flex justify-center items-center relative transition-all duration-500 z-50"
@@ -869,9 +975,19 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
               KANBAN{" "}
               <span className="text-blue-600 ml-1 mr-2 md:mr-3">BOARD</span>
               <span className="text-xs md:text-sm text-slate-500 font-bold border-l-2 border-slate-200 pl-2 md:pl-3 py-1 flex items-center gap-2">
-                <span>ทั้งหมด: <span className="text-blue-600 font-black">{orders.length}</span></span>
+                <span>
+                  ทั้งหมด:{" "}
+                  <span className="text-blue-600 font-black">
+                    {orders.length}
+                  </span>
+                </span>
                 <span className="text-slate-300">|</span>
-                <span>ค้าง: <span className="text-amber-500 font-black animate-pulse">{pendingOrders.length}</span></span>
+                <span>
+                  ค้าง:{" "}
+                  <span className="text-amber-500 font-black animate-pulse">
+                    {pendingOrders.length}
+                  </span>
+                </span>
               </span>
             </h1>
           </div>
@@ -902,7 +1018,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
               {isCompact ? "ขยายการ์ด" : "ย่อการ์ด"}
             </button>
 
-            {currentUserRole === 'admin' && (
+            {currentUserRole === "admin" && (
               <button
                 onClick={() => setShowRiderMap(true)}
                 className="w-full sm:w-auto px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl hover:bg-indigo-100 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
@@ -910,8 +1026,8 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 <MapViewIcon size={14} className="animate-pulse" /> พิกัดไรเดอร์
               </button>
             )}
-            
-            {currentUserRole === 'admin' && (
+
+            {currentUserRole === "admin" && (
               <button
                 onClick={openCreateModal}
                 className="w-full sm:w-auto px-4 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 hover:shadow-lg transition-all duration-300 cursor-pointer active:scale-95 shadow-md"
@@ -946,12 +1062,13 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
               </h2>
               <p className="text-blue-200 text-xs font-bold tracking-wide flex items-center">
                 <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 mr-2 shadow-md shadow-emerald-400"></span>{" "}
-                {currentUserRole === 'admin' ? "ผู้ดูแลระบบ (ADMIN)" : "แม่ครัว (KITCHEN)"}
+                {currentUserRole === "admin"
+                  ? "ผู้ดูแลระบบ (ADMIN)"
+                  : "แม่ครัว (KITCHEN)"}
               </p>
             </div>
             <div className="flex-1 p-5 space-y-3 overflow-y-auto thin-scrollbar">
-              
-              {currentUserRole === 'admin' && (
+              {currentUserRole === "admin" && (
                 <Link
                   href="/home"
                   prefetch={false}
@@ -965,36 +1082,49 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
               )}
 
               <div className="h-px bg-slate-100 my-2"></div>
-              <button 
-    onClick={() => { setIsMenuOpen(false); setIsGalleryOpen(true); }}
-    className="flex items-center gap-6 p-4 w-full text-left rounded-xl hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 transition-colors font-bold group cursor-pointer"
-  >
-    <div className="w-8 h-8 bg-slate-100 group-hover:bg-indigo-100 rounded-lg flex items-center justify-center transition-colors">
-      <ImagePlus size={20} className="text-slate-500 group-hover:text-indigo-600" />
-    </div>
-    <div>
-      <div className="text-l font-black">คลังรูปภาพสาขา</div>
-      <div className="text-[15px] text-slate-400 font-bold uppercase tracking-widest">Branch Gallery</div>
-    </div>
-  </button>
+              <button
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  setIsGalleryOpen(true);
+                }}
+                className="flex items-center gap-6 p-4 w-full text-left rounded-xl hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 transition-colors font-bold group cursor-pointer"
+              >
+                <div className="w-8 h-8 bg-slate-100 group-hover:bg-indigo-100 rounded-lg flex items-center justify-center transition-colors">
+                  <ImagePlus
+                    size={20}
+                    className="text-slate-500 group-hover:text-indigo-600"
+                  />
+                </div>
+                <div>
+                  <div className="text-l font-black">คลังรูปภาพสาขา</div>
+                  <div className="text-[15px] text-slate-400 font-bold uppercase tracking-widest">
+                    Branch Gallery
+                  </div>
+                </div>
+              </button>
               <div className="h-px bg-slate-100 my-2"></div>
 
-              <Link 
+              <Link
                 href="/dorms"
                 className="flex items-center gap-6 p-4 w-full text-left rounded-xl hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 transition-colors font-bold group"
-                >
-              <div className="w-8 h-8 bg-slate-100 group-hover:bg-indigo-100 rounded-lg flex items-center justify-center transition-colors">
-                <MapPin size={20} className="text-slate-500 group-hover:text-indigo-600" />
-              </div>
-              <div>
-              <div className="text-l font-black">ที่ปักหมุด</div>
-              <div className="text-[15px] text-slate-400 font-bold uppercase tracking-widest">ฐานข้อมูลหอพัก</div>
-              </div>
+              >
+                <div className="w-8 h-8 bg-slate-100 group-hover:bg-indigo-100 rounded-lg flex items-center justify-center transition-colors">
+                  <MapPin
+                    size={20}
+                    className="text-slate-500 group-hover:text-indigo-600"
+                  />
+                </div>
+                <div>
+                  <div className="text-l font-black">ที่ปักหมุด</div>
+                  <div className="text-[15px] text-slate-400 font-bold uppercase tracking-widest">
+                    ฐานข้อมูลหอพัก
+                  </div>
+                </div>
               </Link>
 
               <div className="h-px bg-slate-100 my-2"></div>
 
-              {currentUserRole === 'kitchen' && (
+              {currentUserRole === "kitchen" && (
                 <Link
                   href="/kitchen"
                   prefetch={false}
@@ -1007,7 +1137,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 </Link>
               )}
 
-              {currentUserRole === 'admin' && (
+              {currentUserRole === "admin" && (
                 <>
                   <Link
                     href="/dashboard"
@@ -1019,7 +1149,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                     </div>
                     Dashboard สถิติร้าน
                   </Link>
-                <div className="h-px bg-slate-100 my-2"></div>
+                  <div className="h-px bg-slate-100 my-2"></div>
 
                   <Link
                     href="/setting"
@@ -1051,7 +1181,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
         </div>
       )}
 
-      {showRiderMap && currentUserRole === 'admin' && (
+      {showRiderMap && currentUserRole === "admin" && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 flex flex-col h-5/6 relative">
             <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-white sticky top-0 z-10 shrink-0">
@@ -1138,15 +1268,25 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                           </div>
                           {selectedRiderMapInfo.id !== "shop" && (
                             <div
-                              className={`text-xs font-bold px-2 py-0.5 rounded-full inline-block ${((lastSeen) => {
-                                if (!lastSeen) return false;
-                                const diffMins = (new Date().getTime() - new Date(lastSeen).getTime()) / 60000;
-                                return diffMins < 5;
-                              })(selectedRiderMapInfo.last_seen) ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}
+                              className={`text-xs font-bold px-2 py-0.5 rounded-full inline-block ${
+                                ((lastSeen) => {
+                                  if (!lastSeen) return false;
+                                  const diffMins =
+                                    (new Date().getTime() -
+                                      new Date(lastSeen).getTime()) /
+                                    60000;
+                                  return diffMins < 5;
+                                })(selectedRiderMapInfo.last_seen)
+                                  ? "bg-green-100 text-green-700"
+                                  : "bg-slate-100 text-slate-500"
+                              }`}
                             >
                               {((lastSeen) => {
                                 if (!lastSeen) return false;
-                                const diffMins = (new Date().getTime() - new Date(lastSeen).getTime()) / 60000;
+                                const diffMins =
+                                  (new Date().getTime() -
+                                    new Date(lastSeen).getTime()) /
+                                  60000;
                                 return diffMins < 5;
                               })(selectedRiderMapInfo.last_seen)
                                 ? "🟢 ออนไลน์"
@@ -1196,14 +1336,17 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
             <p className="text-slate-700 font-bold mb-10 text-center max-w-md leading-relaxed drop-shadow-sm">
               กระดานว่างเปล่าพร้อมรับออเดอร์สำหรับวันนี้แล้ว
               <br />
-              {currentUserRole === 'admin' ? "กดปุ่มด้านล่างเพื่อเริ่มเปิดออเดอร์แรกของวันได้เลยครับ" : "รอรับออเดอร์จากหน้าร้านเพื่อเริ่มทำอาหารครับ"}
+              {currentUserRole === "admin"
+                ? "กดปุ่มด้านล่างเพื่อเริ่มเปิดออเดอร์แรกของวันได้เลยครับ"
+                : "รอรับออเดอร์จากหน้าร้านเพื่อเริ่มทำอาหารครับ"}
             </p>
-            {currentUserRole === 'admin' && (
+            {currentUserRole === "admin" && (
               <button
                 onClick={openCreateModal}
                 className="px-10 py-5 bg-blue-600 text-white font-black rounded-4xl hover:bg-blue-700 hover:-translate-y-1 transition-all duration-300 flex items-center cursor-pointer tracking-wider uppercase text-sm active:scale-95 shadow-lg shadow-blue-500/50"
               >
-                <ClipboardCheck size={22} className="mr-3" /> เปิดร้าน / สร้างออเดอร์แรก
+                <ClipboardCheck size={22} className="mr-3" /> เปิดร้าน /
+                สร้างออเดอร์แรก
               </button>
             )}
           </div>
@@ -1221,14 +1364,19 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                       key={order.id}
                       draggableId={order.id}
                       index={index}
-                      isDragDisabled={currentUserRole === 'kitchen'} 
+                      isDragDisabled={currentUserRole === "kitchen"}
                     >
                       {(provided, snapshot) => (
                         <div
                           ref={provided.innerRef}
                           {...provided.draggableProps}
                           {...provided.dragHandleProps}
-                          className={`shrink-0 max-h-full flex flex-col transition-all duration-300 ${isCompact ? "w-48 md:w-56" : "w-72 md:w-80"} ${snapshot.isDragging ? "scale-[1.02] rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl" : ""}`}
+                          className={`shrink-0 max-h-full flex flex-col transition-all duration-300 ${isCompact ? "w-48 md:w-56" : "w-72 md:w-80"} ${snapshot.isDragging ? "scale-[1.02] rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl" : ""} ${
+  ((order.status === "New" || order.status === "กำลังทำ") && Math.floor((new Date().getTime() - new Date(order.created_at).getTime()) / 60000) >= 5) || 
+  (order.status === "รับงาน" && Math.floor((new Date().getTime() - new Date(order.created_at).getTime()) / 60000) >= 35) 
+  ? "ring-4 ring-offset-2 ring-rose-500 rounded-3xl animate-pulse shadow-[0_0_20px_rgba(244,63,94,0.6)]" 
+  : ""
+}`}
                         >
                           <OrderCard
                             order={order}
@@ -1239,7 +1387,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                             onFinish={handleFinishOrder}
                             onViewDetails={() => {
                               setSelectedViewOrder(order);
-                              setShowContactInfo(false); 
+                              setShowContactInfo(false);
                             }}
                             onViewImages={(urls, startIndex) =>
                               setImageGallery({ urls, startIndex })
@@ -1265,7 +1413,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
               )}
             </Droppable>
           </DragDropContext>
-          )}
+        )}
       </div>
 
       {/* 🌟 Modal เปลี่ยนสถานะออเดอร์สุดล้ำ */}
@@ -1350,7 +1498,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                       setFormData({ ...formData, order_number: e.target.value })
                     }
                     placeholder="ปล่อยว่างเพื่อสุ่ม (Shopee)"
-                    required={formData.job_type === "ร้าน"} 
+                    required={formData.job_type === "ร้าน"}
                   />
                 </div>
                 <div>
@@ -1363,10 +1511,21 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                     onChange={(e) => {
                       const newJobType = e.target.value;
                       if (newJobType === "ร้าน" && !editingId) {
-                        const storeOrders = orders.filter(o => o.job_type === 'ร้าน' && !isNaN(Number(o.order_number)));
+                        const storeOrders = orders.filter(
+                          (o) =>
+                            o.job_type === "ร้าน" &&
+                            !isNaN(Number(o.order_number)),
+                        );
                         let nextNum = "1";
-                        if (storeOrders.length > 0) nextNum = (Number(storeOrders[0].order_number) + 1).toString();
-                        setFormData({ ...formData, job_type: newJobType, order_number: nextNum });
+                        if (storeOrders.length > 0)
+                          nextNum = (
+                            Number(storeOrders[0].order_number) + 1
+                          ).toString();
+                        setFormData({
+                          ...formData,
+                          job_type: newJobType,
+                          order_number: nextNum,
+                        });
                       } else {
                         setFormData({ ...formData, job_type: newJobType });
                       }
@@ -1392,52 +1551,63 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                   placeholder={"เช่น\n- กะเพราหมูกรอบ 2\n- ชาเขียว 1"}
                 />
               </div>
-              
+
               {/* 🌟 นำปีกกาเงื่อนไขมาครอบส่วนนี้ไว้ */}
               {formData.job_type !== "shopee" && (
                 <>
-              <div className="grid grid-cols-3 gap-5">
-                <div className="col-span-1">
-                  <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase">
-                    แหล่งที่มา (เพจ)
-                  </label>
-                  <select
-                    className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer font-bold text-slate-800 shadow-sm"
-                    value={formData.contact_source}
-                    onChange={(e) => setFormData({ ...formData, contact_source: e.target.value })}
-                  >
-                    <option value="เพจหลัก">เพจหลัก</option>
-                    <option value="Fortune Findss">Fortune Findss</option>
-                  </select>
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase items-center">
-                    <Lock size={12} className="mr-1" /> ลิ้งค์ติดต่อ (ซ่อนเป็นความลับ)
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-bold text-slate-800 shadow-sm"
-                    value={formData.contact_link}
-                    onChange={(e) => setFormData({ ...formData, contact_link: e.target.value })}
-                    placeholder="เช่น https://www.facebook.com/customer"
-                  />
-                </div>
-              </div>
+                  <div className="grid grid-cols-3 gap-5">
+                    <div className="col-span-1">
+                      <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase">
+                        แหล่งที่มา (เพจ)
+                      </label>
+                      <select
+                        className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer font-bold text-slate-800 shadow-sm"
+                        value={formData.contact_source}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            contact_source: e.target.value,
+                          })
+                        }
+                      >
+                        <option value="เพจหลัก">เพจหลัก</option>
+                        <option value="Fortune Findss">Fortune Findss</option>
+                      </select>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase items-center">
+                        <Lock size={12} className="mr-1" /> ลิ้งค์ติดต่อ
+                        (ซ่อนเป็นความลับ)
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-bold text-slate-800 shadow-sm"
+                        value={formData.contact_link}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            contact_link: e.target.value,
+                          })
+                        }
+                        placeholder="เช่น https://www.facebook.com/customer"
+                      />
+                    </div>
+                  </div>
 
-              <div>
-                <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
-                  รายละเอียดเพิ่มเติม (Note)
-                </label>
-                <textarea
-                  rows={2}
-                  className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all resize-none font-medium leading-relaxed text-slate-700 shadow-sm"
-                  value={formData.details}
-                  onChange={(e) =>
-                    setFormData({ ...formData, details: e.target.value })
-                  }
-                  placeholder="ระบุข้อความถึงไรเดอร์..."
-                />
-              </div>
+                  <div>
+                    <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
+                      รายละเอียดเพิ่มเติม (Note)
+                    </label>
+                    <textarea
+                      rows={2}
+                      className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all resize-none font-medium leading-relaxed text-slate-700 shadow-sm"
+                      value={formData.details}
+                      onChange={(e) =>
+                        setFormData({ ...formData, details: e.target.value })
+                      }
+                      placeholder="ระบุข้อความถึงไรเดอร์..."
+                    />
+                  </div>
                 </>
               )}
               {/* 🌟 จบส่วนที่ถูกซ่อน */}
@@ -1576,7 +1746,8 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                   {/* 🌟 ปรับปรุงช่องค้นหาสถานที่จัดส่งให้รองรับการวางลิงก์ และลิงก์ไปยัง /dorms */}
                   <div className="relative p-5 bg-white border border-slate-200/60 rounded-3xl shadow-sm">
                     <label className="text-xs font-black text-blue-600 mb-3 tracking-wide flex items-center uppercase">
-                      <Search size={14} className="mr-1.5" /> สถานที่จัดส่ง / ลิงก์แผนที่ *
+                      <Search size={14} className="mr-1.5" /> สถานที่จัดส่ง /
+                      ลิงก์แผนที่ *
                     </label>
                     <input
                       type="text"
@@ -1590,7 +1761,6 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                         setTimeout(() => setShowSuggestions(false), 200)
                       }
                       placeholder="พิมพ์ชื่อหอพัก หรือ วางลิงก์ Google Maps ที่ลูกค้าแชร์มา..."
-                      
                     />
 
                     {showSuggestions && unifiedResults.length > 0 && (
@@ -1637,9 +1807,9 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                     )}
 
                     <div className="flex justify-end pt-4">
-                      <Link 
-                        href="/dorms" 
-                        target="_blank" 
+                      <Link
+                        href="/dorms"
+                        target="_blank"
                         className="inline-flex items-center gap-1.5 text-[10px] font-black text-indigo-600 hover:text-white hover:bg-indigo-500 transition-colors uppercase tracking-widest bg-indigo-50 border border-indigo-100 px-3 py-2 rounded-xl active:scale-95 cursor-pointer shadow-sm"
                       >
                         <Plus size={12} strokeWidth={3} /> ไปหน้าคลังหอพัก
@@ -1699,64 +1869,103 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                 <div className="text-right mb-1">
                   <button
                     onClick={() => {
-                      setStatusModal({ isOpen: true, order: selectedViewOrder });
+                      setStatusModal({
+                        isOpen: true,
+                        order: selectedViewOrder,
+                      });
                     }}
                     className={`flex items-center gap-1.5 text-xs font-black px-3 py-1.5 rounded-lg shadow-sm border cursor-pointer hover:scale-105 active:scale-95 transition-all ${
-                      selectedViewOrder.status === "New" ? "bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200" : 
-                      selectedViewOrder.status === "กำลังทำ" ? "bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200" : 
-                      selectedViewOrder.status === "รับงาน" ? "bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200" : 
-                      "bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200"
+                      selectedViewOrder.status === "New"
+                        ? "bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200"
+                        : selectedViewOrder.status === "กำลังทำ"
+                          ? "bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200"
+                          : selectedViewOrder.status === "รับงาน"
+                            ? "bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200"
+                            : "bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200"
                     }`}
                     title="คลิกเพื่อแก้ไขสถานะ"
                   >
-                    {selectedViewOrder.status} <ArrowRightLeft size={12} className="opacity-70" />
+                    {selectedViewOrder.status}{" "}
+                    <ArrowRightLeft size={12} className="opacity-70" />
                   </button>
                 </div>
               </div>
 
-              {currentUserRole === 'admin' && (selectedViewOrder as Order & { contact_source?: string }).contact_source && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black text-white bg-indigo-500 px-2 py-1 rounded-md uppercase flex items-center">
-                    <Contact size={12} className="mr-1"/> แหล่งที่มา: {(selectedViewOrder as Order & { contact_source?: string }).contact_source}
-                  </span>
-                </div>
-              )}
-              {currentUserRole === 'admin' && (selectedViewOrder as Order & { contact_link?: string }).contact_link && (
-                <div className="space-y-2">
-                  <div className="text-xs font-black text-indigo-500 uppercase tracking-wider flex items-center">
-                    <Lock size={14} className="mr-1.5" /> ช่องทางติดต่อลูกค้า (ลับ)
+              {currentUserRole === "admin" &&
+                (selectedViewOrder as Order & { contact_source?: string })
+                  .contact_source && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black text-white bg-indigo-500 px-2 py-1 rounded-md uppercase flex items-center">
+                      <Contact size={12} className="mr-1" /> แหล่งที่มา:{" "}
+                      {
+                        (
+                          selectedViewOrder as Order & {
+                            contact_source?: string;
+                          }
+                        ).contact_source
+                      }
+                    </span>
                   </div>
-                  <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 flex justify-between items-center shadow-inner">
-                    {showContactInfo ? (
-                      <a 
-                        href={(selectedViewOrder as Order & { contact_link?: string }).contact_link!.startsWith('http') ? (selectedViewOrder as Order & { contact_link?: string }).contact_link : `https://${(selectedViewOrder as Order & { contact_link?: string }).contact_link}`} 
-                        target="_blank" 
-                        rel="noreferrer"
-                        className="text-blue-600 font-bold text-xs underline break-all"
-                      >
-                        {(selectedViewOrder as Order & { contact_link?: string }).contact_link}
-                      </a>
-                    ) : (
-                      <div className="text-xs text-indigo-300 blur-sm select-none font-black tracking-widest">
-                        https://facebook.com/hidden-data...
-                      </div>
-                    )}
-                    
-                    {!showContactInfo && (
-                      <button
-                        onClick={() => {
-                          const pin = window.prompt("กรุณาใส่รหัส PIN เพื่อดูข้อมูลลูกค้า (ค่าเริ่มต้น: 9999):");
-                          if (pin === "9999") setShowContactInfo(true);
-                          else if (pin) alert("รหัสผ่านไม่ถูกต้อง ❌");
-                        }}
-                        className="ml-3 px-3 py-1.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-[10px] font-black transition-colors shrink-0 shadow-sm cursor-pointer"
-                      >
-                        ปลดล็อก
-                      </button>
-                    )}
+                )}
+              {currentUserRole === "admin" &&
+                (selectedViewOrder as Order & { contact_link?: string })
+                  .contact_link && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-black text-indigo-500 uppercase tracking-wider flex items-center">
+                      <Lock size={14} className="mr-1.5" /> ช่องทางติดต่อลูกค้า
+                      (ลับ)
+                    </div>
+                    <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 flex justify-between items-center shadow-inner">
+                      {showContactInfo ? (
+                        <a
+                          href={
+                            (
+                              selectedViewOrder as Order & {
+                                contact_link?: string;
+                              }
+                            ).contact_link!.startsWith("http")
+                              ? (
+                                  selectedViewOrder as Order & {
+                                    contact_link?: string;
+                                  }
+                                ).contact_link
+                              : `https://${(selectedViewOrder as Order & { contact_link?: string }).contact_link}`
+                          }
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-600 font-bold text-xs underline break-all"
+                        >
+                          {
+                            (
+                              selectedViewOrder as Order & {
+                                contact_link?: string;
+                              }
+                            ).contact_link
+                          }
+                        </a>
+                      ) : (
+                        <div className="text-xs text-indigo-300 blur-sm select-none font-black tracking-widest">
+                          https://facebook.com/hidden-data...
+                        </div>
+                      )}
+
+                      {!showContactInfo && (
+                        <button
+                          onClick={() => {
+                            const pin = window.prompt(
+                              "กรุณาใส่รหัส PIN เพื่อดูข้อมูลลูกค้า (ค่าเริ่มต้น: 9999):",
+                            );
+                            if (pin === "9999") setShowContactInfo(true);
+                            else if (pin) alert("รหัสผ่านไม่ถูกต้อง ❌");
+                          }}
+                          className="ml-3 px-3 py-1.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-[10px] font-black transition-colors shrink-0 shadow-sm cursor-pointer"
+                        >
+                          ปลดล็อก
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
               {selectedViewOrder.menu && (
                 <div className="space-y-2">
@@ -1854,7 +2063,14 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                     />
                     <span className="leading-relaxed break-all">
                       {selectedViewOrder.address.startsWith("http") ? (
-                        <a href={selectedViewOrder.address} target="_blank" rel="noreferrer" className="text-blue-600 underline cursor-pointer">{selectedViewOrder.address}</a>
+                        <a
+                          href={selectedViewOrder.address}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-600 underline cursor-pointer"
+                        >
+                          {selectedViewOrder.address}
+                        </a>
                       ) : (
                         selectedViewOrder.address
                       )}
@@ -1871,8 +2087,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                     onClick={() => handleStartOrder(selectedViewOrder.id)}
                     className="w-full py-3.5 md:py-4 bg-blue-600 text-white font-black rounded-4xl hover:bg-blue-700 transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2"
                   >
-                    <PlayCircle size={18} />{" "}
-                    ยืนยัน: ครัวเริ่มทำอาหาร
+                    <PlayCircle size={18} /> ยืนยัน: ครัวเริ่มทำอาหาร
                   </button>
                 )}
               {selectedViewOrder.status === "กำลังทำ" &&
@@ -1881,8 +2096,7 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
                     onClick={() => handleFinishOrder(selectedViewOrder.id)}
                     className={`w-full py-3.5 md:py-4 text-white font-black rounded-4xl transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600`}
                   >
-                    <ChefHat size={18} />{" "}
-                    ยืนยัน: ครัวทำเสร็จแล้ว
+                    <ChefHat size={18} /> ยืนยัน: ครัวทำเสร็จแล้ว
                   </button>
                 )}
               <button
@@ -2111,36 +2325,70 @@ export default function BoardPage({ params }: { params: Promise<{ board_home: st
       </div>
 
       <style jsx global>{`
-        .thin-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
-        .thin-scrollbar::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.05); border-radius: 10px; }
-        .thin-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.4); border-radius: 10px; }
-        .thin-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.8); }
+        .thin-scrollbar::-webkit-scrollbar {
+          height: 6px;
+          width: 6px;
+        }
+        .thin-scrollbar::-webkit-scrollbar-track {
+          background: rgba(0, 0, 0, 0.05);
+          border-radius: 10px;
+        }
+        .thin-scrollbar::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.4);
+          border-radius: 10px;
+        }
+        .thin-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.8);
+        }
 
         @keyframes shake {
-          0%, 100% { transform: translateX(0); }
-          25% { transform: translateX(-2px) rotate(-1deg); }
-          50% { transform: translateX(2px) rotate(1deg); }
-          75% { transform: translateX(-2px) rotate(-1deg); }
+          0%,
+          100% {
+            transform: translateX(0);
+          }
+          25% {
+            transform: translateX(-2px) rotate(-1deg);
+          }
+          50% {
+            transform: translateX(2px) rotate(1deg);
+          }
+          75% {
+            transform: translateX(-2px) rotate(-1deg);
+          }
         }
         @keyframes wiggle {
-          0%, 100% { transform: rotate(-3deg); }
-          50% { transform: rotate(3deg); }
+          0%,
+          100% {
+            transform: rotate(-3deg);
+          }
+          50% {
+            transform: rotate(3deg);
+          }
         }
         @keyframes float {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-5px); }
+          0%,
+          100% {
+            transform: translateY(0);
+          }
+          50% {
+            transform: translateY(-5px);
+          }
         }
-        .animate-float { animation: float 3s ease-in-out infinite; }
-        .animate-wiggle { animation: wiggle 2s ease-in-out infinite; }
+        .animate-float {
+          animation: float 3s ease-in-out infinite;
+        }
+        .animate-wiggle {
+          animation: wiggle 2s ease-in-out infinite;
+        }
       `}</style>
       {isGalleryOpen && (
-    <SharedGallery 
-      branchId={currentBranchId} 
-      userName={adminName} 
-      userRole={currentUserRole} 
-      onClose={() => setIsGalleryOpen(false)} 
-    />
-  )}
+        <SharedGallery
+          branchId={currentBranchId}
+          userName={adminName}
+          userRole={currentUserRole}
+          onClose={() => setIsGalleryOpen(false)}
+        />
+      )}
     </div>
   );
 }

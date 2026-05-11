@@ -82,6 +82,24 @@ function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onVi
   const theme = getCardTheme(order.status);
   const slipStatus = order.slip_status || 'รอตรวจ'; 
 
+  // 🌟 ฟังก์ชันคำนวณว่าผ่านไปกี่นาทีแล้ว
+const [elapsedMinutes, setElapsedMinutes] = useState(0);
+
+useEffect(() => {
+  const calculateTime = () => {
+    const startTime = new Date(order.created_at).getTime();
+    const now = new Date().getTime();
+    setElapsedMinutes(Math.floor((now - startTime) / 60000));
+  };
+
+  calculateTime();
+  const interval = setInterval(calculateTime, 30000); // อัปเดตทุก 30 วินาที
+  return () => clearInterval(interval);
+}, [order.created_at]);
+
+// 🌟 เช็คเงื่อนไขการเตือน
+  const isKitchenLate = (order.status === "New" || order.status === "กำลังทำ") && elapsedMinutes >= 5;
+  const isRiderLate = (order.status === "รับงาน") && elapsedMinutes >= 35;
   return (
     <div className={`${isCompact ? 'p-3' : 'p-4'} rounded-3xl shadow-xl border-b-8 relative transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:-translate-y-1 flex flex-col max-h-full w-full min-h-56 ${theme.bg}`}>
       
@@ -90,6 +108,18 @@ function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onVi
           <span className={`${isCompact ? 'text-xs px-2 py-1' : 'text-sm px-2.5 py-1'} font-black rounded-lg bg-white/90 text-slate-800 tracking-wider shadow-sm`}>
             {isShopee ? (order.order_number.startsWith('#') ? order.order_number : `#${order.order_number}`) : order.order_number}
           </span>
+          {/* 🌟 แสดงเวลาที่ผ่านไป และแจ้งเตือนถ้าเลท */}
+  <div className={`flex items-center gap-1 px-2 py-0.5 rounded-lg font-black text-[10px] shadow-sm animate-in fade-in ${
+    isKitchenLate || isRiderLate 
+    ? "bg-rose-500 text-white animate-pulse" // เลทแล้ว: แดงกะพริบ
+    : elapsedMinutes >= (order.status === "รับงาน" ? 30 : 4)
+    ? "bg-amber-400 text-slate-900" // ใกล้เลท: ส้ม
+    : "bg-black/20 text-white" // ปกติ
+  }`}>
+    <Clock size={10} />
+    {elapsedMinutes} นาที
+    {(isKitchenLate || isRiderLate) && " ⚠️ เกินกำหนด!"}
+  </div>
           <span className={`text-xs font-black ${isCompact ? 'px-1.5 py-0.5' : 'px-2.5 py-1'} rounded-md uppercase tracking-wider border ${theme.badgeBg}`}>
             {order.job_type}
           </span>
