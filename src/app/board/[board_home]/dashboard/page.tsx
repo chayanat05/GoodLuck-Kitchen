@@ -1,11 +1,11 @@
 "use client";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, use } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { 
   ArrowLeft, LayoutDashboard, TrendingUp, DollarSign, 
-  CreditCard, Wallet, Store, Bike, Calendar, Loader2, Trophy,
-  Receipt, Award, RefreshCw,
+  CreditCard, Wallet, Bike, Calendar, Loader2, Trophy,
+  Receipt, CheckCircle, Percent, Store, Award,
   Utensils
 } from "lucide-react";
 import { 
@@ -15,7 +15,6 @@ import {
 import { User as SupabaseUser } from "@supabase/supabase-js";
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#f43f5e'];
-
 type DateFilterType = "today" | "singleDay" | "yesterday" | "7days" | "month" | "all" | "custom";
 
 interface OrderData {
@@ -25,15 +24,9 @@ interface OrderData {
   payment_method: string;
   status: string;
   job_type: string;
-  branch_id: string;
   rider_name: string | null;
   menu: string | null;
   created_at: string;
-}
-
-interface Branch {
-  id: string;
-  name: string;
 }
 
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) => {
@@ -48,18 +41,20 @@ const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?:
   return null;
 };
 
-export default function GlobalDashboardPage() {
+export default function BranchDashboardPage({ params }: { params: Promise<{ board_home: string }> }) {
+  const resolvedParams = use(params);
+  const branchSlug = resolvedParams.board_home;
+  
   const router = useRouter();
   const [, setCurrentUser] = useState<SupabaseUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [branchName, setBranchName] = useState<string>("");
 
   const [orders, setOrders] = useState<OrderData[]>([]);
-  const [branches, setBranches] = useState<Branch[]>([]);
   const [businessDayStart, setBusinessDayStart] = useState<string>("07:00");
   
   // Filters
   const [timeRange, setTimeRange] = useState<DateFilterType>("today");
-  const [selectedBranchFilter, setSelectedBranchFilter] = useState<string>("all");
   const [singleDate, setSingleDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [customStart, setCustomStart] = useState<string>("");
   const [customEnd, setCustomEnd] = useState<string>("");
@@ -70,34 +65,35 @@ export default function GlobalDashboardPage() {
     if (!session) { router.push("/login"); return; }
     
     const { data: profile } = await supabase.from("profiles").select("role").eq("id", session.user.id).single();
-    if (profile?.role !== "admin" && profile?.role !== "superadmin") { 
-      router.push("/rider"); 
-      return; 
+    if (!["admin", "superadmin", "kitchen"].includes(profile?.role || "")) { 
+      router.push("/rider"); return; 
     }
     setCurrentUser(session.user);
 
     const { data: settings } = await supabase.from("store_settings").select("business_day_start").eq("id", 1).single();
     if (settings && settings.business_day_start) setBusinessDayStart(settings.business_day_start);
 
-    const { data: branchData } = await supabase.from("branches").select("id, name").order("name");
-    if (branchData) setBranches(branchData);
+    const { data: branchData } = await supabase.from("branches").select("id, name").eq("slug", branchSlug).single();
+    if (!branchData) { router.push("/home"); return; }
+    setBranchName(branchData.name);
 
     const { data: orderData } = await supabase
       .from("orders")
-      .select("id, order_number, total_price, payment_method, status, job_type, branch_id, rider_name, menu, created_at");
+      .select("id, order_number, total_price, payment_method, status, job_type, rider_name, menu, created_at")
+      .eq("branch_id", branchData.id);
       
     if (orderData) setOrders(orderData as OrderData[]);
     setLoading(false);
-  }, [router]);
+  }, [router, branchSlug]);
 
-  useEffect(() => { 
+  useEffect(() => {
     const init = async () => {
       await fetchDashboardData();
     };
     init();
   }, [fetchDashboardData]);
 
-  const ordersByDate = useMemo(() => {
+  const filteredOrders = useMemo(() => {
     const now = new Date();
     let startDate = new Date(0); 
     let endDate = new Date(8640000000000000); 
@@ -145,14 +141,9 @@ export default function GlobalDashboardPage() {
     });
   }, [orders, timeRange, businessDayStart, singleDate, customStart, customEnd]);
 
-  // กรองตามสาขา
-  const filteredOrders = useMemo(() => {
-    if (selectedBranchFilter === "all") return ordersByDate;
-    return ordersByDate.filter(o => o.branch_id === selectedBranchFilter);
-  }, [ordersByDate, selectedBranchFilter]);
-
   const stats = useMemo(() => {
     let totalRevenue = 0; let transferRevenue = 0; let cashRevenue = 0; let completedCount = 0;
+    let shopeeRevenue = 0; let storeRevenue = 0;
     const revenueByDate: Record<string, number> = {};
     const typeCount: Record<string, number> = {};
 
@@ -161,8 +152,12 @@ export default function GlobalDashboardPage() {
         completedCount += 1;
         const price = Number(o.total_price) || 0;
         totalRevenue += price;
+        
         if (o.payment_method === "โอน") transferRevenue += price;
         else cashRevenue += price;
+
+        if (o.job_type === "shopee") shopeeRevenue += price;
+        else storeRevenue += price;
 
         const dateStr = new Date(o.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
         revenueByDate[dateStr] = (revenueByDate[dateStr] || 0) + price;
@@ -175,7 +170,10 @@ export default function GlobalDashboardPage() {
     const averagePerOrder = completedCount > 0 ? Math.round(totalRevenue / completedCount) : 0;
     const successRate = filteredOrders.length > 0 ? Math.round((completedCount / filteredOrders.length) * 100) : 0;
 
-    return { totalRevenue, transferRevenue, cashRevenue, completedCount, totalOrders: filteredOrders.length, averagePerOrder, successRate, barChartData, pieChartData };
+    return { 
+      totalRevenue, transferRevenue, cashRevenue, completedCount, totalOrders: filteredOrders.length, 
+      averagePerOrder, successRate, barChartData, pieChartData, shopeeRevenue, storeRevenue 
+    };
   }, [filteredOrders]);
 
   const riderStats = useMemo(() => {
@@ -209,7 +207,7 @@ export default function GlobalDashboardPage() {
         });
       }
     });
-    return Object.values(counts).sort((a, b) => b.qty - a.qty).slice(0, 5); // เอา 5 อันดับแรก
+    return Object.values(counts).sort((a, b) => b.qty - a.qty).slice(0, 5);
   }, [filteredOrders]);
 
   const maxRiderTrips = Math.max(...riderStats.map(r => r.trips), 1);
@@ -219,7 +217,7 @@ export default function GlobalDashboardPage() {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-400 space-y-4">
         <Loader2 size={48} className="animate-spin text-blue-600" />
-        <p className="font-bold tracking-widest animate-pulse uppercase text-slate-500">กำลังคำนวณสถิติ...</p>
+        <p className="font-bold tracking-widest animate-pulse uppercase text-slate-500">กำลังคำนวณสถิติสาขา...</p>
       </div>
     );
   }
@@ -229,35 +227,20 @@ export default function GlobalDashboardPage() {
       <div className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-center gap-4 shrink-0">
-            <button onClick={() => router.back()} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500 bg-white shadow-sm border border-slate-200 cursor-pointer active:scale-95">
+            <button onClick={() => router.push(`/board/${branchSlug}`)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500 bg-white shadow-sm border border-slate-200 cursor-pointer active:scale-95">
               <ArrowLeft size={20} />
             </button>
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                <LayoutDashboard className="text-blue-600" size={24} /> สถิติร้าน (Global)
+                <Store className="text-blue-600" size={24} /> สถิติสาขา: {branchName}
               </h1>
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-0.5">Performance Dashboard</p>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-0.5">Branch Performance</p>
             </div>
           </div>
           
           <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-            
-            <button onClick={fetchDashboardData} className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-blue-100 hover:text-blue-600 transition-colors shadow-inner active:scale-95 cursor-pointer">
-              <RefreshCw size={18} />
-            </button>
-
-            {/* 🌟 ฟิลเตอร์สาขา */}
             <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner flex-1 sm:flex-none">
-              <Store size={14} className="text-slate-500 ml-2 mr-1" />
-              <select value={selectedBranchFilter} onChange={(e) => setSelectedBranchFilter(e.target.value)} className="bg-transparent text-xs font-black text-slate-700 outline-none cursor-pointer p-2 w-full sm:w-auto">
-                <option value="all">🏢 ทุกสาขารวมกัน</option>
-                {branches.map(b => <option key={b.id} value={b.id}>📍 {b.name}</option>)}
-              </select>
-            </div>
-
-            {/* 🌟 ฟิลเตอร์เวลา */}
-            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner flex-1 sm:flex-none">
-              <Calendar size={14} className="text-slate-500 ml-2 mr-1" />
+              <Calendar size={14} className="text-slate-500 ml-2 mr-1 hidden sm:block" />
               <select value={timeRange} onChange={(e) => setTimeRange(e.target.value as DateFilterType)} className="bg-transparent text-xs font-black text-slate-700 outline-none cursor-pointer p-2 w-full sm:w-auto">
                 <option value="today">🔥 วันนี้</option>
                 <option value="singleDay">📌 เลือกดูเฉพาะวัน...</option>
@@ -290,16 +273,19 @@ export default function GlobalDashboardPage() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 animate-in fade-in duration-500 slide-in-from-bottom-4">
         
-        {/* KPI Cards 5 ใบ */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between">
-            <div className="flex justify-between items-start mb-2">
+            <div className="flex justify-between items-start mb-2 relative z-10">
               <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center"><DollarSign size={20} /></div>
               <span className="text-[10px] font-black uppercase text-slate-400 bg-slate-100 px-2 py-1 rounded-md">ส่งสำเร็จ</span>
             </div>
-            <div>
+            <div className="relative z-10">
               <p className="text-xs font-black text-slate-500 mb-1">ยอดขายรวมสุทธิ</p>
               <h3 className="text-2xl font-black text-slate-800 tracking-tighter">฿{stats.totalRevenue.toLocaleString()}</h3>
+              <div className="flex gap-2 mt-2 pt-2 border-t border-slate-100">
+                <span className="text-[10px] font-bold text-slate-500">หน้าร้าน: <b className="text-blue-600">฿{stats.storeRevenue.toLocaleString()}</b></span>
+                <span className="text-[10px] font-bold text-slate-500">Shopee: <b className="text-orange-500">฿{stats.shopeeRevenue.toLocaleString()}</b></span>
+              </div>
             </div>
           </div>
 
@@ -396,11 +382,10 @@ export default function GlobalDashboardPage() {
           </div>
         </div>
 
-        {/* 🌟 โซน Leaderboard (ไรเดอร์ & เมนูขายดี) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-4xl p-6 shadow-sm border border-slate-100 flex flex-col h-full max-h-100">
             <div className="flex justify-between items-center mb-6 shrink-0">
-              <h2 className="text-base font-black text-slate-800 flex items-center gap-2"><Bike size={20} className="text-emerald-500" /> ผลงานไรเดอร์</h2>
+              <h2 className="text-base font-black text-slate-800 flex items-center gap-2"><Bike size={20} className="text-emerald-500" /> ผลงานไรเดอร์ประจำสาขา</h2>
               <Trophy size={20} className="text-amber-400" />
             </div>
             <div className="space-y-3 flex-1 overflow-y-auto thin-scrollbar pr-2">
@@ -428,10 +413,9 @@ export default function GlobalDashboardPage() {
             </div>
           </div>
 
-          {/* 🔥 ฟังก์ชันแถมสุดพิเศษ: Top 5 เมนูขายดี */}
           <div className="bg-white rounded-4xl p-6 shadow-sm border border-slate-100 flex flex-col h-full max-h-100">
             <div className="flex justify-between items-center mb-6 shrink-0">
-              <h2 className="text-base font-black text-slate-800 flex items-center gap-2"><Award size={20} className="text-rose-500" /> 5 อันดับเมนูขายดี</h2>
+              <h2 className="text-base font-black text-slate-800 flex items-center gap-2"><Award size={20} className="text-rose-500" /> 5 อันดับเมนูขายดีของสาขานี้</h2>
               <Utensils size={20} className="text-rose-300" />
             </div>
             <div className="space-y-3 flex-1 overflow-y-auto thin-scrollbar pr-2">

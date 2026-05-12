@@ -62,7 +62,7 @@ export default function KitchenDashboardPage() {
     if (!session) { router.push("/login"); return; }
     
     const { data: profile } = await supabase.from("profiles").select("role, username, branch_id").eq("id", session.user.id).single();
-    if (profile?.role !== "kitchen" && profile?.role !== "admin") { 
+    if (profile?.role !== "kitchen" && profile?.role !== "admin" && profile?.role !== "superadmin") { 
       router.push("/login"); 
       return; 
     }

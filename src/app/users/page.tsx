@@ -339,8 +339,8 @@ export default function UsersManagementPage() {
                     >
                       <option value="rider">🛵 ไรเดอร์</option>
                       <option value="kitchen">🍳 ครัว</option>
-                      <option value="admin">👑 แอดมิน</option>
-                      <option value="superadmin">🌟 ซุปเปอร์แอดมิน</option>
+                      <option value="admin"> 🌟 แอดมิน</option>
+                      <option value="superadmin">👑 ซุปเปอร์แอดมิน</option>
                     </select>
                   </div>
                 </div>

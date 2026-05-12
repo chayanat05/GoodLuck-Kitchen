@@ -228,12 +228,17 @@ export default function RiderPage() {
       const { data: settings } = await supabase.from("store_settings").select("emergency_reveal_contacts").eq("id", 1).single();
       if (settings) setIsEmergencyMode(settings.emergency_reveal_contacts);
 
-      if (profile?.branch_id) {
-        setMyBranchId(profile.branch_id);
-        const { data: branchData } = await supabase.from("branches").select("lat, lng, cut_off_hour").eq("id", profile.branch_id).single();
-        if (branchData) {
-          setCutOffHour(branchData.cut_off_hour || 4);
-          setShopLocation({ lat: branchData.lat, lng: branchData.lng });
+      const isSuper = profile?.role === 'superadmin' || profile?.role === 'admin';
+      if (profile?.branch_id || isSuper) {
+        if (profile?.branch_id) {
+          setMyBranchId(profile.branch_id);
+          const { data: branchData } = await supabase.from("branches").select("lat, lng, cut_off_hour").eq("id", profile.branch_id).single();
+          if (branchData) {
+            setCutOffHour(branchData.cut_off_hour || 4);
+            setShopLocation({ lat: branchData.lat, lng: branchData.lng });
+          }
+        } else {
+          setMyBranchId("all");
         }
         
         await fetchOrdersAndBranches(currentUserId);
@@ -391,22 +396,26 @@ export default function RiderPage() {
   const handleTakeJob = async (order: RiderOrder) => {
     if (!currentUser) return;
     
-    if (activeOrders.length >= orderLimit) {
+    const isSuper = currentUserRole === "superadmin" || currentUserRole === "admin";
+
+    if (activeOrders.length >= orderLimit && !isSuper) {
       showAlert("รับงานไม่ได้ ❌", `แอดมินจำกัดให้ถือบิลพร้อมกันได้ไม่เกิน ${orderLimit} งานครับ ส่งของในมือให้เสร็จก่อนนะ`, "warning");
       return;
     }
 
-    if (!myLocation) {
+    if (!myLocation && !isSuper) {
       showAlert("แจ้งเตือน", "กำลังค้นหาตำแหน่งของคุณ กรุณารอสักครู่", "warning");
       return;
     }
 
     const orderBranch = branches.find(b => b.id === order.branch_id);
-    if (orderBranch && orderBranch.lat !== 0) {
-      const distance = getDistanceFromLatLonInKm(myLocation.lat, myLocation.lng, orderBranch.lat, orderBranch.lng) * 1000;
-      if (distance > 100) {
-        showAlert("คุณอยู่ไกลจากร้านเกินไป", `ต้องอยู่ในรัศมี 100 เมตรจากร้าน (${orderBranch.name}) เพื่อรับงาน (ห่าง ${Math.round(distance)} เมตร)`, "error");
-        return;
+    if (orderBranch && orderBranch.lat !== 0 && !isSuper) {
+      if (myLocation) {
+        const distance = getDistanceFromLatLonInKm(myLocation.lat, myLocation.lng, orderBranch.lat, orderBranch.lng) * 1000;
+        if (distance > 100) {
+          showAlert("คุณอยู่ไกลจากร้านเกินไป", `ต้องอยู่ในรัศมี 100 เมตรจากร้าน (${orderBranch.name}) เพื่อรับงาน (ห่าง ${Math.round(distance)} เมตร)`, "error");
+          return;
+        }
       }
     }
 
@@ -472,14 +481,17 @@ export default function RiderPage() {
       return;
     }
 
-    if (!myLocation) { 
+    const isSuper = currentUserRole === "superadmin" || currentUserRole === "admin";
+    if (!myLocation && !isSuper) { 
       showAlert("รอก่อนนะ", "กำลังหาตำแหน่งของคุณอยู่ครับ 📡", "warning"); 
       return; 
     }
 
     // 2. ถ้ามี lat, lng (ปักหมุดไว้) ให้นำทางแบบเส้นทางพิกัดเป๊ะๆ
     if (order.lat && order.lng) { 
-      const url = `http://googleusercontent.com/maps.google.com/9${myLocation.lat},${myLocation.lng}&destination=${order.lat},${order.lng}&travelmode=driving`;
+      const lat = myLocation?.lat || SHOP_LAT;
+      const lng = myLocation?.lng || SHOP_LNG;
+      const url = `http://googleusercontent.com/maps.google.com/9${lat},${lng}&destination=${order.lat},${order.lng}&travelmode=driving`;
       window.open(url, "_blank");
       return;
     }
@@ -556,7 +568,7 @@ export default function RiderPage() {
     return (
           <div 
         key={order.id} 
-        className={`${isCompact ? "w-[42vw] sm:w-42.5" : "w-[82vw] sm:w-[320px]"} h-full shrink-0 snap-center rounded-2xl shadow-md border overflow-hidden flex flex-col transition-all duration-300 ${cardBgClass} ${isLate ? 'ring-offset-2 ring-rose-500 animate-pulse shadow-[0_0_20px_rgba(244,63,94,0.6)]' : ''}`} 
+        className={`${isCompact ? "w-[42vw] sm:w-42.5" : "w-[82vw] sm:w-[320px]"} h-full shrink-0 snap-center rounded-2xl shadow-md border overflow-hidden flex flex-col transition-all duration-300 ${cardBgClass} ${isLate ? 'animate-border-blink' : ''}`} 
         style={{ animation: isLate ? undefined : `fadeIn 0.5s ease-out ${idx * 0.05}s both` }}
       >
 
@@ -713,7 +725,7 @@ export default function RiderPage() {
       </div>
     );
 
-  if (!isCheckingAuth && !myBranchId) {
+  if (!isCheckingAuth && !myBranchId && currentUserRole !== 'superadmin' && currentUserRole !== 'admin') {
     return (
       <div className="h-dvh bg-slate-50 flex flex-col items-center justify-center p-6 text-center text-slate-800">
         <div className="w-24 h-24 bg-amber-100 rounded-full flex items-center justify-center mb-6 shadow-lg border border-amber-200 animate-pulse">
@@ -735,7 +747,7 @@ export default function RiderPage() {
     );
   }
 
-  if (gpsEnabled === false) {
+  if (gpsEnabled === false && currentUserRole !== 'superadmin' && currentUserRole !== 'admin') {
     return (
       <div className="h-dvh bg-slate-50 flex flex-col items-center justify-center p-6 text-center relative overflow-hidden text-slate-800" style={{ zIndex: 50 }}>
         <div className="relative z-10 bg-white p-6 rounded-3xl border border-slate-200 shadow-2xl max-w-sm w-full animate-in zoom-in duration-500">
@@ -1415,6 +1427,17 @@ export default function RiderPage() {
         .animate-shake { animation: shake 0.5s ease-in-out infinite; }
         .animate-wiggle { animation: wiggle 1s ease-in-out infinite; }
 
+        @keyframes border-blink {
+          0%, 100% {
+            box-shadow: 0 0 0 4px rgba(244, 63, 94, 0.1), 0 0 20px rgba(244, 63, 94, 0.1);
+          }
+          50% {
+            box-shadow: 0 0 0 4px rgba(244, 63, 94, 1), 0 0 20px rgba(244, 63, 94, 0.8);
+          }
+        }
+        .animate-border-blink {
+          animation: border-blink 0.5s ease-in-out infinite;
+        }
       `}</style>
     </div>
   );

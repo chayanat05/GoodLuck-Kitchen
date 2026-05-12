@@ -72,7 +72,7 @@ export default function SettingPage() {
       if (!session) { window.location.href = '/login'; return; }
       
       const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
-      if (profile?.role !== 'admin') { window.location.href = '/rider'; return; }
+      if (profile?.role !== 'admin' && profile?.role !== 'superadmin') { window.location.href = '/rider'; return; }
       
       if(isMounted) setCurrentUser(session.user);
 

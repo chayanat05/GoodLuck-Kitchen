@@ -8,7 +8,8 @@ import {
   LogOut, Loader2, Clock, ShieldCheck, Package, Menu, X, 
   Settings, AlertTriangle, CheckCircle2, Users, ScanSearch,
   Search, CheckSquare, Banknote, LayoutDashboard, Landmark,PieChart,
-  ImagePlus
+  ImagePlus,
+  Utensils
 } from "lucide-react";
 import SharedGallery from "@/components/SharedGallery";
 
@@ -437,6 +438,18 @@ export default function BranchSelectorPage() {
             </div>
             </Link>
 
+            <Link
+                    href="/menus"
+                    prefetch={false}
+                    className="w-full flex items-center p-4 text-slate-600 hover:bg-pink-50 hover:text-pink-700 rounded-2xl transition-all font-bold border border-transparent hover:border-pink-100 group"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-pink-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                      <Utensils size={20} className="text-pink-600" />
+                    </div>
+                    จัดการเมนูและราคา
+                  </Link>
+                  <div className="h-px bg-slate-100 my-2"></div>
+                  
             <div className="h-px bg-slate-100 my-2"></div>
 
               <Link
@@ -655,7 +668,7 @@ export default function BranchSelectorPage() {
                           employee.role === 'kitchen' ? 'bg-orange-50 text-orange-600 border-orange-100' : 
                           'bg-blue-50 text-blue-600 border-blue-100'
                         }`}>
-                          {(employee.role === 'admin' || employee.role === 'superadmin') ? '👑 แอดมิน' : employee.role === 'kitchen' ? '🍳 ครัว' : '🛵 ไรเดอร์'}
+                          {(employee.role === 'admin' || employee.role === 'superadmin') ? '🌟 แอดมิน' : employee.role === 'kitchen' ? '🍳 ครัว' : '🛵 ไรเดอร์'}
                         </span>
                         <span className="text-[9px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded font-bold whitespace-nowrap hidden sm:inline-block border border-slate-200">
                           {getBranchName(employee.branch_id)}

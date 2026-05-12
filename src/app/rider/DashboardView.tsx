@@ -4,7 +4,7 @@ import {
   ArrowLeft, LayoutDashboard, CheckCircle2, 
   MapPinned, Navigation, X, ClipboardList,
   ImageIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Calendar, CalendarDays,
-  Banknote, Coins, Clock, Package, Fuel, Trophy, PiggyBank 
+  Banknote, Coins, Clock, Package, Fuel, Trophy, PiggyBank, Flame 
 } from 'lucide-react';
 import { Order } from '../../components/OrderCard';
 import Image from 'next/image';
@@ -60,7 +60,7 @@ interface AttendanceRecord {
   id: string;
   rider_id: string;
   check_in: string;
-  check_out: string | null; // เป็น null ได้ถ้ายังไม่เลิกงาน
+  check_out: string | null; 
   created_at?: string;
   payment_status?: string | null; 
   total_pay?: number | null;      
@@ -89,7 +89,8 @@ export default function DashboardView({
   const galleryRef = useRef<HTMLDivElement>(null);
 
   const [showHistory, setShowHistory] = useState(false);
-  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);  
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const fetchAttendanceHistory = async () => {
     setLoadingHistory(true);
@@ -102,7 +103,7 @@ export default function DashboardView({
         .eq('rider_id', session.user.id)
         .order('check_in', { ascending: false })
         .limit(30);
-      if (data) setAttendanceHistory(data);
+      if (data) setAttendanceHistory(data as AttendanceRecord[]);
     }
     setLoadingHistory(false);
   };
@@ -183,58 +184,6 @@ export default function DashboardView({
     fetchPayroll();
   }, [cutOffHour]);
 
-  const todaysCompletedOrdersCount = useMemo(() => {
-    const now = new Date();
-    const shiftStart = new Date(now);
-    if (now.getHours() < cutOffHour) shiftStart.setDate(shiftStart.getDate() - 1);
-    shiftStart.setHours(cutOffHour, 0, 0, 0);
-    const shiftEnd = new Date(shiftStart);
-    shiftEnd.setDate(shiftEnd.getDate() + 1);
-
-    return (Array.isArray(allCompletedOrders) ? allCompletedOrders : []).filter(o => {
-      if (o.status !== 'ส่งแล้ว/เสร็จ' || !o.end_time) return false;
-      const d = new Date(o.end_time);
-      return d >= shiftStart && d < shiftEnd;
-    }).length;
-  }, [allCompletedOrders, cutOffHour]); 
-
-  const liveMinutes = payrollStats.isWorking 
-    ? Math.max(0, Math.floor((currentTime.getTime() - new Date(payrollStats.checkInTime!).getTime()) / 60000))
-    : payrollStats.dailyFixedMinutes;
-
-  const liveGas = payrollStats.isWorking 
-    ? getAutoGasAllowance(todaysCompletedOrdersCount) 
-    : payrollStats.dailyFixedGas;
-
-  const liveTotalPay = payrollStats.isWorking
-    ? ((liveMinutes / 60) * payrollStats.hourlyRate) + liveGas
-    : payrollStats.dailyFixedPay;
-
-  useEffect(() => {
-    if (
-      imageGallery &&
-      galleryRef.current &&
-      imageGallery.startIndex >= 0 &&
-      galleryRef.current.children.length > imageGallery.startIndex
-    ) {
-      const target = galleryRef.current.children[imageGallery.startIndex] as HTMLElement;
-      if (target && typeof target.scrollIntoView === 'function') {
-        target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-      }
-    }
-  }, [imageGallery]);
-
-  const scrollGallery = (direction: 'left' | 'right') => {
-    setImgScale(1);
-    if (galleryRef.current) {
-      const { clientWidth } = galleryRef.current;
-      const scrollAmount = direction === 'left' ? -clientWidth : clientWidth;
-      if (typeof galleryRef.current.scrollBy === 'function') {
-        galleryRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
-      }
-    }
-  };
-
   const getFilteredOrders = () => {
     return (Array.isArray(allCompletedOrders) ? allCompletedOrders : []).filter(order => {
       if (!order.end_time) return false;
@@ -281,9 +230,28 @@ export default function DashboardView({
 
   const displayOrders = Array.isArray(getFilteredOrders()) ? getFilteredOrders() : [];
 
-  const calculateTotalDistance = (): string => {
-    if (!Array.isArray(displayOrders) || displayOrders.length === 0) return "0.0";
-    let totalDist = 0, currentLat = SHOP_LAT, currentLng = SHOP_LNG;
+  const todaysCompletedOrdersCount = useMemo(() => {
+    const now = new Date();
+    const shiftStart = new Date(now);
+    if (now.getHours() < cutOffHour) shiftStart.setDate(shiftStart.getDate() - 1);
+    shiftStart.setHours(cutOffHour, 0, 0, 0);
+    const shiftEnd = new Date(shiftStart);
+    shiftEnd.setDate(shiftEnd.getDate() + 1);
+
+    return (Array.isArray(allCompletedOrders) ? allCompletedOrders : []).filter(o => {
+      if (o.status !== 'ส่งแล้ว/เสร็จ' || !o.end_time) return false;
+      const d = new Date(o.end_time);
+      return d >= shiftStart && d < shiftEnd;
+    }).length;
+  }, [allCompletedOrders, cutOffHour]); 
+
+  // 🌟 ฟังก์ชันคำนวณระยะทางและค่าน้ำมัน
+  const calculateDistanceAndGas = (): { distance: string; gasCost: number; netProfit: number } => {
+    if (!Array.isArray(displayOrders) || displayOrders.length === 0) return { distance: "0.0", gasCost: 0, netProfit: 0 };
+    
+    let totalDist = 0;
+    let currentLat = SHOP_LAT;
+    let currentLng = SHOP_LNG;
 
     [...displayOrders].reverse().forEach(order => {
       const lat = typeof order.lat === 'number' ? order.lat : currentLat;
@@ -294,10 +262,64 @@ export default function DashboardView({
         currentLng = lng;
       }
     });
-    return Number.isFinite(totalDist) ? totalDist.toFixed(1) : "0.0";
+
+    const distString = Number.isFinite(totalDist) ? totalDist.toFixed(1) : "0.0";
+    
+    // 🌟 คำนวณค่าน้ำมัน (40 กม./ลิตร, ลิตรละ 35 บาท)
+    const estimatedLiters = totalDist / 40;
+    const gasCost = Math.round(estimatedLiters * 40);
+    
+    return { 
+      distance: distString, 
+      gasCost: gasCost,
+      netProfit: 0 // จะคำนวณต่อในส่วนของ Live Pay
+    };
   };
 
-  // 🌟 ลบตัวแปร totalTransfer และ totalValue ที่ทำให้เกิดขีดเหลืองทิ้งไป
+  const distStats = calculateDistanceAndGas();
+
+  const liveMinutes = payrollStats.isWorking 
+    ? Math.max(0, Math.floor((currentTime.getTime() - new Date(payrollStats.checkInTime!).getTime()) / 60000))
+    : payrollStats.dailyFixedMinutes;
+
+  const liveGas = payrollStats.isWorking 
+    ? getAutoGasAllowance(todaysCompletedOrdersCount) 
+    : payrollStats.dailyFixedGas;
+
+  const liveBasePay = payrollStats.isWorking
+    ? ((liveMinutes / 60) * payrollStats.hourlyRate)
+    : payrollStats.dailyFixedPay - payrollStats.dailyFixedGas;
+
+  const liveTotalPay = liveBasePay + liveGas;
+  
+  // 🌟 กำไรสุทธิ = (รายได้รวม) - ค่าน้ำมันที่ใช้ไปจริง
+  const netProfit = Math.max(0, Math.round(liveTotalPay - distStats.gasCost));
+
+  useEffect(() => {
+    if (
+      imageGallery &&
+      galleryRef.current &&
+      imageGallery.startIndex >= 0 &&
+      galleryRef.current.children.length > imageGallery.startIndex
+    ) {
+      const target = galleryRef.current.children[imageGallery.startIndex] as HTMLElement;
+      if (target && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
+    }
+  }, [imageGallery]);
+
+  const scrollGallery = (direction: 'left' | 'right') => {
+    setImgScale(1);
+    if (galleryRef.current) {
+      const { clientWidth } = galleryRef.current;
+      const scrollAmount = direction === 'left' ? -clientWidth : clientWidth;
+      if (typeof galleryRef.current.scrollBy === 'function') {
+        galleryRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+      }
+    }
+  };
+
   const totalCash = displayOrders.filter(o => o.payment_method === 'เงินสด' || !o.payment_method).reduce((sum, o) => sum + (o.total_price || 0), 0);
 
   return (
@@ -334,7 +356,7 @@ export default function DashboardView({
           </div>
         </div>
 
-        {/* 🌟 1. การ์ดรายได้ Realtime ของไรเดอร์ */}
+        {/* 🌟 1. การ์ดรายได้ Realtime ของไรเดอร์ (อัปเกรดกำไร) */}
         <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
           <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
             <h3 className="font-black text-slate-700 text-sm flex items-center">
@@ -357,10 +379,21 @@ export default function DashboardView({
           </div>
 
           <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 text-center flex flex-col justify-center">
-              <div className="text-[10px] font-black text-emerald-600/70 uppercase tracking-wider mb-1">รายได้วันนี้ (ประมาณ)</div>
-              <div className="text-3xl font-black text-emerald-600 tracking-tighter">฿{Math.round(liveTotalPay).toLocaleString()}</div>
+            <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 text-center flex flex-col justify-between">
+              <div>
+                <div className="text-[10px] font-black text-emerald-600/70 uppercase tracking-wider mb-1">รายได้วันนี้ (รวมค่าน้ำมัน)</div>
+                <div className="text-2xl font-black text-emerald-600 tracking-tighter">฿{Math.round(liveTotalPay).toLocaleString()}</div>
+              </div>
+              
+              {/* 🌟 โชว์กำไรสุทธิ */}
+              <div className="mt-3 pt-2 border-t border-emerald-200/50 flex flex-col items-center">
+                <div className="text-[9px] font-black text-emerald-700/60 uppercase tracking-wider flex items-center gap-1">
+                  <Flame size={10} className="text-rose-500"/> กำไรสุทธิ (หักค่าน้ำมัน)
+                </div>
+                <div className="text-xl font-black text-emerald-700">฿{netProfit.toLocaleString()}</div>
+              </div>
             </div>
+
             <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 flex flex-col justify-center">
               <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2">
                 <span className="flex items-center"><Clock size={12} className="mr-1 text-blue-500"/> เวลาทำ</span>
@@ -368,11 +401,17 @@ export default function DashboardView({
               </div>
               <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2">
                 <span className="flex items-center"><Package size={12} className="mr-1 text-orange-500"/> สำเร็จแล้ว</span>
-                <span className="text-orange-700 font-black">{todaysCompletedOrdersCount} งาน</span>
+                {/* 🌟 เปลี่ยนคำว่า งาน เป็น ออเดอร์ */}
+                <span className="text-orange-700 font-black">{todaysCompletedOrdersCount} ออเดอร์</span>
               </div>
-              <div className="flex justify-between items-center text-xs font-bold text-slate-600">
-                <span className="flex items-center"><Fuel size={12} className="mr-1 text-slate-500"/> ค่าน้ำมัน</span>
-                <span className="text-slate-700 font-black">฿{liveGas.toLocaleString()}</span>
+              <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2 border-t border-blue-100 pt-2">
+                <span className="flex items-center"><Fuel size={12} className="mr-1 text-slate-500"/> น้ำมันที่ได้</span>
+                <span className="text-emerald-600 font-black">+ ฿{liveGas.toLocaleString()}</span>
+              </div>
+              {/* 🌟 โชว์ค่าน้ำมันที่ใช้จริง */}
+              <div className="flex justify-between items-center text-[10px] font-bold text-slate-500">
+                <span className="flex items-center">น้ำมันที่ใช้จริง</span>
+                <span className="text-rose-500 font-black">- ฿{distStats.gasCost.toLocaleString()}</span>
               </div>
             </div>
           </div>
@@ -472,16 +511,17 @@ export default function DashboardView({
         </div>
 
         <div className="grid grid-cols-2 gap-4">
+          {/* 🌟 เปลี่ยนคำว่า งาน เป็น ออเดอร์ */}
           <div className="bg-linear-to-br from-emerald-500 to-teal-600 rounded-3xl p-5 text-white shadow-lg relative overflow-hidden transform transition-all duration-300 hover:-translate-y-1">
             <CheckCircle2 size={64} className="absolute -right-4 -bottom-4 text-white opacity-20" />
             <div className="text-emerald-100 text-xs font-bold mb-1 flex items-center tracking-wide"><CheckCircle2 size={14} className="mr-1.5"/> ส่งสำเร็จ</div>
-            <div className="text-4xl font-black tracking-tight">{displayOrders.length} <span className="text-sm font-bold text-emerald-200">งาน</span></div>
+            <div className="text-4xl font-black tracking-tight">{displayOrders.length} <span className="text-sm font-bold text-emerald-200">ออเดอร์</span></div>
           </div>
 
           <div className="bg-linear-to-br from-indigo-500 to-purple-600 rounded-3xl p-5 text-white shadow-lg relative overflow-hidden transform transition-all duration-300 hover:-translate-y-1">
             <MapPinned size={64} className="absolute -right-4 -bottom-4 text-white opacity-20" />
             <div className="text-indigo-100 text-xs font-bold mb-1 flex items-center tracking-wide"><Navigation size={14} className="mr-1.5"/> ระยะทางสะสม</div>
-            <div className="text-4xl font-black tracking-tight">{calculateTotalDistance()} <span className="text-sm font-bold text-indigo-200">กม.</span></div>
+            <div className="text-4xl font-black tracking-tight">{distStats.distance} <span className="text-sm font-bold text-indigo-200">กม.</span></div>
           </div>
         </div>
 

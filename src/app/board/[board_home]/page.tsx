@@ -42,6 +42,7 @@ import {
   MapPin,
   Plus,
   AlertTriangle,
+  Utensils,
 } from "lucide-react";
 import {
   useJsApiLoader,
@@ -1295,18 +1296,22 @@ export default function BoardPage({
 
               {(currentUserRole === "admin" || currentUserRole === "superadmin") && (
                 <>
+                  <Link href={`/board/${branchSlug}/dashboard`} prefetch={false} className="w-full flex items-center p-4 text-slate-600 hover:bg-blue-50 hover:text-blue-700 rounded-2xl transition-all font-bold border border-transparent hover:border-blue-100 group">
+                    <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform"><LayoutDashboard size={20} className="text-blue-600" /></div>สถิติประจำสาขานี้
+                  </Link>
+                  
+                  <div className="h-px bg-slate-100 my-2"></div>
                   <Link
-                    href="/dashboard"
+                    href="/menus"
                     prefetch={false}
-                    className="w-full flex items-center p-4 text-slate-600 hover:bg-blue-50 hover:text-blue-700 rounded-2xl transition-all font-bold border border-transparent hover:border-blue-100 group"
+                    className="w-full flex items-center p-4 text-slate-600 hover:bg-pink-50 hover:text-pink-700 rounded-2xl transition-all font-bold border border-transparent hover:border-pink-100 group"
                   >
-                    <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
-                      <LayoutDashboard size={20} className="text-blue-600" />
+                    <div className="w-10 h-10 rounded-xl bg-pink-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                      <Utensils size={20} className="text-pink-600" />
                     </div>
-                    Dashboard สถิติร้าน
+                    จัดการเมนูและราคา
                   </Link>
                   <div className="h-px bg-slate-100 my-2"></div>
-
                   <Link
                     href="/setting"
                     prefetch={false}
@@ -1337,7 +1342,7 @@ export default function BoardPage({
         </div>
       )}
 
-      {showRiderMap && currentUserRole === "admin" && (
+      {showRiderMap && (currentUserRole === "admin" || currentUserRole === "superadmin") && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 flex flex-col h-5/6 relative">
             <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-white sticky top-0 z-10 shrink-0">
@@ -1530,7 +1535,7 @@ export default function BoardPage({
                           className={`shrink-0 max-h-full flex flex-col transition-all duration-300 ${isCompact ? "w-48 md:w-56" : "w-72 md:w-80"} ${snapshot.isDragging ? "scale-[1.02] rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl" : ""} ${
   ((order.status === "New" || order.status === "กำลังทำ") && Math.floor((new Date().getTime() - new Date(order.created_at).getTime()) / 60000) >= 5) || 
   (order.status === "รับงาน" && Math.floor((new Date().getTime() - new Date(order.created_at).getTime()) / 60000) >= 35) 
-  ? "ring-4 ring-offset-2 ring-rose-500 rounded-3xl animate-pulse shadow-[0_0_20px_rgba(244,63,94,0.6)]" 
+  ? "rounded-3xl animate-border-blink" 
   : ""
 }`}
                         >
@@ -2620,6 +2625,17 @@ export default function BoardPage({
           50% {
             transform: translateY(-5px);
           }
+        }
+        @keyframes border-blink {
+          0%, 100% {
+            box-shadow: 0 0 0 4px rgba(244, 63, 94, 0.1), 0 0 20px rgba(244, 63, 94, 0.1);
+          }
+          50% {
+            box-shadow: 0 0 0 4px rgba(244, 63, 94, 1), 0 0 20px rgba(244, 63, 94, 0.8);
+          }
+        }
+        .animate-border-blink {
+          animation: border-blink 0.5s ease-in-out infinite;
         }
         .animate-float {
           animation: float 3s ease-in-out infinite;

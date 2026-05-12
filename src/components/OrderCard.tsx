@@ -1,6 +1,5 @@
-// OrderCard.tsx
 'use client'
-import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, MoreVertical, ScanSearch, CheckCircle2, AlertCircle, XCircle, Trash2, ArrowRightLeft } from "lucide-react";
+import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, MoreVertical, ScanSearch, CheckCircle2, AlertCircle, XCircle, Trash2, ArrowRightLeft,Store } from "lucide-react";
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
 
@@ -8,7 +7,7 @@ export interface Order {
   slip_image?: string | null;
   id: string;
   order_number: string;
-  job_type: "ร้าน" | "shopee" | string; // 🌟 ตัดรับหิ้ว/รับส่ง ออก
+  job_type: "ร้าน" | "shopee" | string; 
   status: "New" | "กำลังทำ" | "รับงาน" | "ส่งแล้ว/เสร็จ" | string;
   menu?: string; 
   details: string;
@@ -26,13 +25,13 @@ export interface Order {
   slip_status?: "รอตรวจ" | "ผ่าน" | "ไม่ผ่าน" | string; 
   sort_index?: number;
   contact_link?: string;
-  contact_source?: string; // 🌟 เพิ่มช่องเก็บชื่อเพจ
+  contact_source?: string; 
 }
 
 interface OrderProps {
   order: Order;
   isCompact?: boolean;
-  userRole?: string; // 🌟 รับ Role มาเพื่อดักซ่อนปุ่มของแม่ครัว
+  userRole?: string; 
   onEdit?: (order: Order) => void; 
   onStart?: (id: string) => void;  
   onFinish?: (id: string) => void; 
@@ -82,24 +81,23 @@ function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onVi
   const theme = getCardTheme(order.status);
   const slipStatus = order.slip_status || 'รอตรวจ'; 
 
-  // 🌟 ฟังก์ชันคำนวณว่าผ่านไปกี่นาทีแล้ว
-const [elapsedMinutes, setElapsedMinutes] = useState(0);
+  const [elapsedMinutes, setElapsedMinutes] = useState(0);
 
-useEffect(() => {
-  const calculateTime = () => {
-    const startTime = new Date(order.created_at).getTime();
-    const now = new Date().getTime();
-    setElapsedMinutes(Math.floor((now - startTime) / 60000));
-  };
+  useEffect(() => {
+    const calculateTime = () => {
+      const startTime = new Date(order.created_at).getTime();
+      const now = new Date().getTime();
+      setElapsedMinutes(Math.floor((now - startTime) / 60000));
+    };
 
-  calculateTime();
-  const interval = setInterval(calculateTime, 30000); // อัปเดตทุก 30 วินาที
-  return () => clearInterval(interval);
-}, [order.created_at]);
+    calculateTime();
+    const interval = setInterval(calculateTime, 30000); // อัปเดตทุก 30 วินาที
+    return () => clearInterval(interval);
+  }, [order.created_at]);
 
-// 🌟 เช็คเงื่อนไขการเตือน
   const isKitchenLate = (order.status === "New" || order.status === "กำลังทำ") && elapsedMinutes >= 5;
   const isRiderLate = (order.status === "รับงาน") && elapsedMinutes >= 35;
+  
   return (
     <div className={`${isCompact ? 'p-3' : 'p-4'} rounded-3xl shadow-xl border-b-8 relative transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:-translate-y-1 flex flex-col max-h-full w-full min-h-56 ${theme.bg}`}>
       
@@ -108,18 +106,22 @@ useEffect(() => {
           <span className={`${isCompact ? 'text-xs px-2 py-1' : 'text-sm px-2.5 py-1'} font-black rounded-lg bg-white/90 text-slate-800 tracking-wider shadow-sm`}>
             {isShopee ? (order.order_number.startsWith('#') ? order.order_number : `#${order.order_number}`) : order.order_number}
           </span>
-          {/* 🌟 แสดงเวลาที่ผ่านไป และแจ้งเตือนถ้าเลท */}
-  <div className={`flex items-center gap-1 px-2 py-0.5 rounded-lg font-black text-[10px] shadow-sm animate-in fade-in ${
-    isKitchenLate || isRiderLate 
-    ? "bg-rose-500 text-white animate-pulse" // เลทแล้ว: แดงกะพริบ
-    : elapsedMinutes >= (order.status === "รับงาน" ? 30 : 4)
-    ? "bg-amber-400 text-slate-900" // ใกล้เลท: ส้ม
-    : "bg-black/20 text-white" // ปกติ
-  }`}>
-    <Clock size={10} />
-    {elapsedMinutes} นาที
-    {(isKitchenLate || isRiderLate) && " ⚠️ เกินกำหนด!"}
-  </div>
+          
+          {/* 🌟 ซ่อนเวลาถ้าสถานะเป็น "ส่งแล้ว/เสร็จ" */}
+          {order.status !== 'ส่งแล้ว/เสร็จ' && (
+            <div className={`flex items-center gap-1 px-2 py-0.5 rounded-lg font-black text-[10px] shadow-sm animate-in fade-in ${
+              isKitchenLate || isRiderLate 
+              ? "bg-rose-500 text-white animate-pulse" 
+              : elapsedMinutes >= (order.status === "รับงาน" ? 30 : 4)
+              ? "bg-amber-400 text-slate-900" 
+              : "bg-black/20 text-white" 
+            }`}>
+              <Clock size={10} />
+              {elapsedMinutes} นาที
+              {(isKitchenLate || isRiderLate) && " ⚠️ เกินกำหนด!"}
+            </div>
+          )}
+
           <span className={`text-xs font-black ${isCompact ? 'px-1.5 py-0.5' : 'px-2.5 py-1'} rounded-md uppercase tracking-wider border ${theme.badgeBg}`}>
             {order.job_type}
           </span>
@@ -135,8 +137,7 @@ useEffect(() => {
             </button>
           )}
           
-          {/* 🌟 ดักสิทธิ์ ถ้าเป็นแอดมินถึงจะเห็นปุ่ม 3 จุด (แก้/ลบ/เปลี่ยนสถานะ) */}
-          {userRole === 'admin' && (
+          {(userRole === 'admin' || userRole === 'superadmin') && (
             <>
               <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(!isMenuOpen); }} className={`p-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/20 ${theme.text} ${isMenuOpen ? 'bg-white/20' : ''}`} title="เมนูเพิ่มเติม">
                 <MoreVertical size={16} strokeWidth={2.5} />
@@ -260,7 +261,14 @@ useEffect(() => {
             <Lock size={12} className="mr-1.5 shrink-0" /> <span className="truncate">จองโดย: {order.rider_name || "ไรเดอร์"}</span>
           </div>
         )}
-        
+
+        {(userRole === 'admin' || userRole === 'superadmin') && order.contact_source && order.job_type !== 'shopee' && (
+            <span className={`flex items-center gap-1 text-[16px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider border bg-black/20 text-white border-white/10 shadow-inner`}>
+              <Store size={12} className="opacity-80" />
+              {order.contact_source}
+            </span>
+          )}
+
         {isShopee && order.status === 'รับงาน' && (
           <div className={`text-center py-2.5 text-xs font-black rounded-xl shadow-inner tracking-wide bg-black/10 border border-white/10 ${theme.text}`}>
             📦 ออเดอร์ Shopee (รอมารับ)

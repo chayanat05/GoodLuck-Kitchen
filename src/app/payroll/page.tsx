@@ -104,7 +104,7 @@ export default function PayrollPage() {
     if (!session) { router.push("/login"); return; }
     
     const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
-    if (profile?.role !== 'admin') { router.push('/rider'); return; }
+    if (profile?.role !== 'admin' && profile?.role !== 'superadmin') { router.push('/rider'); return; }
     
     setCurrentUser(session.user);
 
