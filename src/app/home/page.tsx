@@ -80,14 +80,14 @@ export default function BranchSelectorPage() {
       return;
     }
 
-    // 🌟 ล็อกประตู! ป้องกันไม่ให้แม่ครัว (หรือคนที่ไม่ใช่ Admin) เข้าหน้า Home ได้
+    // 🌟 ล็อกประตู! อนุญาตให้ admin และ superadmin เข้าหน้า Home ได้
     const { data: profile } = await supabase
       .from("profiles")
       .select("role")
       .eq("id", session.user.id)
       .single();
       
-    if (profile?.role !== "admin") { 
+    if (profile?.role !== "admin" && profile?.role !== "superadmin") { 
       router.push("/login"); 
       return; 
     }
@@ -251,8 +251,8 @@ export default function BranchSelectorPage() {
       if (isAActive !== isBActive) return isBActive - isAActive; 
       
       if (a.role !== b.role) {
-        if (a.role === 'admin') return -1;
-        if (b.role === 'admin') return 1;
+        if (a.role === 'admin' || a.role === 'superadmin') return -1;
+        if (b.role === 'admin' || b.role === 'superadmin') return 1;
         return a.role === 'rider' ? -1 : 1;
       }
 
@@ -297,6 +297,7 @@ export default function BranchSelectorPage() {
         
         if (profile) {
           setAdminName(profile.username || "แอดมิน");
+          // 🌟 แก้ไข: ไม่ต้องใส่ || "superadmin" ให้ใช้ค่า role ตรงๆ เลย
           setCurrentUserRole(profile.role || "admin");
         }
       }
@@ -648,12 +649,13 @@ export default function BranchSelectorPage() {
                     <div className="flex-1 min-w-0 pr-2">
                       <div className="flex items-center gap-2 mb-1">
                         <h4 className="font-black text-slate-800 text-sm truncate">{employee.username}</h4>
+                        {/* 🌟 ปรับเงื่อนไขป้ายกำกับให้ครอบคลุม superadmin ด้วย */}
                         <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap hidden sm:inline-block border ${
-                          employee.role === 'admin' ? 'bg-purple-50 text-purple-600 border-purple-100' :
+                          (employee.role === 'admin' || employee.role === 'superadmin') ? 'bg-purple-50 text-purple-600 border-purple-100' :
                           employee.role === 'kitchen' ? 'bg-orange-50 text-orange-600 border-orange-100' : 
                           'bg-blue-50 text-blue-600 border-blue-100'
                         }`}>
-                          {employee.role === 'admin' ? '👑 แอดมิน' : employee.role === 'kitchen' ? '🍳 ครัว' : '🛵 ไรเดอร์'}
+                          {(employee.role === 'admin' || employee.role === 'superadmin') ? '👑 แอดมิน' : employee.role === 'kitchen' ? '🍳 ครัว' : '🛵 ไรเดอร์'}
                         </span>
                         <span className="text-[9px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded font-bold whitespace-nowrap hidden sm:inline-block border border-slate-200">
                           {getBranchName(employee.branch_id)}

@@ -146,7 +146,8 @@ export default function DormDatabasePage() {
   };
 
   const handleConfirmDelete = async () => {
-    if (adminPassInput !== "8888") {
+    // 🌟 ถ้าไม่ใช่ superadmin ต้องเช็ครหัสผ่าน 8888 ก่อนลบ
+    if (userRole !== "superadmin" && adminPassInput !== "8888") {
       alert("รหัสผ่านไม่ถูกต้อง! ไม่สามารถลบได้");
       return;
     }
@@ -261,7 +262,9 @@ export default function DormDatabasePage() {
                     >
                       <Edit size={16} />
                     </button>
-                    {userRole === 'admin' && (
+
+                    {/* 🌟 ให้ admin และ superadmin เห็นปุ่มลบ */}
+                    {(userRole === 'admin' || userRole === 'superadmin') && (
                       <button 
                         onClick={() => { setDeleteId(dorm.id); setDeleteConfirmName(dorm.name); }}
                         className="p-2 bg-slate-50 text-slate-500 hover:bg-rose-500 hover:text-white rounded-xl transition-all active:scale-90 cursor-pointer"
@@ -269,6 +272,7 @@ export default function DormDatabasePage() {
                         <Trash2 size={16} />
                       </button>
                     )}
+                    
                   </div>
                 </div>
               </div>

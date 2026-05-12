@@ -106,6 +106,9 @@ export default function RiderPage() {
   const [ridersLoc, setRidersLoc] = useState<RiderLocation[]>([]);
   const [selectedRiderMapInfo, setSelectedRiderMapInfo] = useState<RiderLocation | null>(null);
 
+  const [currentUserRole, setCurrentUserRole] = useState<string>("rider");
+  const [isEmergencyMode, setIsEmergencyMode] = useState<boolean>(false);
+
   // 🌟 State สำหรับเปิดรูปหอพัก (ดึงจากฐานข้อมูล)
   const [dormImageModal, setDormImageModal] = useState<{ isOpen: boolean; url: string | null; isLoading: boolean }>({ isOpen: false, url: null, isLoading: false });
   
@@ -212,13 +215,18 @@ export default function RiderPage() {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("username, branch_id")
+        .select("username, branch_id, role")
         .eq("id", session.user.id)
         .single();
 
       setCurrentUser(session.user);
       currentUserId = session.user.id;
       setRiderName(profile?.username || "ไรเดอร์");
+      setCurrentUserRole(profile?.role || "rider");
+      
+      // 🌟 ดึงค่าโหมดฉุกเฉินตอนโหลดครั้งแรก
+      const { data: settings } = await supabase.from("store_settings").select("emergency_reveal_contacts").eq("id", 1).single();
+      if (settings) setIsEmergencyMode(settings.emergency_reveal_contacts);
 
       if (profile?.branch_id) {
         setMyBranchId(profile.branch_id);
@@ -238,6 +246,17 @@ export default function RiderPage() {
 
     checkAuthAndInit();
 
+    // 🌟 แก้ 1 & 2: ใช้ const เลย ไม่ต้องประกาศ let ทิ้งไว้
+    // 🌟 แก้ 3: ระบุ Type ให้ payload ชัดเจนว่ามี { new: { emergency_reveal_contacts: boolean } }
+    const settingsChannel = supabase.channel("public:store_settings_rider")
+      .on(
+        "postgres_changes", 
+        { event: "UPDATE", schema: "public", table: "store_settings" }, 
+        (payload: { new: { emergency_reveal_contacts: boolean } }) => {
+          setIsEmergencyMode(payload.new.emergency_reveal_contacts);
+        }
+      ).subscribe();
+
     const riderChannel = supabase
       .channel("public:orders:rider")
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
@@ -245,7 +264,10 @@ export default function RiderPage() {
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(riderChannel); };
+    return () => { 
+      supabase.removeChannel(riderChannel); 
+      supabase.removeChannel(settingsChannel);
+    };
   }, [fetchOrdersAndBranches]);
 
   useEffect(() => {
@@ -1043,27 +1065,34 @@ export default function RiderPage() {
                 </div>
               </div>
 
-              {(selectedViewOrder as RiderOrder & { contact_link?: string }).contact_link && (
+              {/* 🌟 คนที่จะเห็นลิ้งก์เฟส ต้องเป็นแอดมินหรือซุปเปอร์แอดมินที่แวะมาดูหน้าไรเดอร์เท่านั้น */}
+              {(currentUserRole === 'admin' || currentUserRole === 'superadmin') && (selectedViewOrder as RiderOrder & { contact_link?: string }).contact_link && (
                 <div className="space-y-2">
                   <div className="text-[10px] font-black text-blue-600 uppercase tracking-wider flex items-center">
                     <Lock size={12} className="mr-1.5" /> ช่องทางติดต่อลูกค้า (ลับ)
                   </div>
-                  <div className="p-3 bg-white rounded-xl border border-blue-100 flex justify-between items-center shadow-sm">
-                    {showContactInfo ? (
-                      <a href={(selectedViewOrder as RiderOrder & { contact_link?: string }).contact_link!.startsWith('http') ? (selectedViewOrder as RiderOrder & { contact_link?: string }).contact_link : `https://${(selectedViewOrder as RiderOrder & { contact_link?: string }).contact_link}`} target="_blank" rel="noreferrer" className="text-blue-600 font-bold text-xs underline break-all">
-                        {(selectedViewOrder as RiderOrder & { contact_link?: string }).contact_link}
-                      </a>
-                    ) : (
-                      <div className="text-xs text-slate-300 blur-sm select-none font-black tracking-widest">
-                        https://facebook.com/hidden-data...
+                  
+                  {(() => {
+                    const isRevealed = currentUserRole === 'superadmin' || isEmergencyMode || showContactInfo;
+                    return (
+                      <div className={`p-3 rounded-xl border flex justify-between items-center shadow-sm ${isEmergencyMode ? "bg-rose-50 border-rose-200" : "bg-white border-blue-100"}`}>
+                        {isRevealed ? (
+                          <a href={(selectedViewOrder as RiderOrder & { contact_link?: string }).contact_link!.startsWith('http') ? (selectedViewOrder as RiderOrder & { contact_link?: string }).contact_link : `https://${(selectedViewOrder as RiderOrder & { contact_link?: string }).contact_link}`} target="_blank" rel="noreferrer" className="text-blue-600 font-bold text-xs underline break-all">
+                            {(selectedViewOrder as RiderOrder & { contact_link?: string }).contact_link}
+                          </a>
+                        ) : (
+                          <div className="text-xs text-slate-300 blur-sm select-none font-black tracking-widest">
+                            https://facebook.com/hidden-data...
+                          </div>
+                        )}
+                        {!isRevealed && (
+                          <button onClick={() => { const pin = window.prompt("กรุณาใส่รหัส PIN (ค่าเริ่มต้น: 9999):"); if (pin === "9999") setShowContactInfo(true); else if (pin) alert("รหัสผ่านไม่ถูกต้อง ❌"); }} className="ml-3 px-3 py-1.5 bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-500 hover:text-white rounded-lg text-[10px] font-black transition-colors shrink-0 shadow-sm">
+                            ปลดล็อก
+                          </button>
+                        )}
                       </div>
-                    )}
-                    {!showContactInfo && (
-                      <button onClick={() => { const pin = window.prompt("กรุณาใส่รหัส PIN เพื่อดูข้อมูลลูกค้า (ค่าเริ่มต้น: 9999):"); if (pin === "9999") setShowContactInfo(true); else if (pin) alert("รหัสผ่านไม่ถูกต้อง ❌"); }} className="ml-3 px-3 py-1.5 bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-500 hover:text-white rounded-lg text-[10px] font-black transition-colors shrink-0 shadow-sm">
-                        ปลดล็อก
-                      </button>
-                    )}
-                  </div>
+                    );
+                  })()}
                 </div>
               )}
 

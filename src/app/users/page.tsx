@@ -88,7 +88,8 @@ export default function UsersManagementPage() {
         .eq("id", session.user.id)
         .single();
 
-      if (adminProfile?.role !== "admin") {
+      // 🌟 แก้ไข: อนุญาตให้ทั้ง admin และ superadmin เข้าหน้านี้ได้
+      if (adminProfile?.role !== "admin" && adminProfile?.role !== "superadmin") {
         window.location.href = "/rider";
         return;
       }
@@ -106,7 +107,11 @@ export default function UsersManagementPage() {
       return;
     }
 
-    const roleNameTh = newRole === "admin" ? "แอดมิน (Admin)" : "ไรเดอร์ (Rider)";
+    // 🌟 แก้ไข: เพิ่มเงื่อนไขให้ครอบคลุมทุก Role
+    let roleNameTh = "ไรเดอร์ (Rider)";
+    if (newRole === "admin") roleNameTh = "แอดมิน (Admin)";
+    if (newRole === "kitchen") roleNameTh = "แม่ครัว (Kitchen)";
+    if (newRole === "superadmin") roleNameTh = "ซุปเปอร์แอดมิน (Superadmin)";
 
     showConfirm(
       "ยืนยันการเปลี่ยนสิทธิ์?",
@@ -241,7 +246,8 @@ export default function UsersManagementPage() {
         {/* รายชื่อสมาชิก */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredProfiles.map((profile) => {
-            const isAdmin = profile.role === "admin";
+            // 🌟 แก้ไข: เช็คให้ครอบคลุมทั้ง admin และ superadmin
+            const isAdmin = profile.role === "admin" || profile.role === "superadmin";
             const isMe = profile.id === currentUser?.id;
             const online = isOnline(profile.last_seen);
 
@@ -251,7 +257,7 @@ export default function UsersManagementPage() {
                 {/* แถบสีด้านบนการ์ด บ่งบอกสถานะ */}
                 <div className={`absolute top-0 left-0 w-full h-1.5 ${isAdmin ? "bg-indigo-500" : "bg-green-500"}`}></div>
 
-                {/* 🌟 ปุ่มลบ (ถ้าไม่ใช่ตัวเอง) */}
+                {/* ปุ่มลบ (ถ้าไม่ใช่ตัวเอง) */}
                 {!isMe && (
                   <button 
                     onClick={() => handleDeleteUser(profile.id, profile.username)}
@@ -302,7 +308,7 @@ export default function UsersManagementPage() {
                   </div>
                 </div>
 
-                {/* 🌟 ตัวปรับเปลี่ยนสาขา */}
+                {/* ตัวปรับเปลี่ยนสาขา */}
                 <div className="mt-5 pt-4 border-t border-gray-50 flex gap-2">
                   <div className="flex-1">
                     <label className="text-[10px] font-black text-gray-500 mb-1.5 uppercase tracking-wide flex items-center"><Store size={12} className="mr-1"/> ประจำสาขา</label>
@@ -318,7 +324,7 @@ export default function UsersManagementPage() {
                     </select>
                   </div>
 
-                  {/* 🌟 ตัวปรับเปลี่ยนสิทธิ์ */}
+                  {/* ตัวปรับเปลี่ยนสิทธิ์ */}
                   <div className="flex-1">
                     <label className="text-[10px] font-black text-gray-500 mb-1.5 uppercase tracking-wide flex items-center"><ShieldCheck size={12} className="mr-1"/> สิทธิ์</label>
                     <select
@@ -332,8 +338,9 @@ export default function UsersManagementPage() {
                       }`}
                     >
                       <option value="rider">🛵 ไรเดอร์</option>
-                      <option value="admin">👑 แอดมิน</option>
                       <option value="kitchen">🍳 ครัว</option>
+                      <option value="admin">👑 แอดมิน</option>
+                      <option value="superadmin">🌟 ซุปเปอร์แอดมิน</option>
                     </select>
                   </div>
                 </div>

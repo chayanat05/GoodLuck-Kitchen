@@ -6,6 +6,7 @@ export const viewport: Viewport = {
     themeColor: '#2563eb',
 };
 
+
 export const metadata: Metadata = {
     title: 'Store Management System',
     description: 'ระบบจัดการออเดอร์',
@@ -13,6 +14,7 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: 'default',
     title: 'Store Management System',
+    
     },
 }
 

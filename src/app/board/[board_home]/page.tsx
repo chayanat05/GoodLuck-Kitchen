@@ -41,6 +41,7 @@ import {
   ClipboardList,
   MapPin,
   Plus,
+  AlertTriangle,
 } from "lucide-react";
 import {
   useJsApiLoader,
@@ -80,6 +81,25 @@ interface RiderLocation {
   last_lat: number | null;
   last_lng: number | null;
   last_seen: string | null;
+}
+
+// 🌟 Interfaces สำหรับดึงข้อมูลเมนูและร้าน
+interface ShopMenu {
+  id: string;
+  shop_name: string;
+  menu_name: string;
+  price: number;
+}
+interface ContactSource {
+  id: string;
+  name: string;
+}
+interface CalcItem {
+  name: string;
+  qty: number;
+  unitPrice: number;
+  total: number;
+  found: boolean;
 }
 
 const calculateDistance = (
@@ -162,6 +182,8 @@ export default function BoardPage({
     order: Order | null;
   }>({ isOpen: false, order: null });
 
+  const [isEmergencyMode, setIsEmergencyMode] = useState<boolean>(false);
+
   const [showContactInfo, setShowContactInfo] = useState(false);
 
   const [currentUserRole, setCurrentUserRole] = useState<string>("admin");
@@ -171,7 +193,127 @@ export default function BoardPage({
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
 
+  // 🌟 State สำหรับเมนูและแหล่งที่มา
+  const [allShopMenus, setAllShopMenus] = useState<ShopMenu[]>([]);
+  const [contactSources, setContactSources] = useState<ContactSource[]>([]);
+
+  // 🌟 ฟังก์ชันดึงเมนู
+  const fetchSyncData = useCallback(async () => {
+    const { data: menuData } = await supabase.from("shop_menus").select("*");
+    const { data: sourceData } = await supabase.from("contact_sources").select("*").order("name");
+    
+    if (menuData) setAllShopMenus(menuData as ShopMenu[]);
+    if (sourceData) setContactSources(sourceData as ContactSource[]);
+  }, []);
+
+  // 🌟 ระบบคำนวณราคาอัตโนมัติอัจฉริยะ (No Any & Safe TypeScript)
+  const calculateAutoPrice = useCallback((menuText: string, currentSource: string): string | null => {
+    if (!menuText.trim()) return null;
+
+    const lines = menuText.split('\n');
+    let total = 0;
+    const shopMenus = allShopMenus.filter(m => m.shop_name === currentSource);
+    const sortedMenus = [...shopMenus].sort((a, b) => b.menu_name.length - a.menu_name.length);
+
+    lines.forEach(line => {
+      const cleanLine = line.trim();
+      if (!cleanLine) return;
+
+      for (const item of sortedMenus) {
+        if (cleanLine.toLowerCase().includes(item.menu_name.toLowerCase())) {
+          let qty = 1;
+          const matches = cleanLine.match(/\d+/g);
+          if (matches && matches.length > 0) {
+              qty = parseInt(matches[matches.length - 1], 10);
+          }
+          total += (item.price * qty);
+          break;
+        }
+      }
+    });
+
+    return total > 0 ? total.toString() : null;
+  }, [allShopMenus]);
+
+  const [formData, setFormData] = useState({
+    order_number: "",
+    job_type: "ร้าน",
+    menu: "",
+    details: "",
+    location_name: "",
+    address: "",
+    total_price: "",
+    payment_method: "โอน",
+    lat: null as number | null,
+    lng: null as number | null,
+    contact_link: "",
+    contact_source: "", 
+  });
+
+  // 🌟 สร้างใบเสร็จแจกแจงรายการ (Breakdown) แบบ Real-time ผ่าน useMemo (แก้ปัญหาโค้ดแดง 100%)
+  const calcBreakdown = useMemo<CalcItem[]>(() => {
+    if (!formData.menu.trim()) return [];
+
+    const lines = formData.menu.split('\n');
+    const breakdown: CalcItem[] = [];
+    const shopMenus = allShopMenus.filter(m => m.shop_name === formData.contact_source);
+    const sortedMenus = [...shopMenus].sort((a, b) => b.menu_name.length - a.menu_name.length);
+
+    lines.forEach(line => {
+      const cleanLine = line.trim();
+      if (!cleanLine) return;
+
+      let matched = false;
+      for (const item of sortedMenus) {
+        if (cleanLine.toLowerCase().includes(item.menu_name.toLowerCase())) {
+          let qty = 1;
+          const matches = cleanLine.match(/\d+/g);
+          if (matches && matches.length > 0) {
+              qty = parseInt(matches[matches.length - 1], 10);
+          }
+
+          const lineTotal = item.price * qty;
+          breakdown.push({
+            name: item.menu_name,
+            qty,
+            unitPrice: item.price,
+            total: lineTotal,
+            found: true
+          });
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+         breakdown.push({
+            name: cleanLine,
+            qty: 0,
+            unitPrice: 0,
+            total: 0,
+            found: false
+         });
+      }
+    });
+
+    return breakdown;
+  }, [formData.menu, formData.contact_source, allShopMenus]);
+
   useEffect(() => {
+    const fetchSettings = async () => {
+      const { data } = await supabase.from("store_settings").select("emergency_reveal_contacts").eq("id", 1).single();
+      if (data) setIsEmergencyMode(data.emergency_reveal_contacts);
+    };
+    
+    const init = async () => {
+      await Promise.all([fetchSyncData(), fetchSettings()]);
+    };
+    init();
+
+    const settingsChannel = supabase
+      .channel("public:store_settings")
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "store_settings", filter: "id=eq.1" }, (payload) => {
+        setIsEmergencyMode(payload.new.emergency_reveal_contacts);
+      }).subscribe();
     const fetchBranchAndTheme = async () => {
       const { data } = await supabase
         .from("branches")
@@ -215,9 +357,10 @@ export default function BoardPage({
       .subscribe();
 
     return () => {
+      supabase.removeChannel(settingsChannel);
       supabase.removeChannel(themeChannel);
     };
-  }, [branchSlug]);
+  }, [branchSlug, fetchSyncData]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -270,21 +413,6 @@ export default function BoardPage({
     libraries: mapLibraries,
     language: "th",
     region: "TH",
-  });
-
-  const [formData, setFormData] = useState({
-    order_number: "",
-    job_type: "ร้าน",
-    menu: "",
-    details: "",
-    location_name: "",
-    address: "",
-    total_price: "",
-    payment_method: "โอน",
-    lat: null as number | null,
-    lng: null as number | null,
-    contact_link: "",
-    contact_source: "เพจหลัก",
   });
 
   const showToast = useCallback((msg: string) => {
@@ -354,11 +482,7 @@ export default function BoardPage({
         .eq("id", session.user.id)
         .single();
 
-      if (
-        error ||
-        !profile ||
-        (profile.role !== "admin" && profile.role !== "kitchen")
-      ) {
+      if (error || !profile || !["admin", "kitchen", "superadmin"].includes(profile.role)) {
         alert("สิทธิ์การเข้าถึงถูกปฏิเสธ! คุณถูกพาไปยังหน้าของไรเดอร์");
         window.location.href = "/rider";
         return;
@@ -366,7 +490,7 @@ export default function BoardPage({
 
       setCurrentUser(session.user);
       setAdminName(
-        profile.username || (profile.role === "admin" ? "แอดมิน" : "แม่ครัว"),
+        profile.username || (profile.role === "admin" ? "แอดมิน" : "แม่ครัว" ),
       );
       setCurrentUserRole(profile.role);
       setIsMounted(true);
@@ -583,6 +707,8 @@ export default function BoardPage({
       nextNum = (Number(storeOrders[0].order_number) + 1).toString();
     }
 
+    const defaultSource = contactSources.length > 0 ? contactSources[0].name : "เพจหลัก";
+
     setEditingId(null);
     setFormData({
       order_number: nextNum,
@@ -596,7 +722,7 @@ export default function BoardPage({
       lat: null,
       lng: null,
       contact_link: "",
-      contact_source: "เพจหลัก",
+      contact_source: defaultSource,
     });
     setImageFiles([]);
     setImagePreviews([]);
@@ -609,6 +735,8 @@ export default function BoardPage({
     order: Order & { contact_link?: string; contact_source?: string },
   ) => {
     setEditingId(order.id);
+    const source = order.contact_source || (contactSources.length > 0 ? contactSources[0].name : "เพจหลัก");
+    
     setFormData({
       order_number: order.order_number,
       job_type: order.job_type,
@@ -621,8 +749,9 @@ export default function BoardPage({
       lat: order.lat || null,
       lng: order.lng || null,
       contact_link: order.contact_link || "",
-      contact_source: order.contact_source || "เพจหลัก",
+      contact_source: source,
     });
+
     if (order.image_url) {
       setExistingImages(order.image_url.split(",").filter(Boolean));
     } else {
@@ -901,13 +1030,11 @@ export default function BoardPage({
     });
   };
 
-  // 🌟 นับเฉพาะงานที่ยังไม่เสร็จ เพื่อเอาไปโชว์ตัวเลข "ค้าง: X" ด้านบน
   const pendingOrders = useMemo(
     () => orders.filter((o) => ["New", "กำลังทำ", "รับงาน"].includes(o.status)),
     [orders],
   );
 
-  // 🌟 เปลี่ยนมาใช้ 'orders' ตรงๆ เพื่อให้แสดงผลทุกสถานะรวมถึง "ส่งแล้ว/เสร็จ" ด้วย
   const filteredOrders = useMemo(() => {
     const q = debouncedQuery.toLowerCase();
     return orders.filter(
@@ -956,7 +1083,7 @@ export default function BoardPage({
       }}
     >
       <div
-        className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-[200] ${toast.show ? "translate-y-0 opacity-100 scale-100" : "-translate-y-20 opacity-0 scale-95 pointer-events-none"}`}
+        className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-200 ${toast.show ? "translate-y-0 opacity-100 scale-100" : "-translate-y-20 opacity-0 scale-95 pointer-events-none"}`}
       >
         <CheckCircle2 size={18} className="text-green-400 mr-2" />
         <span className="font-bold text-sm tracking-wide">{toast.message}</span>
@@ -1006,6 +1133,24 @@ export default function BoardPage({
               />
             </div>
 
+            {currentUserRole === 'superadmin' && (
+              <button
+                onClick={async () => {
+                  const newVal = !isEmergencyMode;
+                  setIsEmergencyMode(newVal);
+                  await supabase.from("store_settings").update({ emergency_reveal_contacts: newVal }).eq("id", 1);
+                  showToast(newVal ? "เปิดโหมดฉุกเฉิน: แอดมินทุกคนเห็นลิ้งก์แล้ว! 🚨" : "ปิดโหมดฉุกเฉิน: ล็อกลิ้งก์ตามปกติ 🔒");
+                }}
+                className={`w-full sm:w-auto px-3 py-1.5 text-xs font-bold rounded-xl border transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95 ${
+                  isEmergencyMode 
+                    ? "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100" 
+                    : "bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200"
+                }`}
+              >
+                {isEmergencyMode ? "🚨 ปิดโหมดฉุกเฉิน" : "🔒 เปิดโหมดฉุกเฉิน"}
+              </button>
+            )}
+            
             <button
               onClick={() => setIsCompact(!isCompact)}
               className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 text-xs font-bold rounded-xl hover:bg-slate-200 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
@@ -1018,7 +1163,7 @@ export default function BoardPage({
               {isCompact ? "ขยายการ์ด" : "ย่อการ์ด"}
             </button>
 
-            {currentUserRole === "admin" && (
+            {(currentUserRole === "admin" || currentUserRole === 'superadmin') && (
               <button
                 onClick={() => setShowRiderMap(true)}
                 className="w-full sm:w-auto px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl hover:bg-indigo-100 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
@@ -1031,6 +1176,15 @@ export default function BoardPage({
               <button
                 onClick={openCreateModal}
                 className="w-full sm:w-auto px-4 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 hover:shadow-lg transition-all duration-300 cursor-pointer active:scale-95 shadow-md"
+              >
+                + สร้างออเดอร์
+              </button>
+            )}
+
+            {currentUserRole === 'superadmin' && (
+              <button
+                onClick={openCreateModal}
+                className="w-full sm:w-auto px-4 py-1.5 bg-purple-600 text-white text-xs font-bold rounded-xl hover:bg-purple-700 hover:shadow-lg transition-all duration-300 cursor-pointer active:scale-95 shadow-md"
               >
                 + สร้างออเดอร์
               </button>
@@ -1064,11 +1218,13 @@ export default function BoardPage({
                 <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 mr-2 shadow-md shadow-emerald-400"></span>{" "}
                 {currentUserRole === "admin"
                   ? "ผู้ดูแลระบบ (ADMIN)"
+                  : currentUserRole === "superadmin"
+                  ? "ผู้ดูแลระบบระดับสูง (SUPERADMIN)"
                   : "แม่ครัว (KITCHEN)"}
               </p>
             </div>
             <div className="flex-1 p-5 space-y-3 overflow-y-auto thin-scrollbar">
-              {currentUserRole === "admin" && (
+              {(currentUserRole === "admin" || currentUserRole === "superadmin") && (
                 <Link
                   href="/home"
                   prefetch={false}
@@ -1124,7 +1280,7 @@ export default function BoardPage({
 
               <div className="h-px bg-slate-100 my-2"></div>
 
-              {currentUserRole === "kitchen" && (
+              {(currentUserRole === "kitchen" || currentUserRole === "superadmin") && (
                 <Link
                   href="/kitchen"
                   prefetch={false}
@@ -1137,7 +1293,7 @@ export default function BoardPage({
                 </Link>
               )}
 
-              {currentUserRole === "admin" && (
+              {(currentUserRole === "admin" || currentUserRole === "superadmin") && (
                 <>
                   <Link
                     href="/dashboard"
@@ -1336,11 +1492,11 @@ export default function BoardPage({
             <p className="text-slate-700 font-bold mb-10 text-center max-w-md leading-relaxed drop-shadow-sm">
               กระดานว่างเปล่าพร้อมรับออเดอร์สำหรับวันนี้แล้ว
               <br />
-              {currentUserRole === "admin"
+              {(currentUserRole === "admin" || currentUserRole === "superadmin")
                 ? "กดปุ่มด้านล่างเพื่อเริ่มเปิดออเดอร์แรกของวันได้เลยครับ"
                 : "รอรับออเดอร์จากหน้าร้านเพื่อเริ่มทำอาหารครับ"}
             </p>
-            {currentUserRole === "admin" && (
+            {(currentUserRole === "admin" || currentUserRole === "superadmin") && (
               <button
                 onClick={openCreateModal}
                 className="px-10 py-5 bg-blue-600 text-white font-black rounded-4xl hover:bg-blue-700 hover:-translate-y-1 transition-all duration-300 flex items-center cursor-pointer tracking-wider uppercase text-sm active:scale-95 shadow-lg shadow-blue-500/50"
@@ -1537,22 +1693,7 @@ export default function BoardPage({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
-                  รายการอาหาร / เมนู
-                </label>
-                <textarea
-                  rows={3}
-                  className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all resize-none font-bold leading-relaxed text-slate-800 shadow-sm"
-                  value={formData.menu}
-                  onChange={(e) =>
-                    setFormData({ ...formData, menu: e.target.value })
-                  }
-                  placeholder={"เช่น\n- กะเพราหมูกรอบ 2\n- ชาเขียว 1"}
-                />
-              </div>
-
-              {/* 🌟 นำปีกกาเงื่อนไขมาครอบส่วนนี้ไว้ */}
+              {/* 🌟 นำปีกกาเงื่อนไขมาครอบส่วนนี้ไว้ (ไม่โชว์ในงาน Shopee) */}
               {formData.job_type !== "shopee" && (
                 <>
                   <div className="grid grid-cols-3 gap-5">
@@ -1563,15 +1704,28 @@ export default function BoardPage({
                       <select
                         className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer font-bold text-slate-800 shadow-sm"
                         value={formData.contact_source}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const newSource = e.target.value;
+                          const newPrice = calculateAutoPrice(formData.menu, newSource) || formData.total_price;
                           setFormData({
                             ...formData,
-                            contact_source: e.target.value,
-                          })
-                        }
+                            contact_source: newSource,
+                            total_price: newPrice,
+                          });
+                        }}
                       >
-                        <option value="เพจหลัก">เพจหลัก</option>
-                        <option value="Fortune Findss">Fortune Findss</option>
+                        {contactSources.length > 0 ? (
+                          contactSources.map((s) => (
+                            <option key={s.id} value={s.name}>
+                              {s.name}
+                            </option>
+                          ))
+                        ) : (
+                          <>
+                            <option value="เพจหลัก">เพจหลัก</option>
+                            <option value="Fortune Findss">Fortune Findss</option>
+                          </>
+                        )}
                       </select>
                     </div>
                     <div className="col-span-2">
@@ -1593,7 +1747,112 @@ export default function BoardPage({
                       />
                     </div>
                   </div>
+                </>
+              )}
 
+              <div>
+                <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
+                  รายการอาหาร / เมนู
+                </label>
+                <textarea
+                  rows={3}
+                  className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all resize-none font-bold leading-relaxed text-slate-800 shadow-sm"
+                  value={formData.menu}
+                  onChange={(e) => {
+                    const newMenu = e.target.value;
+                    const newPrice = calculateAutoPrice(newMenu, formData.contact_source) || formData.total_price;
+                    setFormData({ ...formData, menu: newMenu, total_price: newPrice });
+                  }}
+                  placeholder={"พิมคีย์เวิร์ด เช่น\n- กะเพราหมูกรอบ 2\n- ชาเขียว 1\nแล้วจะมีเมนูด้านล่างมาให้เลือก"}
+                />
+                
+                {/* 🌟 ปุ่มกดเพิ่มเมนูด่วน (อัปเกรดเป็นระบบ Suggestion ค้นหาตามคำที่พิมพ์) */}
+                <div className="flex overflow-x-auto gap-2 mt-3 pb-2 thin-scrollbar snap-x">
+                  {(() => {
+                    // 1. อ่านข้อความบรรทัดล่าสุดที่กำลังพิมพ์
+                    const lines = formData.menu.split('\n');
+                    const currentLine = lines[lines.length - 1] || "";
+                    // ตัดตัวเลขออก เผื่อแอดมินพิมพ์จำนวนไปแล้ว จะได้ค้นหาแค่ชื่อเมนู
+                    const searchKeyword = currentLine.replace(/[0-9]/g, '').trim().toLowerCase();
+
+                    // 2. ดึงเมนูของร้านที่เลือก
+                    let shopMenus = allShopMenus.filter((m) => m.shop_name === formData.contact_source);
+
+                    // 3. กรองเมนูถ้ามีการพิมพ์
+                    if (searchKeyword) {
+                      const matched = shopMenus.filter(m => m.menu_name.toLowerCase().includes(searchKeyword));
+                      if (matched.length > 0) shopMenus = matched; // โชว์เฉพาะอันที่ค้นเจอ
+                    }
+
+                    return shopMenus.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          // 4. แทนที่บรรทัดล่าสุดที่พิมพ์ไม่จบ ด้วยชื่อเมนูเต็มๆ (Autocomplete)
+                          const newLines = [...lines];
+                          if (searchKeyword) {
+                            newLines[newLines.length - 1] = item.menu_name + " 1"; // แทนที่คำที่พิมพ์ค้างไว้
+                          } else {
+                            // ถ้าบรรทัดว่างอยู่แล้ว ให้แทรกเข้าไปเลย
+                            if (newLines[newLines.length - 1].trim() === "") {
+                              newLines[newLines.length - 1] = item.menu_name + " 1";
+                            } else {
+                              newLines.push(item.menu_name + " 1");
+                            }
+                          }
+                          
+                          const newMenuText = newLines.join('\n');
+                          const newPrice = calculateAutoPrice(newMenuText, formData.contact_source) || formData.total_price;
+                          
+                          setFormData({ ...formData, menu: newMenuText, total_price: newPrice });
+                        }}
+                        className={`shrink-0 snap-start text-[10px] font-black px-3 py-1.5 border rounded-lg transition-all active:scale-95 shadow-sm cursor-pointer whitespace-nowrap ${
+                          searchKeyword && item.menu_name.toLowerCase().includes(searchKeyword)
+                            ? "bg-blue-50 border-blue-300 text-blue-700 ring-1 ring-blue-200" // ไฮไลท์สีฟ้าถ้าค้นเจอ
+                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                        }`}
+                      >
+                        {searchKeyword && item.menu_name.toLowerCase().includes(searchKeyword) ? "✨ แนะนำ: " : "+ "} 
+                        {item.menu_name} (฿{item.price})
+                      </button>
+                    ));
+                  })()}
+                </div>
+
+                {/* 🌟 สรุปรายละเอียดการคำนวณ */}
+                {calcBreakdown.length > 0 && formData.job_type !== "shopee" && (
+                  <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 shadow-inner">
+                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                      <LayoutDashboard size={12} /> สรุปการคำนวณอัตโนมัติ
+                    </div>
+                    {calcBreakdown.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center text-xs font-bold">
+                        {item.found ? (
+                          <>
+                            <span className="text-slate-700 flex items-center gap-2">
+                              <CheckCircle2 size={14} className="text-emerald-500" />
+                              {item.name} <span className="text-slate-400 font-medium">x{item.qty}</span>
+                            </span>
+                            <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">{item.total}.-</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-slate-400 flex items-center gap-2 line-through decoration-slate-300">
+                              <AlertTriangle size={14} className="text-amber-500" />
+                              {item.name}
+                            </span>
+                            <span className="text-amber-500 text-[10px] bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100">ไม่พบในฐานข้อมูลร้าน</span>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {formData.job_type !== "shopee" && (
+                <>
                   <div>
                     <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
                       รายละเอียดเพิ่มเติม (Note)
@@ -1610,7 +1869,6 @@ export default function BoardPage({
                   </div>
                 </>
               )}
-              {/* 🌟 จบส่วนที่ถูกซ่อน */}
 
               <div className="pt-2">
                 <label className="block text-xs font-black text-slate-500 mb-3 tracking-wide uppercase">
@@ -1702,7 +1960,7 @@ export default function BoardPage({
               </div>
 
               {formData.job_type !== "shopee" && (
-                <div className="space-y-6 pt-3">
+                <div className="space-y-6 pt-3 border-t border-slate-200/60 mt-6">
                   <div className="grid grid-cols-2 gap-5">
                     <div>
                       <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
@@ -1743,7 +2001,6 @@ export default function BoardPage({
                     </div>
                   </div>
 
-                  {/* 🌟 ปรับปรุงช่องค้นหาสถานที่จัดส่งให้รองรับการวางลิงก์ และลิงก์ไปยัง /dorms */}
                   <div className="relative p-5 bg-white border border-slate-200/60 rounded-3xl shadow-sm">
                     <label className="text-xs font-black text-blue-600 mb-3 tracking-wide flex items-center uppercase">
                       <Search size={14} className="mr-1.5" /> สถานที่จัดส่ง /
@@ -1819,7 +2076,7 @@ export default function BoardPage({
                 </div>
               )}
 
-              <div className="pt-5 flex gap-4 mt-2">
+              <div className="pt-5 flex gap-4 mt-2 border-t border-slate-200/60">
                 <button
                   type="submit"
                   disabled={isUploading}
@@ -1891,12 +2148,15 @@ export default function BoardPage({
                 </div>
               </div>
 
-              {currentUserRole === "admin" &&
+              {/* 🌟 แสดงแหล่งที่มา (โชว์ให้ Admin/Superadmin เห็นเลยโดยไม่ต้องใช้ PIN) */}
+              {(currentUserRole === "admin" || currentUserRole === "superadmin") &&
                 (selectedViewOrder as Order & { contact_source?: string })
                   .contact_source && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black text-white bg-indigo-500 px-2 py-1 rounded-md uppercase flex items-center">
-                      <Contact size={12} className="mr-1" /> แหล่งที่มา:{" "}
+                  <div className="space-y-2 mt-2 mb-4">
+                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center">
+                      <Store size={14} className="mr-1.5 text-blue-500" /> แหล่งที่มา / ร้าน
+                    </div>
+                    <div className="p-3 bg-slate-100 rounded-xl border border-slate-200 text-sm font-black text-slate-800 shadow-sm flex items-center">
                       {
                         (
                           selectedViewOrder as Order & {
@@ -1904,68 +2164,55 @@ export default function BoardPage({
                           }
                         ).contact_source
                       }
-                    </span>
+                    </div>
                   </div>
                 )}
-              {currentUserRole === "admin" &&
-                (selectedViewOrder as Order & { contact_link?: string })
-                  .contact_link && (
-                  <div className="space-y-2">
-                    <div className="text-xs font-black text-indigo-500 uppercase tracking-wider flex items-center">
-                      <Lock size={14} className="mr-1.5" /> ช่องทางติดต่อลูกค้า
-                      (ลับ)
-                    </div>
-                    <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 flex justify-between items-center shadow-inner">
-                      {showContactInfo ? (
-                        <a
-                          href={
-                            (
-                              selectedViewOrder as Order & {
-                                contact_link?: string;
-                              }
-                            ).contact_link!.startsWith("http")
-                              ? (
-                                  selectedViewOrder as Order & {
-                                    contact_link?: string;
-                                  }
-                                ).contact_link
-                              : `https://${(selectedViewOrder as Order & { contact_link?: string }).contact_link}`
-                          }
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-blue-600 font-bold text-xs underline break-all"
-                        >
-                          {
-                            (
-                              selectedViewOrder as Order & {
-                                contact_link?: string;
-                              }
-                            ).contact_link
-                          }
-                        </a>
-                      ) : (
-                        <div className="text-xs text-indigo-300 blur-sm select-none font-black tracking-widest">
-                          https://facebook.com/hidden-data...
-                        </div>
-                      )}
 
-                      {!showContactInfo && (
-                        <button
-                          onClick={() => {
-                            const pin = window.prompt(
-                              "กรุณาใส่รหัส PIN เพื่อดูข้อมูลลูกค้า (ค่าเริ่มต้น: 9999):",
-                            );
-                            if (pin === "9999") setShowContactInfo(true);
-                            else if (pin) alert("รหัสผ่านไม่ถูกต้อง ❌");
-                          }}
-                          className="ml-3 px-3 py-1.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-[10px] font-black transition-colors shrink-0 shadow-sm cursor-pointer"
-                        >
-                          ปลดล็อก
-                        </button>
-                      )}
-                    </div>
+              {/* 🌟 แสดงเฉพาะ admin และ superadmin เท่านั้น */}
+              {(currentUserRole === 'admin' || currentUserRole === 'superadmin') && (selectedViewOrder as Order & { contact_link?: string }).contact_link && (
+                <div className="space-y-2">
+                  <div className="text-xs font-black text-indigo-500 uppercase tracking-wider flex items-center">
+                    <Lock size={14} className="mr-1.5" /> ช่องทางติดต่อลูกค้า (ลับ)
                   </div>
-                )}
+                  
+                  {/* 🌟 เช็คว่าควรแสดงข้อมูลไหม (Superadmin ทะลุหมด หรือ เกิดเหตุฉุกเฉิน หรือ แอดมินใส่รหัสผ่านถูก) */}
+                  {(() => {
+                    const isRevealed = currentUserRole === 'superadmin' || isEmergencyMode || showContactInfo;
+                    return (
+                      <div className={`p-3 rounded-xl border flex justify-between items-center shadow-inner ${isEmergencyMode ? "bg-rose-50 border-rose-200" : "bg-indigo-50 border-indigo-100"}`}>
+                        {isRevealed ? (
+                          <a 
+                            href={(selectedViewOrder as Order & { contact_link?: string }).contact_link!.startsWith('http') ? (selectedViewOrder as Order & { contact_link?: string }).contact_link : `https://${(selectedViewOrder as Order & { contact_link?: string }).contact_link}`} 
+                            target="_blank" 
+                            rel="noreferrer"
+                            className="text-blue-600 font-bold text-xs underline break-all"
+                          >
+                            {(selectedViewOrder as Order & { contact_link?: string }).contact_link}
+                          </a>
+                        ) : (
+                          <div className="text-xs text-indigo-300 blur-sm select-none font-black tracking-widest">
+                            https://facebook.com/hidden-data...
+                          </div>
+                        )}
+                        
+                        {/* 🌟 ปุ่มปลดล็อกด้วย PIN โชว์เฉพาะตอนยังไม่เปิดเผยข้อมูล */}
+                        {!isRevealed && (
+                          <button
+                            onClick={() => {
+                              const pin = window.prompt("กรุณาใส่รหัส PIN เพื่อดูข้อมูลลูกค้า (ค่าเริ่มต้น: 9999):");
+                              if (pin === "9999") setShowContactInfo(true);
+                              else if (pin) alert("รหัสผ่านไม่ถูกต้อง ❌");
+                            }}
+                            className="ml-3 px-3 py-1.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-[10px] font-black transition-colors shrink-0 shadow-sm cursor-pointer"
+                          >
+                            ปลดล็อก
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
 
               {selectedViewOrder.menu && (
                 <div className="space-y-2">

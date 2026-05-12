@@ -55,7 +55,7 @@ export default function LoginPage() {
           .single();
 
         // 🌟 แยกเส้นทางตามระดับผู้ใช้งาน
-        if (userProfile?.role === 'admin') {
+        if (userProfile?.role === 'admin' || userProfile?.role === 'superadmin') {
           router.push('/home'); 
         } else if (userProfile?.role === 'kitchen') {
           if (userProfile.branch_id) {
