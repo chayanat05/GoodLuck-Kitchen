@@ -583,9 +583,19 @@ export default function BranchSelectorPage() {
         {/* 🟢 ฝั่งขวา: ระบบลงเวลาพนักงาน (HR) */}
         <div className="lg:col-span-2">
           <div className="bg-white rounded-4xl p-6 shadow-sm border border-slate-100 flex flex-col h-full max-h-200">
-            <h2 className="text-lg font-black text-slate-700 flex items-center gap-2 mb-4 shrink-0">
-              <Users size={20} className="text-emerald-500" /> ควบคุมเวลาเข้างาน (HR)
-            </h2>
+            <div className="flex items-center justify-between mb-4 shrink-0">
+              <h2 className="text-lg font-black text-slate-700 flex items-center gap-2">
+                <Users size={20} className="text-emerald-500" /> ควบคุมเวลาเข้างาน (HR)
+              </h2>
+              <Link
+                href="/rider"
+                prefetch={false}
+                className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 font-bold rounded-xl transition-colors active:scale-95 text-xs border border-blue-100 shadow-sm"
+              >
+                <MapPin size={16} />
+                <span>หน้ารับงาน (Rider)</span>
+              </Link>
+            </div>
 
             <div className="space-y-3 mb-4 shrink-0">
               <div className="relative">

@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "@/lib/supabase";
 import {
   ChevronLeft,
   Search,
@@ -334,7 +334,7 @@ export default function SlipsManagementPage() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans p-4 md:p-8 flex flex-col items-center pb-32">
       {/* Toast Notification */}
-      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center px-5 py-3 rounded-full shadow-2xl z-[150] ${toast.type === "success" ? "bg-emerald-600 text-white" : toast.type === "warning" ? "bg-amber-500 text-white" : "bg-rose-600 text-white"} ${toast.show ? "translate-y-0 opacity-100" : "-translate-y-20 opacity-0 pointer-events-none"}`}>
+      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center px-5 py-3 rounded-full shadow-2xl z-150 ${toast.type === "success" ? "bg-emerald-600 text-white" : toast.type === "warning" ? "bg-amber-500 text-white" : "bg-rose-600 text-white"} ${toast.show ? "translate-y-0 opacity-100" : "-translate-y-20 opacity-0 pointer-events-none"}`}>
         {toast.type === "success" ? <CheckCircle2 size={18} className="mr-2" /> : toast.type === "warning" ? <Loader2 size={18} className="mr-2 animate-spin" /> : <AlertCircle size={18} className="mr-2" />}
         <span className="font-bold text-sm tracking-wide text-white">{toast.message}</span>
       </div>
@@ -636,8 +636,8 @@ export default function SlipsManagementPage() {
 
       {/* 🌟 Modal: ดูรูปภาพขนาดเต็ม */}
       {selectedImage && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl flex items-center justify-center z-[200] animate-in fade-in duration-200" onClick={() => setSelectedImage(null)}>
-          <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors cursor-pointer active:scale-90 shadow-lg z-[210]">
+        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl flex items-center justify-center z-200 animate-in fade-in duration-200" onClick={() => setSelectedImage(null)}>
+          <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors cursor-pointer active:scale-90 shadow-lg z-210">
             <X size={24} strokeWidth={2.5} />
           </button>
           <div className="relative w-full h-full max-w-4xl max-h-screen p-8 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
@@ -649,7 +649,7 @@ export default function SlipsManagementPage() {
 
       {/* 🌟 Modal: ยืนยันการกระทำ (Approve / Reject / Clear / Delete) */}
       {popup.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 z-[150] animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 z-150 animate-in fade-in duration-200">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-5 duration-300 border border-slate-100 flex flex-col p-8 text-center relative">
             {popup.action === "approve" && (
               <div className="w-20 h-20 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner">

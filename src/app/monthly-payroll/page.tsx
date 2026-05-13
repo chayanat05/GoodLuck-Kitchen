@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { 
   ArrowLeft, Calendar, Loader2, CheckCircle2, AlertTriangle, 
-  Search, Edit3, X, Save, DollarSign, Trophy, User, ImagePlus, Check,
+  Search, Edit3, X, DollarSign, Trophy, User, ImagePlus, Check,
   Trash2, Image as ImageIcon, PiggyBank, Landmark
 } from "lucide-react";
 import { User as SupabaseUser } from "@supabase/supabase-js";
@@ -294,7 +294,7 @@ export default function MonthlyPayrollPage() {
     <div className="min-h-screen pb-12 transition-all duration-500 bg-slate-50 font-sans">
       
       {/* Toast */}
-      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-[150] ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
+      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-150 ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
         {toast.type === 'error' ? <AlertTriangle size={18} className="text-red-400 mr-2" /> : <CheckCircle2 size={18} className="text-green-400 mr-2" />}
         <span className="font-bold text-sm tracking-wide">{toast.message}</span>
       </div>
@@ -441,7 +441,7 @@ export default function MonthlyPayrollPage() {
 
       {/* 🌟 Modal: จัดการเงิน */}
       {editingRecord && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60] animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-60 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-800 text-white shrink-0">
               <h3 className="text-lg font-black flex items-center gap-2">
@@ -465,7 +465,7 @@ export default function MonthlyPayrollPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1"><Trophy size={12}/> รวมโบนัสสะสม</label>
+                  <label className="text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1"><Trophy size={12}/> รวมโบนัสสะสม</label>
                   <input 
                     type="number" min="0" required
                     value={editForm.total_bonus}
@@ -474,7 +474,7 @@ export default function MonthlyPayrollPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1"><PiggyBank size={12}/> รวมเงินเก็บสะสม</label>
+                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide items-center gap-1"><PiggyBank size={12}/> รวมเงินเก็บสะสม</label>
                   <input 
                     type="number" min="0" required
                     value={editForm.total_savings}
@@ -510,7 +510,7 @@ export default function MonthlyPayrollPage() {
               </div>
 
               <div className="mt-4 pt-4 border-t border-slate-100">
-                <label className="block text-xs font-black text-slate-800 mb-2 uppercase tracking-wide flex items-center gap-1.5">
+                <label className="block text-xs font-black text-slate-800 mb-2 uppercase tracking-wide items-center gap-1.5">
                   <DollarSign size={16} className="text-indigo-500"/> ยอดเงินเดือนสุทธิ (บาท)
                 </label>
                 <input 
@@ -546,7 +546,7 @@ export default function MonthlyPayrollPage() {
       {/* 🌟 Modal: แสดงรูปสลิปแบบเต็มจอ */}
       {viewSlip && (
         <div 
-          className="fixed inset-0 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4 z-[200] animate-in fade-in duration-200"
+          className="fixed inset-0 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4 z-200 animate-in fade-in duration-200"
           onClick={() => setViewSlip(null)}
         >
           <div className="relative max-w-2xl w-full h-[80vh] flex flex-col items-center justify-center">

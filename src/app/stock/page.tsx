@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { 
   ArrowLeft, Package, Plus, Search, AlertTriangle, 
   Layers, Store, X, CheckCircle2, PackagePlus, Box, ShoppingCart, Target, Edit,

@@ -1164,7 +1164,7 @@ export default function BoardPage({
               {isCompact ? "ขยายการ์ด" : "ย่อการ์ด"}
             </button>
 
-            {(currentUserRole === "admin" || currentUserRole === 'superadmin') && (
+            {(currentUserRole === "admin" || currentUserRole === 'superadmin' || currentUserRole === 'kitchen') && (
               <button
                 onClick={() => setShowRiderMap(true)}
                 className="w-full sm:w-auto px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl hover:bg-indigo-100 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
@@ -1342,7 +1342,7 @@ export default function BoardPage({
         </div>
       )}
 
-      {showRiderMap && (currentUserRole === "admin" || currentUserRole === "superadmin") && (
+      {showRiderMap && (currentUserRole === "admin" || currentUserRole === "superadmin" || currentUserRole === "kitchen") && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 flex flex-col h-5/6 relative">
             <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-white sticky top-0 z-10 shrink-0">

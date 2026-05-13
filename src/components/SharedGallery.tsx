@@ -44,7 +44,7 @@ export default function SharedGallery({ branchId = null, userName, userRole, onC
   const [viewImage, setViewImage] = useState<string | null>(null);
 
   // 🌟 หุ้มด้วย useCallback เพื่อป้องกัน Warning
-  const fetchGallery = async () => {
+  const fetchGallery = useCallback(async () => {
     setIsLoading(true);
     
     // ดึงรูปภาพทั้งหมดมาโชว์เลย ไม่ต้องสนว่ามาจากสาขาไหนหรือส่วนกลาง
@@ -59,11 +59,11 @@ export default function SharedGallery({ branchId = null, userName, userRole, onC
       setCategories(["เมนูอาหาร", "ประกาศ", ...uniqueCats.filter(c => c !== "เมนูอาหาร" && c !== "ประกาศ")]);
     }
     setIsLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     fetchGallery();
-  }, []); // ใส่ Dependencies ตามที่ React แนะนำ
+  }, [fetchGallery]); // ใส่ Dependencies ตามที่ React แนะนำ
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) setupFile(e.target.files[0]);
@@ -123,6 +123,7 @@ export default function SharedGallery({ branchId = null, userName, userRole, onC
       setIsModalOpen(false);
       resetForm();
       fetchGallery();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
       alert("เกิดข้อผิดพลาดในการอัปโหลด");
     } finally {
@@ -149,7 +150,7 @@ export default function SharedGallery({ branchId = null, userName, userRole, onC
     : images.filter(img => img.category === filterCategory);
 
   return (
-    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[150] flex flex-col animate-in fade-in duration-300">
+    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-150 flex flex-col animate-in fade-in duration-300">
       <div className="bg-white px-6 py-4 flex justify-between items-center shrink-0 shadow-sm z-10">
         <div>
           <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
@@ -230,8 +231,8 @@ export default function SharedGallery({ branchId = null, userName, userRole, onC
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-in zoom-in-95 duration-200">
-          <div className="bg-white w-full max-w-md rounded-[2rem] shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-250 flex items-center justify-center p-4 animate-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-md rounded-4xl shadow-2xl overflow-hidden">
             <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-white">
               <h3 className="font-black text-lg text-slate-800 flex items-center gap-2">
                 <FolderPlus size={20} className="text-indigo-500" /> เพิ่มรูปลงคลัง
@@ -297,7 +298,7 @@ export default function SharedGallery({ branchId = null, userName, userRole, onC
       )}
 
       {viewImage && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl z-[300] flex items-center justify-center p-4 animate-in fade-in" onClick={() => setViewImage(null)}>
+        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl z-300 flex items-center justify-center p-4 animate-in fade-in" onClick={() => setViewImage(null)}>
           <button className="absolute top-6 right-6 text-white p-2 hover:bg-white/20 rounded-full transition-colors cursor-pointer">
             <X size={32} />
           </button>

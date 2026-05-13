@@ -265,7 +265,7 @@ export default function DashboardView({
 
     const distString = Number.isFinite(totalDist) ? totalDist.toFixed(1) : "0.0";
     
-    // 🌟 คำนวณค่าน้ำมัน (40 กม./ลิตร, ลิตรละ 35 บาท)
+    // 🌟 คำนวณค่าน้ำมัน (40 กม./ลิตร, ลิตรละ 40 บาท)
     const estimatedLiters = totalDist / 40;
     const gasCost = Math.round(estimatedLiters * 40);
     

@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "../../lib/supabase"; 
+import { supabase } from "@/lib/supabase"; 
 import { 
   ChevronLeft, Users, Search, ShieldCheck, Navigation, 
   Mail, Calendar, CheckCircle2, X, AlertTriangle, Info, UserCheck, Trash2, Store
@@ -37,6 +37,7 @@ type PopupConfig = {
 export default function UsersManagementPage() {
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState<string>("rider");
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -328,11 +329,11 @@ export default function UsersManagementPage() {
                   <div className="flex-1">
                     <label className="text-[10px] font-black text-gray-500 mb-1.5 uppercase tracking-wide flex items-center"><ShieldCheck size={12} className="mr-1"/> สิทธิ์</label>
                     <select
-                      disabled={isMe}
+                      disabled={isMe || (profile.role === "superadmin" && currentUserRole !== "superadmin")}
                       value={profile.role}
                       onChange={(e) => handleRoleChange(profile.id, e.target.value, profile.username)}
                       className={`w-full text-xs font-bold p-2.5 rounded-xl outline-none transition-all cursor-pointer border shadow-sm ${
-                        isMe 
+                        isMe || (profile.role === "superadmin" && currentUserRole !== "superadmin")
                         ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed" 
                         : "bg-white border-gray-200 hover:border-blue-400 text-slate-700"
                       }`}
