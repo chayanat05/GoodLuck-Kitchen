@@ -34,21 +34,11 @@ import DashboardView from "./DashboardView";
 import Image from "next/image";
 import Link from "next/link";
 import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from "@react-google-maps/api"; 
-
+import Swal from "sweetalert2";
+import { toast } from "sonner";
 
 const SHOP_LAT = 16.24813;
 const SHOP_LNG = 103.242206;
-
-type PopupConfig = {
-  isOpen: boolean;
-  type: "alert" | "confirm";
-  title: string;
-  message: string;
-  confirmText?: string;
-  cancelText?: string;
-  onConfirm?: () => void;
-  icon?: "success" | "error" | "warning" | "info";
-};
 
 interface RiderLocation {
   id: string;
@@ -88,7 +78,6 @@ export default function RiderPage() {
   const [imageGallery, setImageGallery] = useState<{ urls: string[]; startIndex: number } | null>(null);
   const [imgScale, setImgScale] = useState(1);
   const galleryRef = useRef<HTMLDivElement>(null);
-  const [popup, setPopup] = useState<PopupConfig>({ isOpen: false, type: "alert", title: "", message: "" });
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
 
@@ -121,12 +110,27 @@ export default function RiderPage() {
     region: "TH",
   });
 
-  const showAlert = (title: string, message: string, icon: "success" | "error" | "warning" | "info" = "info") => setPopup({ isOpen: true, type: "alert", title, message, icon });
+  const showAlert = (title: string, message: string, icon: "success" | "error" | "warning" | "info" = "info") => {
+    if (icon === "success") {
+      toast.success(title, { description: message });
+    } else if (icon === "error") {
+      toast.error(title, { description: message });
+    } else {
+      Swal.fire({ title, text: message, icon, confirmButtonColor: "#3b82f6", confirmButtonText: "รับทราบ" });
+    }
+  };
   
-  const showConfirm = (title: string, message: string, onConfirm: () => void, confirmText = "ยืนยัน", cancelText = "ยกเลิก") =>
-    setPopup({ isOpen: true, type: "confirm", title, message, onConfirm, confirmText, cancelText, icon: "warning" });
-  
-  const closePopup = () => setPopup((prev) => ({ ...prev, isOpen: false }));
+  const showConfirm = (title: string, message: string, onConfirm: () => void, confirmText = "ยืนยัน", cancelText = "ยกเลิก") => {
+    Swal.fire({
+      title, text: message, icon: "warning",
+      showCancelButton: true, confirmButtonColor: "#3b82f6", cancelButtonColor: "#f43f5e",
+      confirmButtonText: confirmText, cancelButtonText: cancelText, reverseButtons: true
+    }).then((result) => {
+      if (result.isConfirmed) {
+        onConfirm();
+      }
+    });
+  };
 
   // 🌟 ฟังก์ชันดึงรูปหอพักจาก Database (จากชื่อสถานที่จัดส่ง)
   const handleViewDormImage = async (addressName: string) => {
@@ -446,7 +450,6 @@ export default function RiderPage() {
     showConfirm(
       "ยืนยันการดำเนินการ", confirmMsg,
       async () => {
-        closePopup();
         const updateData: { status: string; end_time?: string } = { status: nextStatus };
         if (nextStatus === "ส่งแล้ว/เสร็จ") updateData.end_time = new Date().toISOString();
         const { error } = await supabase.from("orders").update(updateData).eq("id", order.id);
@@ -461,7 +464,6 @@ export default function RiderPage() {
     showConfirm(
       "คืนงานใช่ไหม?", "งานนี้จะถูกปลดล็อกให้ไรเดอร์ท่านอื่นแย่งรับได้นะครับ",
       async () => {
-        closePopup();
         const { error } = await supabase.from("orders").update({ rider_id: null, rider_name: null, start_time: null }).eq("id", orderId);
         if (error) showAlert("เกิดข้อผิดพลาด", "ไม่สามารถคืนงานได้", "error");
         else {
@@ -509,7 +511,7 @@ export default function RiderPage() {
   const handleLogout = () => {
     showConfirm(
       "ออกจากระบบ?", "คุณต้องการออกจากระบบใช่หรือไม่?",
-      async () => { closePopup(); await supabase.auth.signOut(); window.location.href = "/login"; }, "ออกจากระบบ", "ยกเลิก"
+      async () => { await supabase.auth.signOut(); window.location.href = "/login"; }, "ออกจากระบบ", "ยกเลิก"
     );
   };
 
@@ -539,15 +541,6 @@ export default function RiderPage() {
     if (status === "กำลังทำ") return { text: "ครัวกำลังทำอาหาร", color: "bg-amber-500/20 text-amber-300 border-amber-400/30", icon: <ChefHat size={12} className="mr-1" /> };
     if (status === "รับงาน") return { text: "ของเสร็จแล้ว! ไปรับได้เลย", color: "bg-emerald-500/20 text-emerald-300 border-emerald-400/30 shadow-sm animate-pulse", icon: <PackageCheck size={12} className="mr-1" /> };
     return { text: status, color: "bg-slate-700/50 text-slate-300 border-slate-500/50" };
-  };
-
-  const renderPopupIcon = (type: string) => {
-    switch (type) {
-      case "success": return <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-emerald-100 mb-4 animate-bounce"><CheckCircle2 className="h-10 w-10 text-emerald-600" /></div>;
-      case "error": return <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-rose-100 mb-4 animate-bounce"><X className="h-10 w-10 text-rose-600" /></div>;
-      case "warning": return <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-amber-100 mb-4 animate-bounce"><AlertTriangle className="h-10 w-10 text-amber-600" /></div>;
-      default: return <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-blue-100 mb-4 animate-bounce"><Info className="h-10 w-10 text-blue-600" /></div>;
-    }
   };
 
   const renderCard = (order: RiderOrder, idx: number, branch?: Branch) => {
@@ -720,8 +713,24 @@ export default function RiderPage() {
   if (isCheckingAuth)
     return (
       <div className="h-dvh bg-slate-50 flex flex-col items-center justify-center text-slate-800 overflow-hidden">
-        <div className="w-12 h-12 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
-        <h2 className="font-bold text-sm tracking-wider text-slate-500 animate-pulse">กำลังเตรียมระบบ...</h2>
+        <div className="relative flex flex-col items-center w-64 h-64 justify-center">
+          {/* ตัวรถ */}
+          <div className="text-[5rem] z-10 animate-bike-bounce drop-shadow-xl relative mb-2">
+            🛵
+            {/* ควันท่อไอเสีย */}
+            <div className="absolute -left-2 bottom-4 w-4 h-4 bg-slate-300 rounded-full animate-ping opacity-60" style={{ animationDuration: '0.8s' }}></div>
+          </div>
+          
+          {/* เส้นถนนวิ่ง */}
+          <div className="absolute bottom-[4.5rem] w-48 h-1.5 overflow-hidden rounded-full opacity-60">
+            <div className="w-[200%] h-full animate-dash-lines"></div>
+          </div>
+
+          <h2 className="mt-4 font-black text-sm tracking-wider text-slate-600 flex items-center gap-2">
+            <div className="w-4 h-4 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin"></div>
+            กำลังเตรียมระบบ...
+          </h2>
+        </div>
       </div>
     );
 
@@ -1373,37 +1382,6 @@ export default function RiderPage() {
         </div>
       )}
 
-      {/* 🌟 ป๊อปอัพแอนิเมชันเด้งดึ๋ง */}
-      {popup.isOpen && (
-        <div className="fixed inset-0 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200" style={{ zIndex: 350 }}>
-          <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-sm p-8 text-center animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 flex flex-col items-center">
-            {/* วงกลมไอคอนมีเอฟเฟกต์คลื่น */}
-            <div className="relative mb-6">
-              <div className="absolute inset-0 rounded-full animate-ping opacity-20 bg-current" style={{ color: popup.icon === "success" ? "#10b981" : popup.icon === "error" ? "#f43f5e" : popup.icon === "warning" ? "#f59e0b" : "#3b82f6" }}></div>
-              {renderPopupIcon(popup.icon || "info")}
-            </div>
-            
-            <h3 className="text-xl font-black text-slate-800 mb-2 tracking-tight">{popup.title}</h3>
-            <p className="text-slate-500 text-sm mb-8 font-medium leading-relaxed px-2">{popup.message}</p>
-            
-            {popup.type === "alert" ? (
-              <button onClick={closePopup} className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-2xl active:scale-95 transition-all shadow-lg shadow-slate-900/20 cursor-pointer text-sm uppercase tracking-widest">
-                รับทราบ
-              </button>
-            ) : (
-              <div className="flex gap-3 w-full">
-                <button onClick={closePopup} className="flex-[0.8] py-4 bg-slate-100 border border-slate-200 hover:bg-slate-200 text-slate-600 font-black rounded-2xl active:scale-95 transition-all cursor-pointer text-sm uppercase tracking-widest">
-                  {popup.cancelText || "ยกเลิก"}
-                </button>
-                <button onClick={popup.onConfirm} className={`flex-[1.2] py-4 text-white font-black rounded-2xl active:scale-95 transition-all shadow-lg cursor-pointer text-sm uppercase tracking-widest ${popup.icon === "error" ? "bg-rose-500 hover:bg-rose-600 shadow-rose-500/30" : "bg-blue-600 hover:bg-blue-700 shadow-blue-600/30"}`}>
-                  {popup.confirmText || "ยืนยัน"}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       <style jsx global>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }
@@ -1437,6 +1415,22 @@ export default function RiderPage() {
         }
         .animate-border-blink {
           animation: border-blink 0.5s ease-in-out infinite;
+        }
+
+        @keyframes bike-bounce {
+          0%, 100% { transform: translateY(0) rotate(-2deg); }
+          50% { transform: translateY(-8px) rotate(2deg); }
+        }
+        .animate-bike-bounce { animation: bike-bounce 0.5s ease-in-out infinite; }
+
+        @keyframes dash-lines {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+        .animate-dash-lines {
+          background-image: linear-gradient(90deg, #94a3b8 0%, #94a3b8 40%, transparent 40%, transparent 100%);
+          background-size: 40px 100%;
+          animation: dash-lines 0.4s linear infinite;
         }
       `}</style>
     </div>

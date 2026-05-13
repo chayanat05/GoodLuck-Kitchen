@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { Toaster } from 'sonner';
 
 // 🌟 1. สร้างตัวแปร viewport แยกออกมาต่างหาก
 export const viewport: Viewport = {
@@ -25,7 +26,10 @@ export default function RootLayout({
 }) {
     return (
     <html lang="th">
-        <body className="bg-gray-100">{children}</body>
+        <body className="bg-gray-100">
+            {children}
+            <Toaster position="top-right" richColors expand={true} />
+        </body>
     </html>
 );
 }

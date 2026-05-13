@@ -1,6 +1,7 @@
 'use client'
 import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, MoreVertical, ScanSearch, CheckCircle2, AlertCircle, XCircle, Trash2, ArrowRightLeft,Store } from "lucide-react";
 import React, { useMemo, useState, useRef, useEffect } from 'react';
+import { motion } from "framer-motion";
 import Image from 'next/image';
 
 export interface Order {
@@ -99,7 +100,12 @@ function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onVi
   const isRiderLate = (order.status === "รับงาน") && elapsedMinutes >= 35;
   
   return (
-    <div className={`${isCompact ? 'p-3' : 'p-4'} rounded-3xl shadow-xl border-b-8 relative transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:-translate-y-1 flex flex-col max-h-full w-full min-h-56 ${theme.bg}`}>
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className={`${isCompact ? 'p-3' : 'p-4'} rounded-3xl shadow-xl border-b-8 relative transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:-translate-y-1 flex flex-col max-h-full w-full min-h-56 ${theme.bg}`}
+    >
       
       <div className={`shrink-0 flex justify-between items-start ${isCompact ? 'mb-3' : 'mb-4'} gap-2 border-b border-white/10 pb-3`}>
         <div className="flex flex-wrap gap-2 items-center">
@@ -276,7 +282,7 @@ function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onVi
         )}
       </div>
       
-    </div>
+    </motion.div>
   );
 }
 

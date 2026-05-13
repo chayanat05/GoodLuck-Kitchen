@@ -13,6 +13,7 @@ import {
   PieChart, Pie, Cell, Legend
 } from "recharts";
 import { User as SupabaseUser } from "@supabase/supabase-js";
+import { toast } from "sonner";
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#f43f5e'];
 
@@ -64,8 +65,8 @@ export default function GlobalDashboardPage() {
   const [customStart, setCustomStart] = useState<string>("");
   const [customEnd, setCustomEnd] = useState<string>("");
 
-  const fetchDashboardData = useCallback(async () => {
-    setLoading(true);
+  const fetchDashboardData = useCallback(async (isManualRefresh = false) => {
+    if (!isManualRefresh) setLoading(true); // ถ้ากดรีเฟรชเองไม่ต้องขึ้นหน้าโหลดเต็มจอ
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { router.push("/login"); return; }
     
@@ -88,6 +89,10 @@ export default function GlobalDashboardPage() {
       
     if (orderData) setOrders(orderData as OrderData[]);
     setLoading(false);
+
+    if (isManualRefresh) {
+      toast.success("อัปเดตข้อมูลสถิติล่าสุดเรียบร้อยแล้ว");
+    }
   }, [router]);
 
   useEffect(() => { 
@@ -242,7 +247,7 @@ export default function GlobalDashboardPage() {
           
           <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
             
-            <button onClick={fetchDashboardData} className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-blue-100 hover:text-blue-600 transition-colors shadow-inner active:scale-95 cursor-pointer">
+            <button onClick={() => fetchDashboardData(true)} className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-blue-100 hover:text-blue-600 transition-colors shadow-inner active:scale-95 cursor-pointer">
               <RefreshCw size={18} />
             </button>
 

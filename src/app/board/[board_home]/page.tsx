@@ -53,6 +53,8 @@ import {
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import Image from "next/image";
 import SharedGallery from "@/components/SharedGallery";
+import Swal from "sweetalert2";
+import { toast } from "sonner";
 
 const NOTIFICATION_SOUND_URL = "/audio-shop.mp3";
 const SHOP_LAT = 16.24813;
@@ -148,29 +150,6 @@ export default function BoardPage({
     () => ({ lat: SHOP_LAT, lng: SHOP_LNG }),
     [],
   );
-
-  const [alertModal, setAlertModal] = useState<{
-    isOpen: boolean;
-    type: "logout" | null;
-    title: string;
-    message: string;
-    confirmText: string;
-    cancelText: string;
-    icon: React.ReactNode | null;
-  }>({
-    isOpen: false,
-    type: null,
-    title: "",
-    message: "",
-    confirmText: "",
-    cancelText: "",
-    icon: null,
-  });
-
-  const [deleteConfirm, setDeleteConfirm] = useState<{
-    isOpen: boolean;
-    id: string | null;
-  }>({ isOpen: false, id: null });
 
   const [scannerConfig, setScannerConfig] = useState<{
     isOpen: boolean;
@@ -388,10 +367,6 @@ export default function BoardPage({
     [],
   );
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
-  const [toast, setToast] = useState<{ show: boolean; message: string }>({
-    show: false,
-    message: "",
-  });
 
   const dbTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const googleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -417,8 +392,13 @@ export default function BoardPage({
   });
 
   const showToast = useCallback((msg: string) => {
-    setToast({ show: true, message: msg });
-    setTimeout(() => setToast({ show: false, message: "" }), 3000);
+    if (msg.includes('❌') || msg.includes('เกิดข้อผิดพลาด')) {
+      toast.error(msg);
+    } else if (msg.includes('🔔')) {
+      toast.info(msg);
+    } else {
+      toast.success(msg);
+    }
   }, []);
 
   const fetchOrdersAndLocations = useCallback(async () => {
@@ -968,47 +948,50 @@ export default function BoardPage({
   };
 
   const handleLogoutRequest = () => {
-    setAlertModal({
-      isOpen: true,
-      type: "logout",
+    Swal.fire({
       title: "ต้องการออกจากระบบ?",
-      message: "คุณต้องเข้าสู่ระบบใหม่ในครั้งถัดไปที่ต้องการใช้งาน",
-      confirmText: "ออกจากระบบ",
-      cancelText: "ยกเลิก",
-      icon: (
-        <LogOut
-          size={44}
-          className="text-rose-500 mb-4 ml-1 drop-shadow-sm animate-pulse"
-        />
-      ),
+      text: "คุณต้องเข้าสู่ระบบใหม่ในครั้งถัดไปที่ต้องการใช้งาน",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#1e293b",
+      cancelButtonColor: "#f43f5e",
+      confirmButtonText: "ออกจากระบบ",
+      cancelButtonText: "ยกเลิก",
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        await supabase.auth.signOut();
+        window.location.href = "/login";
+      }
     });
   };
 
-  const executeLogout = async () => {
-    setAlertModal({ ...alertModal, isOpen: false });
-    await supabase.auth.signOut();
-    window.location.href = "/login";
-  };
-
   const requestDeleteOrder = (id: string) => {
-    setDeleteConfirm({ isOpen: true, id });
-  };
-
-  const executeDeleteOrder = async () => {
-    if (!deleteConfirm.id) return;
-    const { error } = await supabase
-      .from("orders")
-      .delete()
-      .eq("branch_id", currentBranchId)
-      .eq("id", deleteConfirm.id);
-    if (error) {
-      console.error(error);
-      showToast("เกิดข้อผิดพลาดในการลบออเดอร์");
-      return;
-    }
-    setOrders((prev) => prev.filter((order) => order.id !== deleteConfirm.id));
-    setDeleteConfirm({ isOpen: false, id: null });
-    showToast("ลบออเดอร์เรียบร้อยแล้ว 🗑️");
+    Swal.fire({
+      title: "ยืนยันการลบ?",
+      text: "คุณกำลังจะลบออเดอร์นี้ทิ้งแบบถาวร แน่ใจแล้วใช่ไหมครับ?",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#f43f5e",
+      cancelButtonColor: "#cbd5e1",
+      confirmButtonText: "ลบทิ้งเลย",
+      cancelButtonText: "ยกเลิก",
+      reverseButtons: true,
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        const { error } = await supabase
+          .from("orders")
+          .delete()
+          .eq("branch_id", currentBranchId)
+          .eq("id", id);
+        if (error) {
+          console.error(error);
+          showToast("เกิดข้อผิดพลาดในการลบออเดอร์ ❌");
+          return;
+        }
+        setOrders((prev) => prev.filter((order) => order.id !== id));
+        showToast("ลบออเดอร์เรียบร้อยแล้ว 🗑️");
+      }
+    });
   };
 
   const onDragEnd = (result: DropResult) => {
@@ -1083,12 +1066,6 @@ export default function BoardPage({
         backgroundAttachment: "fixed",
       }}
     >
-      <div
-        className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-200 ${toast.show ? "translate-y-0 opacity-100 scale-100" : "-translate-y-20 opacity-0 scale-95 pointer-events-none"}`}
-      >
-        <CheckCircle2 size={18} className="text-green-400 mr-2" />
-        <span className="font-bold text-sm tracking-wide">{toast.message}</span>
-      </div>
 
       <div className="shrink-0 p-2 pb-0 z-40">
         <div className="flex flex-col lg:flex-row justify-between items-center gap-2 mb-0 bg-white/90 backdrop-blur-xl p-2 rounded-2xl shadow-sm border border-slate-200/60">
@@ -2356,68 +2333,6 @@ export default function BoardPage({
                 className="w-full py-3 md:py-3.5 bg-slate-100 text-slate-600 font-bold rounded-4xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-xs uppercase tracking-widest"
               >
                 ปิดหน้าต่าง
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 🌟 Modal ยืนยันการลบออเดอร์ */}
-      {deleteConfirm.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-150">
-          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col p-8 text-center relative border border-white/20">
-            <div className="w-20 h-20 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner">
-              <Trash2 size={40} className="animate-wiggle" />
-            </div>
-            <h3 className="text-xl font-black text-slate-800 tracking-tight mb-2">
-              ยืนยันการลบ?
-            </h3>
-            <p className="text-sm text-slate-500 font-medium mb-8 whitespace-pre-line leading-relaxed">
-              คุณกำลังจะลบออเดอร์นี้ทิ้งแบบถาวร
-              <br />
-              แน่ใจแล้วใช่ไหมครับ?
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setDeleteConfirm({ isOpen: false, id: null })}
-                className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-sm uppercase tracking-widest"
-              >
-                ยกเลิก
-              </button>
-              <button
-                onClick={executeDeleteOrder}
-                className="flex-[1.5] py-4 text-white font-black rounded-2xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm uppercase tracking-widest bg-rose-500 hover:bg-rose-600 shadow-rose-500/30"
-              >
-                ลบทิ้งเลย
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 🌟 Modal ยืนยันการออกจากระบบ */}
-      {alertModal.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-150">
-          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col p-8 text-center relative border border-white/20">
-            <div className="flex justify-center">{alertModal.icon}</div>
-            <h3 className="text-xl font-black text-slate-800 tracking-tight mb-2">
-              {alertModal.title}
-            </h3>
-            <p className="text-sm text-slate-500 font-medium mb-8 whitespace-pre-line leading-relaxed">
-              {alertModal.message}
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setAlertModal({ ...alertModal, isOpen: false })}
-                className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-sm uppercase tracking-widest"
-              >
-                {alertModal.cancelText}
-              </button>
-              <button
-                onClick={executeLogout}
-                className="flex-[1.5] py-4 text-white font-black rounded-2xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm uppercase tracking-widest bg-slate-800 hover:bg-slate-900 shadow-slate-800/30"
-              >
-                {alertModal.confirmText}
               </button>
             </div>
           </div>

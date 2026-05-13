@@ -124,15 +124,26 @@ export default function BranchSelectorPage() {
     if (employeeData) setEmployees(employeeData);
 
     const { data: settings } = await supabase.from('store_settings').select('business_day_start').eq('id', 1).single();
+    let bizStartStr = "07:00";
     if (settings && settings.business_day_start) {
       setBusinessDayStart(settings.business_day_start);
+      bizStartStr = settings.business_day_start;
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const [bizHour, bizMin] = bizStartStr.split(':').map(Number);
+    const currentBizDate = new Date(now);
+    if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
+      currentBizDate.setDate(currentBizDate.getDate() - 1);
+    }
+    const startDate = new Date(currentBizDate.getFullYear(), currentBizDate.getMonth(), currentBizDate.getDate(), bizHour, bizMin, 0, 0);
+    const isoStart = startDate.toISOString();
+
     const { data: attendanceData } = await supabase
       .from("rider_attendance")
       .select("*")
-      .gte("check_in", `${today}T00:00:00Z`);
+      .or(`check_out.is.null,check_in.gte.${isoStart}`)
+      .order("check_in", { ascending: true });
 
     if (attendanceData) {
       const attMap: Record<string, Attendance> = {};
