@@ -9,7 +9,8 @@ import {
   Settings, AlertTriangle, CheckCircle2, Users, ScanSearch,
   Search, CheckSquare, Banknote, LayoutDashboard, Landmark,PieChart,
   ImagePlus,
-  Utensils
+  Utensils,
+  Calendar
 } from "lucide-react";
 import SharedGallery from "@/components/SharedGallery";
 
@@ -380,6 +381,17 @@ export default function BranchSelectorPage() {
             
             <div className="flex-1 p-5 space-y-3 overflow-y-auto thin-scrollbar">
               
+              <Link
+  href="/schedule"
+  prefetch={false}
+  className="w-full flex items-center p-4 text-slate-600 hover:bg-teal-50 hover:text-teal-700 rounded-2xl transition-all font-bold border border-transparent hover:border-teal-100 group"
+>
+  <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+    <Calendar size={20} className="text-teal-600" />
+  </div>
+  ตารางงาน (Schedule)
+</Link>
+
               <Link
                 href="/payroll"
                 prefetch={false}

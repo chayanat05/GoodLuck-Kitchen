@@ -26,7 +26,8 @@ import {
   ZoomOut,
   Store,
   Lock, 
-  Link as LinkIcon
+  Link as LinkIcon,
+  Calendar
 } from "lucide-react";
 import { Order } from "../../components/OrderCard";
 import { User as SupabaseUser } from "@supabase/supabase-js";
@@ -722,7 +723,7 @@ export default function RiderPage() {
           </div>
           
           {/* เส้นถนนวิ่ง */}
-          <div className="absolute bottom-[4.5rem] w-48 h-1.5 overflow-hidden rounded-full opacity-60">
+          <div className="absolute bottom-18 w-48 h-1.5 overflow-hidden rounded-full opacity-60">
             <div className="w-[200%] h-full animate-dash-lines"></div>
           </div>
 
@@ -1028,6 +1029,17 @@ export default function RiderPage() {
                 Dashboard ของฉัน
               </button>
               
+              <Link
+  href="/schedule"
+  prefetch={false}
+  className="w-full flex items-center p-4 text-slate-600 hover:bg-teal-50 hover:text-teal-700 rounded-2xl transition-all font-bold border border-transparent hover:border-teal-100 group"
+>
+  <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+    <Calendar size={20} className="text-teal-600" />
+  </div>
+  ตารางงาน (Schedule)
+</Link>
+
               <button onClick={() => { setIsMenuOpen(false); setShowRiderMap(true); }} className="w-full flex items-center p-3 text-slate-700 bg-white hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-all text-sm font-bold cursor-pointer border border-slate-200 shadow-sm">
                 <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center mr-3">
                   <MapPinned size={16} className="text-emerald-600" />
