@@ -43,6 +43,7 @@ import {
   Plus,
   AlertTriangle,
   Utensils,
+  Calendar,
 } from "lucide-react";
 import {
   useJsApiLoader,
@@ -155,6 +156,7 @@ export default function BoardPage({
     isOpen: boolean;
     orderId: string;
     amount: number;
+    initialImageUrls?: string[];
   } | null>(null);
 
   const [statusModal, setStatusModal] = useState<{
@@ -1215,6 +1217,17 @@ export default function BoardPage({
                 </Link>
               )}
 
+              <Link
+  href="/schedule"
+  prefetch={false}
+  className="w-full flex items-center p-4 text-slate-600 hover:bg-teal-50 hover:text-teal-700 rounded-2xl transition-all font-bold border border-transparent hover:border-teal-100 group"
+>
+  <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+    <Calendar size={20} className="text-teal-600" />
+  </div>
+  ตารางงาน (Schedule)
+</Link>
+
               <div className="h-px bg-slate-100 my-2"></div>
               <button
                 onClick={() => {
@@ -1535,6 +1548,7 @@ export default function BoardPage({
                                 isOpen: true,
                                 orderId: orderInfo.id,
                                 amount: orderInfo.total_price,
+                                initialImageUrls: orderInfo.slip_image ? orderInfo.slip_image.split(',').filter(Boolean) : undefined,
                               })
                             }
                             onDelete={requestDeleteOrder}
@@ -2344,8 +2358,9 @@ export default function BoardPage({
         <SlipScanner
           orderId={scannerConfig.orderId}
           expectedAmount={scannerConfig.amount}
+          initialImageUrls={scannerConfig.initialImageUrls}
           onClose={() => setScannerConfig(null)}
-          onSuccess={(newImageUrl) => {
+          onSuccess={(newImageUrl, statusText) => {
             setScannerConfig(null);
 
             setOrders(
@@ -2357,7 +2372,7 @@ export default function BoardPage({
                   return {
                     ...o,
                     slip_image: updatedImages,
-                    slip_status: "ผ่าน",
+                    slip_status: statusText,
                   };
                 }
                 return o;
@@ -2366,27 +2381,27 @@ export default function BoardPage({
 
             supabase
               .from("orders")
-              .update({ slip_image: newImageUrl, slip_status: "ผ่าน" })
+              .update({ slip_image: newImageUrl, slip_status: statusText })
               .eq("branch_id", currentBranchId)
               .eq("id", scannerConfig.orderId)
               .then(({ error }) => {
                 if (error) console.error("Update slip error:", error);
               });
 
-            showToast("✅ ตรวจสอบและแนบรูปสลิปเสร็จสมบูรณ์!");
+            showToast(`✅ บันทึกสลิปเรียบร้อยแล้ว: ${statusText}`);
           }}
         />
       )}
 
       {imageGallery && (
         <div
-          className="fixed inset-0 bg-gray-900/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200 z-[200]"
+          className="fixed inset-0 bg-gray-900/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200 z-200"
           onClick={() => {
             setImageGallery(null);
             setImgScale(1);
           }}
         >
-          <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-[210] text-white pointer-events-none">
+          <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-210 text-white pointer-events-none">
             <span className="font-bold text-xs bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm">
               คลิก 2 ครั้งเพื่อซูม / ใช้ปุ่มลูกศรเลื่อน
             </span>
@@ -2408,7 +2423,7 @@ export default function BoardPage({
                   e.stopPropagation();
                   scrollGallery("left");
                 }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-[210] transition-all cursor-pointer hidden md:block"
+                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-210 transition-all cursor-pointer hidden md:block"
               >
                 <ChevronLeft size={24} />
               </button>
@@ -2417,7 +2432,7 @@ export default function BoardPage({
                   e.stopPropagation();
                   scrollGallery("right");
                 }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-[210] transition-all cursor-pointer hidden md:block"
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-210 transition-all cursor-pointer hidden md:block"
               >
                 <ChevronRight size={24} />
               </button>
@@ -2425,7 +2440,7 @@ export default function BoardPage({
           )}
           <div
             ref={galleryRef}
-            className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory thin-scrollbar z-[200]"
+            className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory thin-scrollbar z-200"
           >
             {imageGallery.urls.map((url, i) => (
               <div
@@ -2453,7 +2468,7 @@ export default function BoardPage({
             ))}
           </div>
           <div
-            className="absolute bottom-10 left-1/2 transform -translate-x-1/2 flex items-center gap-6 bg-gray-800/80 px-6 py-3 rounded-full backdrop-blur-md shadow-2xl z-[210]"
+            className="absolute bottom-10 left-1/2 transform -translate-x-1/2 flex items-center gap-6 bg-gray-800/80 px-6 py-3 rounded-full backdrop-blur-md shadow-2xl z-210"
             onClick={(e) => e.stopPropagation()}
           >
             <button

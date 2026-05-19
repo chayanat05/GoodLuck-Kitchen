@@ -415,13 +415,12 @@ export default function BranchSelectorPage() {
 
               <button 
     onClick={() => { setIsMenuOpen(false); setIsGalleryOpen(true); }}
-    className="w-full flex items-center p-3 text-slate-700 bg-white hover:bg-indigo-50 hover:text-indigo-700 rounded-xl transition-all text-sm font-bold cursor-pointer border border-slate-200 shadow-sm"
-  >
-    <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center mr-3">
+      className="w-full flex items-center p-4 text-slate-600 hover:bg-blue-50 hover:text-blue-700 rounded-2xl transition-all font-bold border border-transparent hover:border-blue-100 group"  >
+    <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
       <ImagePlus size={16} className="text-indigo-600" />
     </div>
     คลังรูปภาพส่วนกลาง
-  </button>
+    </button>
   
               <div className="h-px bg-slate-100 my-2"></div>
 

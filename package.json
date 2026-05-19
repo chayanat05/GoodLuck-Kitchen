@@ -12,6 +12,8 @@
     "@hello-pangea/dnd": "^18.0.1",
     "@react-google-maps/api": "^2.20.8",
     "@supabase/supabase-js": "^2.102.1",
+    "@types/crypto-js": "^4.2.2",
+    "crypto-js": "^4.2.0",
     "framer-motion": "^12.38.0",
     "jsqr": "^1.4.0",
     "lucide-react": "^1.8.0",

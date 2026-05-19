@@ -96,6 +96,9 @@ export default function UsersManagementPage() {
       }
 
       setCurrentUser(session.user);
+      if (adminProfile) {
+        setCurrentUserRole(adminProfile.role);
+      }
       fetchProfilesAndBranches();
     };
 
