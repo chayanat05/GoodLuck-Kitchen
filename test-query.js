@@ -1,7 +1,7 @@
-const { createClient } = require('@supabase/supabase-js');
-const fs = require('fs');
+import { createClient } from '@supabase/supabase-js';
+import { readFileSync } from 'fs';
 
-const envFile = fs.readFileSync('.env.local', 'utf8');
+const envFile = readFileSync('.env.local', 'utf8');
 const supabaseUrl = envFile.match(/NEXT_PUBLIC_SUPABASE_URL=(.*)/)[1].trim();
 const supabaseKey = envFile.match(/NEXT_PUBLIC_SUPABASE_ANON_KEY=(.*)/)[1].trim();
 

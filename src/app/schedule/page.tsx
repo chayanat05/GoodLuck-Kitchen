@@ -123,6 +123,7 @@ export default function SchedulePage() {
 
       const savedShifts = localStorage.getItem('ai_shifts');
       if (savedShifts) setShiftPresets(JSON.parse(savedShifts));
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (e) {
       console.error("Failed to parse AI settings from local storage");
     }

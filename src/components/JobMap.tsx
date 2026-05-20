@@ -49,7 +49,7 @@ export default function JobMap({ lat, lng, savedLocations = [], onPinChange, rea
   };
 
   if (loadError) return <div className="p-6 bg-red-50 text-red-500 rounded-xl font-medium flex items-center justify-center border border-red-100">เกิดข้อผิดพลาดในการโหลดแผนที่</div>;
-  if (!isLoaded) return <div className="h-[350px] w-full bg-slate-100 animate-pulse flex items-center justify-center rounded-3xl text-slate-400 font-bold tracking-widest uppercase">กำลังโหลดแผนที่...</div>;
+  if (!isLoaded) return <div className="h-87.5 w-full bg-slate-100 animate-pulse flex items-center justify-center rounded-3xl text-slate-400 font-bold tracking-widest uppercase">กำลังโหลดแผนที่...</div>;
 
   return (
     <div className="w-full h-full relative rounded-3xl overflow-hidden shadow-sm">
@@ -80,7 +80,7 @@ export default function JobMap({ lat, lng, savedLocations = [], onPinChange, rea
             >
               {activeMarker === (loc.id || `saved-${idx}`) && (
                 <InfoWindowF onCloseClick={() => setActiveMarker(null)}>
-                  <div className="p-2 max-w-[180px] text-center font-black text-blue-700 text-sm">
+                  <div className="p-2 max-w-45 text-center font-black text-blue-700 text-sm">
                     🏪 {loc.name}
                   </div>
                 </InfoWindowF>
