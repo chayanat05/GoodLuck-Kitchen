@@ -1,3 +1,4 @@
+// dashboard/page.tsx
 "use client";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
@@ -5,8 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { 
   ArrowLeft, LayoutDashboard, TrendingUp, DollarSign, 
   CreditCard, Wallet, Store, Bike, Calendar, Loader2, Trophy,
-  Receipt, Award, RefreshCw,
-  Utensils
+  Receipt, Award, RefreshCw, Utensils, Timer, Truck, Activity
 } from "lucide-react";
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, 
@@ -30,6 +30,8 @@ interface OrderData {
   rider_name: string | null;
   menu: string | null;
   created_at: string;
+  start_time: string | null; // อิงจากฐานข้อมูลจริง
+  end_time: string | null;   // อิงจากฐานข้อมูลจริง
 }
 
 interface Branch {
@@ -66,7 +68,7 @@ export default function GlobalDashboardPage() {
   const [customEnd, setCustomEnd] = useState<string>("");
 
   const fetchDashboardData = useCallback(async (isManualRefresh = false) => {
-    if (!isManualRefresh) setLoading(true); // ถ้ากดรีเฟรชเองไม่ต้องขึ้นหน้าโหลดเต็มจอ
+    if (!isManualRefresh) setLoading(true); 
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { router.push("/login"); return; }
     
@@ -85,7 +87,7 @@ export default function GlobalDashboardPage() {
 
     const { data: orderData } = await supabase
       .from("orders")
-      .select("id, order_number, total_price, payment_method, status, job_type, branch_id, rider_name, menu, created_at");
+      .select("id, order_number, total_price, payment_method, status, job_type, branch_id, rider_name, menu, created_at, start_time, end_time");
       
     if (orderData) setOrders(orderData as OrderData[]);
     setLoading(false);
@@ -150,7 +152,6 @@ export default function GlobalDashboardPage() {
     });
   }, [orders, timeRange, businessDayStart, singleDate, customStart, customEnd]);
 
-  // กรองตามสาขา
   const filteredOrders = useMemo(() => {
     if (selectedBranchFilter === "all") return ordersByDate;
     return ordersByDate.filter(o => o.branch_id === selectedBranchFilter);
@@ -161,7 +162,16 @@ export default function GlobalDashboardPage() {
     const revenueByDate: Record<string, number> = {};
     const typeCount: Record<string, number> = {};
 
+    const prepTimes: number[] = [];
+    const deliveryTimes: number[] = [];
+    const orderHourCounts: Record<string, number> = {};
+
     filteredOrders.forEach(o => {
+      // นับออเดอร์รายชั่วโมง
+      const dateObj = new Date(o.created_at);
+      const hourLabel = `${dateObj.getHours().toString().padStart(2, '0')}:00`;
+      orderHourCounts[hourLabel] = (orderHourCounts[hourLabel] || 0) + 1;
+
       if (o.status === "ส่งแล้ว/เสร็จ") {
         completedCount += 1;
         const price = Number(o.total_price) || 0;
@@ -171,6 +181,20 @@ export default function GlobalDashboardPage() {
 
         const dateStr = new Date(o.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
         revenueByDate[dateStr] = (revenueByDate[dateStr] || 0) + price;
+
+        // 🌟 คำนวณเวลาจากคอลัมน์จริงของฐานข้อมูล (start_time และ end_time)
+        if (o.start_time) {
+          const createdMs = new Date(o.created_at).getTime();
+          const startMs = new Date(o.start_time).getTime();
+          const diffMins = (startMs - createdMs) / 60000;
+          if (diffMins > 0 && diffMins < 1440) prepTimes.push(diffMins);
+        }
+        if (o.start_time && o.end_time) {
+          const startMs = new Date(o.start_time).getTime();
+          const endMs = new Date(o.end_time).getTime();
+          const diffMins = (endMs - startMs) / 60000;
+          if (diffMins > 0 && diffMins < 1440) deliveryTimes.push(diffMins);
+        }
       }
       typeCount[o.job_type] = (typeCount[o.job_type] || 0) + 1;
     });
@@ -180,7 +204,32 @@ export default function GlobalDashboardPage() {
     const averagePerOrder = completedCount > 0 ? Math.round(totalRevenue / completedCount) : 0;
     const successRate = filteredOrders.length > 0 ? Math.round((completedCount / filteredOrders.length) * 100) : 0;
 
-    return { totalRevenue, transferRevenue, cashRevenue, completedCount, totalOrders: filteredOrders.length, averagePerOrder, successRate, barChartData, pieChartData };
+    const minPrep = prepTimes.length ? Math.round(Math.min(...prepTimes)) : 0;
+    const maxPrep = prepTimes.length ? Math.round(Math.max(...prepTimes)) : 0;
+    const avgPrep = prepTimes.length ? Math.round(prepTimes.reduce((a,b) => a+b, 0) / prepTimes.length) : 0;
+
+    const minDel = deliveryTimes.length ? Math.round(Math.min(...deliveryTimes)) : 0;
+    const maxDel = deliveryTimes.length ? Math.round(Math.max(...deliveryTimes)) : 0;
+    const avgDel = deliveryTimes.length ? Math.round(deliveryTimes.reduce((a,b) => a+b, 0) / deliveryTimes.length) : 0;
+
+    const hoursList = Object.keys(orderHourCounts);
+    let maxHourCount = 0; let peakHour = "-";
+    let minHourCount = Infinity; let quietHour = "-";
+
+    hoursList.forEach(h => {
+       const c = orderHourCounts[h];
+       if (c > maxHourCount) { maxHourCount = c; peakHour = h; }
+       if (c < minHourCount) { minHourCount = c; quietHour = h; }
+    });
+    if (minHourCount === Infinity) minHourCount = 0;
+    const avgOrdersPerHour = hoursList.length ? Math.round(filteredOrders.length / hoursList.length) : 0;
+
+    return { 
+      totalRevenue, transferRevenue, cashRevenue, completedCount, totalOrders: filteredOrders.length, 
+      averagePerOrder, successRate, barChartData, pieChartData,
+      minPrep, maxPrep, avgPrep, minDel, maxDel, avgDel,
+      peakHour, maxHourCount, quietHour, minHourCount, avgOrdersPerHour
+    };
   }, [filteredOrders]);
 
   const riderStats = useMemo(() => {
@@ -208,13 +257,13 @@ export default function GlobalDashboardPage() {
           const qty = qtyMatch ? parseInt(qtyMatch[qtyMatch.length - 1], 10) : 1;
           
           if (nameMatch && nameMatch.length > 1) {
-             if (!counts[nameMatch]) counts[nameMatch] = { name: nameMatch, qty: 0 };
-             counts[nameMatch].qty += qty;
+            if (!counts[nameMatch]) counts[nameMatch] = { name: nameMatch, qty: 0 };
+            counts[nameMatch].qty += qty;
           }
         });
       }
     });
-    return Object.values(counts).sort((a, b) => b.qty - a.qty).slice(0, 5); // เอา 5 อันดับแรก
+    return Object.values(counts).sort((a, b) => b.qty - a.qty).slice(0, 5);
   }, [filteredOrders]);
 
   const maxRiderTrips = Math.max(...riderStats.map(r => r.trips), 1);
@@ -251,7 +300,6 @@ export default function GlobalDashboardPage() {
               <RefreshCw size={18} />
             </button>
 
-            {/* 🌟 ฟิลเตอร์สาขา */}
             <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner flex-1 sm:flex-none">
               <Store size={14} className="text-slate-500 ml-2 mr-1" />
               <select value={selectedBranchFilter} onChange={(e) => setSelectedBranchFilter(e.target.value)} className="bg-transparent text-xs font-black text-slate-700 outline-none cursor-pointer p-2 w-full sm:w-auto">
@@ -260,7 +308,6 @@ export default function GlobalDashboardPage() {
               </select>
             </div>
 
-            {/* 🌟 ฟิลเตอร์เวลา */}
             <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner flex-1 sm:flex-none">
               <Calendar size={14} className="text-slate-500 ml-2 mr-1" />
               <select value={timeRange} onChange={(e) => setTimeRange(e.target.value as DateFilterType)} className="bg-transparent text-xs font-black text-slate-700 outline-none cursor-pointer p-2 w-full sm:w-auto">
@@ -295,7 +342,6 @@ export default function GlobalDashboardPage() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 animate-in fade-in duration-500 slide-in-from-bottom-4">
         
-        {/* KPI Cards 5 ใบ */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between">
             <div className="flex justify-between items-start mb-2">
@@ -353,10 +399,51 @@ export default function GlobalDashboardPage() {
           </div>
         </div>
 
+        {/* 🌟 โซนวิเคราะห์เวลาและความหนาแน่น */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center relative overflow-hidden group hover:border-orange-200 transition-colors">
+            <div className="absolute -right-4 -top-4 opacity-5 group-hover:opacity-10 transition-opacity"><Timer size={100} /></div>
+            <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <Timer size={18} className="text-orange-500"/> เวลาเตรียมอาหาร (นาที)
+            </h3>
+            <div className="flex items-end gap-6 mb-2">
+              <div><p className="text-[10px] font-bold text-slate-400 uppercase">เฉลี่ย</p><span className="text-4xl font-black text-orange-600 leading-none">{stats.avgPrep}</span></div>
+              <div className="pb-1"><p className="text-[10px] font-bold text-slate-400 uppercase">ไวสุด</p><span className="text-xl font-bold text-emerald-500">{stats.minPrep}</span></div>
+              <div className="pb-1"><p className="text-[10px] font-bold text-slate-400 uppercase">ช้าสุด</p><span className="text-xl font-bold text-rose-500">{stats.maxPrep}</span></div>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center relative overflow-hidden group hover:border-blue-200 transition-colors">
+            <div className="absolute -right-4 -top-4 opacity-5 group-hover:opacity-10 transition-opacity"><Truck size={100} /></div>
+            <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <Truck size={18} className="text-blue-500"/> เวลาจัดส่ง (นาที)
+            </h3>
+            <div className="flex items-end gap-6 mb-2">
+              <div><p className="text-[10px] font-bold text-slate-400 uppercase">เฉลี่ย</p><span className="text-4xl font-black text-blue-600 leading-none">{stats.avgDel}</span></div>
+              <div className="pb-1"><p className="text-[10px] font-bold text-slate-400 uppercase">ไวสุด</p><span className="text-xl font-bold text-emerald-500">{stats.minDel}</span></div>
+              <div className="pb-1"><p className="text-[10px] font-bold text-slate-400 uppercase">ช้าสุด</p><span className="text-xl font-bold text-rose-500">{stats.maxDel}</span></div>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center relative overflow-hidden group hover:border-fuchsia-200 transition-colors">
+            <div className="absolute -right-4 -top-4 opacity-5 group-hover:opacity-10 transition-opacity"><Activity size={100} /></div>
+            <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <Activity size={18} className="text-fuchsia-500"/> ออเดอร์เฉลี่ย/ชม.
+            </h3>
+            <div className="flex items-end gap-4 mb-2">
+              <div><p className="text-[10px] font-bold text-slate-400 uppercase">เฉลี่ยต่อชั่วโมง</p><span className="text-4xl font-black text-fuchsia-600 leading-none">{stats.avgOrdersPerHour} <span className="text-lg text-fuchsia-300">บิล</span></span></div>
+            </div>
+            <div className="flex justify-between items-center mt-3 pt-3 border-t border-slate-100">
+               <span className="text-[11px] font-bold text-slate-500">🔥 พีคสุด: <b className="text-rose-500">{stats.peakHour}</b> <span className="text-slate-400">({stats.maxHourCount})</span></span>
+               <span className="text-[11px] font-bold text-slate-500">🧊 น้อยสุด: <b className="text-blue-400">{stats.quietHour}</b> <span className="text-slate-400">({stats.minHourCount})</span></span>
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 lg:col-span-2">
             <h3 className="text-lg font-black text-slate-800 mb-6">📈 แนวโน้มยอดขาย (ส่งสำเร็จ)</h3>
-            <div className="h-75 w-full">
+            <div className="h-75 w-full min-h-75">
               {stats.barChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={stats.barChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -381,7 +468,7 @@ export default function GlobalDashboardPage() {
 
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
             <h3 className="text-lg font-black text-slate-800 mb-6">📊 สัดส่วนประเภทงาน</h3>
-            <div className="h-75 w-full">
+            <div className="h-75 w-full min-h-75">
               {stats.pieChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -401,7 +488,6 @@ export default function GlobalDashboardPage() {
           </div>
         </div>
 
-        {/* 🌟 โซน Leaderboard (ไรเดอร์ & เมนูขายดี) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-4xl p-6 shadow-sm border border-slate-100 flex flex-col h-full max-h-100">
             <div className="flex justify-between items-center mb-6 shrink-0">
@@ -433,7 +519,6 @@ export default function GlobalDashboardPage() {
             </div>
           </div>
 
-          {/* 🔥 ฟังก์ชันแถมสุดพิเศษ: Top 5 เมนูขายดี */}
           <div className="bg-white rounded-4xl p-6 shadow-sm border border-slate-100 flex flex-col h-full max-h-100">
             <div className="flex justify-between items-center mb-6 shrink-0">
               <h2 className="text-base font-black text-slate-800 flex items-center gap-2"><Award size={20} className="text-rose-500" /> 5 อันดับเมนูขายดี</h2>

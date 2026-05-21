@@ -1,3 +1,4 @@
+// board/[board_home]/dashboard/page.tsx
 "use client";
 import { useState, useEffect, useMemo, useCallback, use } from "react";
 import { useRouter } from "next/navigation";
@@ -6,7 +7,7 @@ import {
   ArrowLeft, LayoutDashboard, TrendingUp, DollarSign, 
   CreditCard, Wallet, Bike, Calendar, Loader2, Trophy,
   Receipt, CheckCircle, Percent, Store, Award,
-  Utensils
+  Utensils, Timer, Truck, Activity
 } from "lucide-react";
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, 
@@ -27,6 +28,8 @@ interface OrderData {
   rider_name: string | null;
   menu: string | null;
   created_at: string;
+  start_time: string | null; // อิงจากฐานข้อมูลจริง
+  end_time: string | null;   // อิงจากฐานข้อมูลจริง
 }
 
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) => {
@@ -79,7 +82,7 @@ export default function BranchDashboardPage({ params }: { params: Promise<{ boar
 
     const { data: orderData } = await supabase
       .from("orders")
-      .select("id, order_number, total_price, payment_method, status, job_type, rider_name, menu, created_at")
+      .select("id, order_number, total_price, payment_method, status, job_type, rider_name, menu, created_at, start_time, end_time")
       .eq("branch_id", branchData.id);
       
     if (orderData) setOrders(orderData as OrderData[]);
@@ -147,7 +150,16 @@ export default function BranchDashboardPage({ params }: { params: Promise<{ boar
     const revenueByDate: Record<string, number> = {};
     const typeCount: Record<string, number> = {};
 
+    const prepTimes: number[] = [];
+    const deliveryTimes: number[] = [];
+    const orderHourCounts: Record<string, number> = {};
+
     filteredOrders.forEach(o => {
+      // นับออเดอร์รายชั่วโมง
+      const dateObj = new Date(o.created_at);
+      const hourLabel = `${dateObj.getHours().toString().padStart(2, '0')}:00`;
+      orderHourCounts[hourLabel] = (orderHourCounts[hourLabel] || 0) + 1;
+
       if (o.status === "ส่งแล้ว/เสร็จ") {
         completedCount += 1;
         const price = Number(o.total_price) || 0;
@@ -161,6 +173,20 @@ export default function BranchDashboardPage({ params }: { params: Promise<{ boar
 
         const dateStr = new Date(o.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
         revenueByDate[dateStr] = (revenueByDate[dateStr] || 0) + price;
+
+        // 🌟 คำนวณเวลาจากคอลัมน์จริงของฐานข้อมูล (start_time และ end_time)
+        if (o.start_time) {
+          const createdMs = new Date(o.created_at).getTime();
+          const startMs = new Date(o.start_time).getTime();
+          const diffMins = (startMs - createdMs) / 60000;
+          if (diffMins > 0 && diffMins < 1440) prepTimes.push(diffMins);
+        }
+        if (o.start_time && o.end_time) {
+          const startMs = new Date(o.start_time).getTime();
+          const endMs = new Date(o.end_time).getTime();
+          const diffMins = (endMs - startMs) / 60000;
+          if (diffMins > 0 && diffMins < 1440) deliveryTimes.push(diffMins);
+        }
       }
       typeCount[o.job_type] = (typeCount[o.job_type] || 0) + 1;
     });
@@ -170,9 +196,31 @@ export default function BranchDashboardPage({ params }: { params: Promise<{ boar
     const averagePerOrder = completedCount > 0 ? Math.round(totalRevenue / completedCount) : 0;
     const successRate = filteredOrders.length > 0 ? Math.round((completedCount / filteredOrders.length) * 100) : 0;
 
+    const minPrep = prepTimes.length ? Math.round(Math.min(...prepTimes)) : 0;
+    const maxPrep = prepTimes.length ? Math.round(Math.max(...prepTimes)) : 0;
+    const avgPrep = prepTimes.length ? Math.round(prepTimes.reduce((a,b) => a+b, 0) / prepTimes.length) : 0;
+
+    const minDel = deliveryTimes.length ? Math.round(Math.min(...deliveryTimes)) : 0;
+    const maxDel = deliveryTimes.length ? Math.round(Math.max(...deliveryTimes)) : 0;
+    const avgDel = deliveryTimes.length ? Math.round(deliveryTimes.reduce((a,b) => a+b, 0) / deliveryTimes.length) : 0;
+
+    const hoursList = Object.keys(orderHourCounts);
+    let maxHourCount = 0; let peakHour = "-";
+    let minHourCount = Infinity; let quietHour = "-";
+
+    hoursList.forEach(h => {
+       const c = orderHourCounts[h];
+       if (c > maxHourCount) { maxHourCount = c; peakHour = h; }
+       if (c < minHourCount) { minHourCount = c; quietHour = h; }
+    });
+    if (minHourCount === Infinity) minHourCount = 0;
+    const avgOrdersPerHour = hoursList.length ? Math.round(filteredOrders.length / hoursList.length) : 0;
+
     return { 
       totalRevenue, transferRevenue, cashRevenue, completedCount, totalOrders: filteredOrders.length, 
-      averagePerOrder, successRate, barChartData, pieChartData, shopeeRevenue, storeRevenue 
+      averagePerOrder, successRate, barChartData, pieChartData, shopeeRevenue, storeRevenue,
+      minPrep, maxPrep, avgPrep, minDel, maxDel, avgDel,
+      peakHour, maxHourCount, quietHour, minHourCount, avgOrdersPerHour
     };
   }, [filteredOrders]);
 
@@ -334,10 +382,51 @@ export default function BranchDashboardPage({ params }: { params: Promise<{ boar
           </div>
         </div>
 
+        {/* 🌟 โซนวิเคราะห์เวลาและความหนาแน่น (ฟีเจอร์ใหม่) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center relative overflow-hidden group hover:border-orange-200 transition-colors">
+            <div className="absolute -right-4 -top-4 opacity-5 group-hover:opacity-10 transition-opacity"><Timer size={100} /></div>
+            <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <Timer size={18} className="text-orange-500"/> เวลาเตรียมอาหาร (นาที)
+            </h3>
+            <div className="flex items-end gap-6 mb-2">
+              <div><p className="text-[10px] font-bold text-slate-400 uppercase">เฉลี่ย</p><span className="text-4xl font-black text-orange-600 leading-none">{stats.avgPrep}</span></div>
+              <div className="pb-1"><p className="text-[10px] font-bold text-slate-400 uppercase">ไวสุด</p><span className="text-xl font-bold text-emerald-500">{stats.minPrep}</span></div>
+              <div className="pb-1"><p className="text-[10px] font-bold text-slate-400 uppercase">ช้าสุด</p><span className="text-xl font-bold text-rose-500">{stats.maxPrep}</span></div>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center relative overflow-hidden group hover:border-blue-200 transition-colors">
+            <div className="absolute -right-4 -top-4 opacity-5 group-hover:opacity-10 transition-opacity"><Truck size={100} /></div>
+            <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <Truck size={18} className="text-blue-500"/> เวลาจัดส่ง (นาที)
+            </h3>
+            <div className="flex items-end gap-6 mb-2">
+              <div><p className="text-[10px] font-bold text-slate-400 uppercase">เฉลี่ย</p><span className="text-4xl font-black text-blue-600 leading-none">{stats.avgDel}</span></div>
+              <div className="pb-1"><p className="text-[10px] font-bold text-slate-400 uppercase">ไวสุด</p><span className="text-xl font-bold text-emerald-500">{stats.minDel}</span></div>
+              <div className="pb-1"><p className="text-[10px] font-bold text-slate-400 uppercase">ช้าสุด</p><span className="text-xl font-bold text-rose-500">{stats.maxDel}</span></div>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center relative overflow-hidden group hover:border-fuchsia-200 transition-colors">
+            <div className="absolute -right-4 -top-4 opacity-5 group-hover:opacity-10 transition-opacity"><Activity size={100} /></div>
+            <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <Activity size={18} className="text-fuchsia-500"/> ออเดอร์เฉลี่ย/ชม.
+            </h3>
+            <div className="flex items-end gap-4 mb-2">
+              <div><p className="text-[10px] font-bold text-slate-400 uppercase">เฉลี่ยต่อชั่วโมง</p><span className="text-4xl font-black text-fuchsia-600 leading-none">{stats.avgOrdersPerHour} <span className="text-lg text-fuchsia-300">บิล</span></span></div>
+            </div>
+            <div className="flex justify-between items-center mt-3 pt-3 border-t border-slate-100">
+               <span className="text-[11px] font-bold text-slate-500">🔥 พีคสุด: <b className="text-rose-500">{stats.peakHour}</b> <span className="text-slate-400">({stats.maxHourCount})</span></span>
+               <span className="text-[11px] font-bold text-slate-500">🧊 น้อยสุด: <b className="text-blue-400">{stats.quietHour}</b> <span className="text-slate-400">({stats.minHourCount})</span></span>
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 lg:col-span-2">
             <h3 className="text-lg font-black text-slate-800 mb-6">📈 แนวโน้มยอดขาย (ส่งสำเร็จ)</h3>
-            <div className="h-75 w-full">
+            <div className="h-75 w-full min-h-75">
               {stats.barChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={stats.barChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -362,7 +451,7 @@ export default function BranchDashboardPage({ params }: { params: Promise<{ boar
 
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
             <h3 className="text-lg font-black text-slate-800 mb-6">📊 สัดส่วนประเภทงาน</h3>
-            <div className="h-75 w-full">
+            <div className="h-75 w-full min-h-75">
               {stats.pieChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
