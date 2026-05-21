@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { 
   Calendar as CalendarIcon, Edit, Trash2, Plus, Loader2, X, 
-  ChevronLeft, ChevronRight, Clock, Copy, ShieldCheck, AlertTriangle, Info, Wand2, Users, Check
+  ChevronLeft, ChevronRight, Clock, Copy, ShieldCheck, AlertTriangle, Info, Wand2, Users, Check, Search
 } from "lucide-react";
 
 // --- 🌟 Interfaces (No Any 100%) ---
@@ -27,6 +27,12 @@ interface UserOption {
   id: string;
   username: string;
   role: string;
+  branch_id?: string | null;
+}
+
+interface Branch {
+  id: string;
+  name: string;
 }
 
 interface FormData {
@@ -75,6 +81,7 @@ const getLocalFormattedDate = (year: number, month: number, day: number): string
 export default function SchedulePage() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [userRole, setUserRole] = useState<string>("rider");
   const [loading, setLoading] = useState<boolean>(true);
   const [isCopying, setIsCopying] = useState<boolean>(false);
@@ -112,7 +119,11 @@ export default function SchedulePage() {
     user_id: "", start_time: "10:00", end_time: "19:00", status: "ทำงาน"
   });
 
-  // --- 🌟 ดึงค่า AI Setting จาก Local Storage (จำค่าถาวร) ---
+  // --- 🌟 ตัวกรองพนักงานใน AI Modal ---
+  const [aiSearchText, setAiSearchText] = useState<string>("");
+  const [aiFilterRole, setAiFilterRole] = useState<string>("all");
+  const [aiFilterBranch, setAiFilterBranch] = useState<string>("all");
+
   useEffect(() => {
     try {
       const savedAvail = localStorage.getItem('ai_availabilities');
@@ -123,13 +134,11 @@ export default function SchedulePage() {
 
       const savedShifts = localStorage.getItem('ai_shifts');
       if (savedShifts) setShiftPresets(JSON.parse(savedShifts));
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (e) {
       console.error("Failed to parse AI settings from local storage");
     }
   }, []);
 
-  // --- 🌟 เซฟค่า AI Setting ลง Local Storage เมื่อมีการเปลี่ยนแปลง ---
   useEffect(() => { localStorage.setItem('ai_availabilities', JSON.stringify(autoAvailabilities)); }, [autoAvailabilities]);
   useEffect(() => { localStorage.setItem('ai_quotas', JSON.stringify(quotas)); }, [quotas]);
   useEffect(() => { localStorage.setItem('ai_shifts', JSON.stringify(shiftPresets)); }, [shiftPresets]);
@@ -165,7 +174,10 @@ export default function SchedulePage() {
     if (scheduleData) setSchedules(scheduleData as unknown as Schedule[]);
 
     if (profile?.role === 'superadmin') {
-      const { data: usersData } = await supabase.from('profiles').select('id, username, role');
+      const { data: bData } = await supabase.from('branches').select('id, name');
+      if (bData) setBranches(bData as Branch[]);
+
+      const { data: usersData } = await supabase.from('profiles').select('id, username, role, branch_id');
       if (usersData) {
         setUsers(usersData as UserOption[]);
         if (usersData.length > 0 && !formData.user_id) setFormData(prev => ({ ...prev, user_id: usersData[0].id }));
@@ -176,12 +188,22 @@ export default function SchedulePage() {
   };
 
   const detectShiftName = (start: string, end: string): string => {
-  // มั่นใจว่าข้อมูลที่เทียบคือ 24 ชั่วโมงเสมอ
-  const s = start.substring(0, 5); 
-  const e = end.substring(0, 5);
-  const found = shiftPresets.find(p => p.start === s && p.end === e);
-  return found ? found.name : "กะพิเศษ";
-};
+    if (!start || !end) return "กะพิเศษ";
+    
+    // ล้างค่าดึงเฉพาะ HH:mm เผื่อมีวินาทีหรือช่องว่างติดมา
+    const s = start.trim().substring(0, 5); 
+    const e = end.trim().substring(0, 5);
+    
+    // ค้นหาตัวที่ตรงกัน
+    const found = shiftPresets.find(p => p.start.substring(0, 5) === s && p.end.substring(0, 5) === e);
+    if (found) return found.name;
+
+    // 🌟 ยืดหยุ่นพิเศษ: ถ้าเวลาไม่ตรงเป๊ะ แต่เวลาเข้างานตรงกับกะไหน ให้ถือว่าเป็นกะนั้นไปเลย
+    const matchStartOnly = shiftPresets.find(p => p.start.substring(0, 5) === s);
+    if (matchStartOnly) return `${matchStartOnly.name} (ปรับเวลา)`;
+
+    return "กะพิเศษ";
+  };
 
   const calendarDays = useMemo(() => {
     const year = currentDate.getFullYear();
@@ -196,6 +218,7 @@ export default function SchedulePage() {
     return days;
   }, [currentDate]);
 
+  // --- Handlers ต่างๆ ---
   const handlePrevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   const handleNextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
 
@@ -468,11 +491,18 @@ export default function SchedulePage() {
     });
   };
 
+  // --- กรองพนักงานในหน้า AI Modal ---
+  const filteredAiUsers = users.filter(u => {
+    const matchSearch = u.username.toLowerCase().includes(aiSearchText.toLowerCase());
+    const matchRole = aiFilterRole === 'all' || u.role === aiFilterRole;
+    const matchBranch = aiFilterBranch === 'all' || u.branch_id === aiFilterBranch || (aiFilterBranch === 'none' && !u.branch_id);
+    return matchSearch && matchRole && matchBranch;
+  });
+
   const pageTitle = (userRole === 'admin' || userRole === 'superadmin') ? "ระบบจัดตารางงาน" : "ตารางงาน";
   const monthNames = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
   const dayNamesShort = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
   
-  // 🌟 สร้าง 00 - 59 สำหรับเวลา 24 ชม.
   const hoursOptions = Array.from({length: 24}).map((_, i) => i.toString().padStart(2, '0'));
   const minutesOptions = Array.from({length: 60}).map((_, i) => i.toString().padStart(2, '0'));
 
@@ -491,7 +521,7 @@ export default function SchedulePage() {
         </h1>
         <div className="flex items-center gap-2 md:gap-4 w-full md:w-auto">
           <button onClick={handlePrevMonth} className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-all cursor-pointer"><ChevronLeft size={20}/></button>
-          <div className="text-lg font-bold text-slate-700 min-w-37.5 text-center">{monthNames[currentDate.getMonth()]} {currentDate.getFullYear() + 543}</div>
+          <div className="text-lg font-bold text-slate-700 min-w-[150px] text-center">{monthNames[currentDate.getMonth()]} {currentDate.getFullYear() + 543}</div>
           <button onClick={handleNextMonth} className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-all cursor-pointer"><ChevronRight size={20}/></button>
         </div>
       </div>
@@ -520,7 +550,7 @@ export default function SchedulePage() {
                 {isCopying ? <Loader2 className="animate-spin" size={16}/> : <Copy size={16} />} ใช้ข้อมูลเดือนที่แล้ว
               </button>
             )}
-            <button onClick={() => setIsAutoModalOpen(true)} className="flex-1 md:flex-none bg-linear-to-r from-violet-600 to-fuchsia-600 hover:from-violet-700 hover:to-fuchsia-700 text-white px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 font-bold transition-all shadow-md active:scale-95 text-xs cursor-pointer">
+            <button onClick={() => setIsAutoModalOpen(true)} className="flex-1 md:flex-none bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-700 hover:to-fuchsia-700 text-white px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 font-bold transition-all shadow-md active:scale-95 text-xs cursor-pointer">
               <Wand2 size={16} /> เทรน AI อัตโนมัติ
             </button>
           </div>
@@ -563,7 +593,7 @@ export default function SchedulePage() {
                   </button>
                 </div>
                 
-                <div className="flex flex-col gap-1.5 overflow-y-auto max-h-17.5 md:max-h-25 scrollbar-hide">
+                <div className="flex flex-col gap-1.5 overflow-y-auto max-h-[70px] md:max-h-[100px] scrollbar-hide">
                   {daySchedules.map(s => {
                     const sName = detectShiftName(s.start_time, s.end_time);
                     const bgClass = sName === 'กะเช้า' ? 'bg-blue-50 text-blue-700 border-blue-100' : 
@@ -571,9 +601,7 @@ export default function SchedulePage() {
                     return (
                       <div key={s.id} className={`text-[9px] md:text-xs px-1.5 md:px-2 py-1 rounded font-bold flex flex-col border truncate ${bgClass}`}>
                         <span className="truncate">[{sName}] {s.profiles?.username || 'พนักงาน'}</span>
-                        <span className="opacity-70 text-[9px] mt-0.5 font-mono">
-                            {s.start_time.substring(0, 5)} - {s.end_time.substring(0, 5)} น.
-                        </span>                      
+                        <span className="opacity-70 mt-0.5 font-mono">{s.start_time.substring(0, 5)}-{s.end_time.substring(0, 5)} น.</span>
                       </div>
                     );
                   })}
@@ -667,11 +695,7 @@ export default function SchedulePage() {
                         <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md uppercase tracking-wider font-bold">{schedule.profiles?.role}</span>
                       </p>
                       <div className="flex items-center gap-3 mt-1.5 text-xs font-bold text-slate-500">
-                        <span className="flex items-center gap-1">
-  <Clock size={12}/> 
-  ({detectShiftName(schedule.start_time, schedule.end_time)}) 
-  {schedule.start_time.substring(0, 5)} - {schedule.end_time.substring(0, 5)} น.
-</span>
+                        <span className="flex items-center gap-1"><Clock size={12}/> ({detectShiftName(schedule.start_time, schedule.end_time)}) {schedule.start_time.substring(0, 5)} - {schedule.end_time.substring(0, 5)} น.</span>
                         <span className={`${schedule.status === 'ทำงาน' ? 'text-emerald-500' : 'text-rose-500'}`}>{schedule.status}</span>
                       </div>
                     </div>
@@ -714,28 +738,49 @@ export default function SchedulePage() {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    {/* --- เวลาเข้างาน --- */}
                     <div>
                       <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase">เวลาเข้างาน</label>
-                      <div className="flex items-center gap-1 bg-white p-1 rounded-xl border">
-                        <select value={formData.start_time.split(':')[0]} onChange={(e) => handleTimeChange('start_time', 'hour', e.target.value)} className="w-full p-2 text-sm font-bold text-center outline-none bg-transparent cursor-pointer">
-                          {hoursOptions.map(h => <option key={h} value={h}>{h}</option>)}
-                        </select>
+                      <div className="flex items-center gap-1 bg-white p-1.5 rounded-lg border focus-within:border-blue-400 transition-colors">
+                        <input 
+                          type="text" maxLength={2} placeholder="00"
+                          value={formData.start_time.split(':')[0]} 
+                          onChange={(e) => handleTimeChange('start_time', 'hour', e.target.value.replace(/\D/g, ''))}
+                          onBlur={(e) => handleTimeChange('start_time', 'hour', e.target.value.padStart(2, '0'))}
+                          className="w-full text-center font-mono text-sm font-bold text-slate-600 outline-none bg-transparent"
+                        />
                         <span className="font-bold text-slate-300">:</span>
-                        <select value={formData.start_time.split(':')[1]} onChange={(e) => handleTimeChange('start_time', 'minute', e.target.value)} className="w-full p-2 text-sm font-bold text-center outline-none bg-transparent cursor-pointer">
-                          {minutesOptions.map(m => <option key={m} value={m}>{m}</option>)}
-                        </select>
+                        <input 
+                          type="text" maxLength={2} placeholder="00"
+                          value={formData.start_time.split(':')[1]} 
+                          onChange={(e) => handleTimeChange('start_time', 'minute', e.target.value.replace(/\D/g, ''))}
+                          onBlur={(e) => handleTimeChange('start_time', 'minute', e.target.value.padStart(2, '0'))}
+                          className="w-full text-center font-mono text-sm font-bold text-slate-600 outline-none bg-transparent"
+                        />
+                        <span className="text-slate-500 font-bold ml-1 text-xs">น.</span>
                       </div>
                     </div>
+
+                    {/* --- เวลาเลิกงาน --- */}
                     <div>
                       <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase">เวลาเลิกงาน</label>
-                      <div className="flex items-center gap-1 bg-white p-1 rounded-xl border">
-                        <select value={formData.end_time.split(':')[0]} onChange={(e) => handleTimeChange('end_time', 'hour', e.target.value)} className="w-full p-2 text-sm font-bold text-center outline-none bg-transparent cursor-pointer">
-                          {hoursOptions.map(h => <option key={h} value={h}>{h}</option>)}
-                        </select>
+                      <div className="flex items-center gap-1 bg-white p-1.5 rounded-lg border focus-within:border-blue-400 transition-colors">
+                        <input 
+                          type="text" maxLength={2} placeholder="00"
+                          value={formData.end_time.split(':')[0]} 
+                          onChange={(e) => handleTimeChange('end_time', 'hour', e.target.value.replace(/\D/g, ''))}
+                          onBlur={(e) => handleTimeChange('end_time', 'hour', e.target.value.padStart(2, '0'))}
+                          className="w-full text-center font-mono text-sm font-bold text-slate-600 outline-none bg-transparent"
+                        />
                         <span className="font-bold text-slate-300">:</span>
-                        <select value={formData.end_time.split(':')[1]} onChange={(e) => handleTimeChange('end_time', 'minute', e.target.value)} className="w-full p-2 text-sm font-bold text-center outline-none bg-transparent cursor-pointer">
-                          {minutesOptions.map(m => <option key={m} value={m}>{m}</option>)}
-                        </select>
+                        <input 
+                          type="text" maxLength={2} placeholder="00"
+                          value={formData.end_time.split(':')[1]} 
+                          onChange={(e) => handleTimeChange('end_time', 'minute', e.target.value.replace(/\D/g, ''))}
+                          onBlur={(e) => handleTimeChange('end_time', 'minute', e.target.value.padStart(2, '0'))}
+                          className="w-full text-center font-mono text-sm font-bold text-slate-600 outline-none bg-transparent"
+                        />
+                        <span className="text-slate-500 font-bold ml-1 text-xs">น.</span>
                       </div>
                     </div>
                   </div>
@@ -756,7 +801,7 @@ export default function SchedulePage() {
       {isAutoModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-linear-to-r from-violet-50 to-fuchsia-50">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-gradient-to-r from-violet-50 to-fuchsia-50">
               <div>
                 <h3 className="font-black text-xl text-violet-800 flex items-center gap-2"><Wand2 size={24}/> เทรน AI จัดตารางงาน</h3>
                 <p className="text-sm font-bold text-violet-600/70 mt-1">กำหนดเวลาเข้างาน โควต้า และเลือกวันว่างของพนักงานแต่ละคน</p>
@@ -767,40 +812,59 @@ export default function SchedulePage() {
             <div className="p-6 overflow-y-auto flex-1 space-y-6 bg-slate-50/50">
               
               <div className="bg-white p-5 rounded-3xl border shadow-sm">
-  <h4 className="font-black text-slate-800 mb-4 flex items-center gap-2">
-    <Clock size={18} className="text-violet-500"/> 1. ระบุเวลาเข้า-เลิกงานของร้าน
-  </h4>
-  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-    {shiftPresets.map(preset => (
-      <div key={preset.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col gap-3">
-        <span className="font-black text-slate-700">{preset.name}</span>
-        <div className="flex items-center gap-2">
-          {/* --- เริ่มต้นกะ (Custom 24H Picker) --- */}
-          <div className="flex items-center gap-1 bg-white p-1 rounded-xl border w-full">
-            <select value={preset.start.split(':')[0]} onChange={(e) => handleShiftTimeUpdate(preset.id, 'start', `${e.target.value}:${preset.start.split(':')[1]}`)} className="w-full p-2 text-xs font-bold text-center outline-none bg-transparent cursor-pointer">
-              {Array.from({length: 24}).map((_, i) => { const h = i.toString().padStart(2, '0'); return <option key={h} value={h}>{h}</option>; })}
-            </select>
-            <span className="font-bold text-slate-300">:</span>
-            <select value={preset.start.split(':')[1]} onChange={(e) => handleShiftTimeUpdate(preset.id, 'start', `${preset.start.split(':')[0]}:${e.target.value}`)} className="w-full p-2 text-xs font-bold text-center outline-none bg-transparent cursor-pointer">
-              {['00', '15', '30', '45'].map(m => <option key={m} value={m}>{m}</option>)} 
-            </select>
-          </div>
-          <span className="text-slate-400 font-bold">-</span>
-          {/* --- สิ้นสุดกะ (Custom 24H Picker) --- */}
-          <div className="flex items-center gap-1 bg-white p-1 rounded-xl border w-full">
-            <select value={preset.end.split(':')[0]} onChange={(e) => handleShiftTimeUpdate(preset.id, 'end', `${e.target.value}:${preset.end.split(':')[1]}`)} className="w-full p-2 text-xs font-bold text-center outline-none bg-transparent cursor-pointer">
-              {Array.from({length: 24}).map((_, i) => { const h = i.toString().padStart(2, '0'); return <option key={h} value={h}>{h}</option>; })} 
-            </select>
-            <span className="font-bold text-slate-300">:</span>
-            <select value={preset.end.split(':')[1]} onChange={(e) => handleShiftTimeUpdate(preset.id, 'end', `${preset.end.split(':')[0]}:${e.target.value}`)}  className="w-full p-2 text-xs font-bold text-center outline-none bg-transparent cursor-pointer">
-              {['00', '15', '30', '45'].map(m => <option key={m} value={m}>{m}</option>)} 
-            </select>
-          </div>
-        </div>
-      </div>
-    ))}
-  </div>
-</div>
+                <h4 className="font-black text-slate-800 mb-4 flex items-center gap-2"><Clock size={18} className="text-violet-500"/> 1. ระบุเวลาเข้า-เลิกงานของร้าน</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {shiftPresets.map(preset => (
+                    <div key={preset.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex justify-between items-center">
+                      <span className="font-black text-slate-700">{preset.name}</span>
+                      <div className="flex items-center gap-2">
+                        
+                        {/* --- เวลาเข้างาน --- */}
+                        <div className="flex items-center gap-1 bg-white p-1.5 rounded-lg border focus-within:border-violet-400 transition-colors">
+                          <input 
+                            type="text" maxLength={2} placeholder="00"
+                            value={preset.start.split(':')[0]} 
+                            onChange={(e) => handleShiftTimeUpdate(preset.id, 'start', `${e.target.value.replace(/\D/g, '')}:${preset.start.split(':')[1]}`)}
+                            onBlur={(e) => handleShiftTimeUpdate(preset.id, 'start', `${e.target.value.padStart(2, '0')}:${preset.start.split(':')[1]}`)}
+                            className="w-6 text-center font-mono text-sm font-bold text-slate-600 outline-none bg-transparent"
+                          />
+                          <span className="font-bold text-slate-300">:</span>
+                          <input 
+                            type="text" maxLength={2} placeholder="00"
+                            value={preset.start.split(':')[1]} 
+                            onChange={(e) => handleShiftTimeUpdate(preset.id, 'start', `${preset.start.split(':')[0]}:${e.target.value.replace(/\D/g, '')}`)}
+                            onBlur={(e) => handleShiftTimeUpdate(preset.id, 'start', `${preset.start.split(':')[0]}:${e.target.value.padStart(2, '0')}`)}
+                            className="w-6 text-center font-mono text-sm font-bold text-slate-600 outline-none bg-transparent"
+                          />
+                        </div>
+
+                        <span className="text-slate-400 font-black">-</span>
+
+                        {/* --- เวลาเลิกงาน --- */}
+                        <div className="flex items-center gap-1 bg-white p-1.5 rounded-lg border focus-within:border-violet-400 transition-colors">
+                          <input 
+                            type="text" maxLength={2} placeholder="00"
+                            value={preset.end.split(':')[0]} 
+                            onChange={(e) => handleShiftTimeUpdate(preset.id, 'end', `${e.target.value.replace(/\D/g, '')}:${preset.end.split(':')[1]}`)}
+                            onBlur={(e) => handleShiftTimeUpdate(preset.id, 'end', `${e.target.value.padStart(2, '0')}:${preset.end.split(':')[1]}`)}
+                            className="w-6 text-center font-mono text-sm font-bold text-slate-600 outline-none bg-transparent"
+                          />
+                          <span className="font-bold text-slate-300">:</span>
+                          <input 
+                            type="text" maxLength={2} placeholder="00"
+                            value={preset.end.split(':')[1]} 
+                            onChange={(e) => handleShiftTimeUpdate(preset.id, 'end', `${preset.end.split(':')[0]}:${e.target.value.replace(/\D/g, '')}`)}
+                            onBlur={(e) => handleShiftTimeUpdate(preset.id, 'end', `${preset.end.split(':')[0]}:${e.target.value.padStart(2, '0')}`)}
+                            className="w-6 text-center font-mono text-sm font-bold text-slate-600 outline-none bg-transparent"
+                          />
+                        </div>
+                        
+                        <span className="text-slate-500 font-bold ml-1 text-xs">น.</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
               <div className="bg-white p-5 rounded-3xl border shadow-sm">
                 <h4 className="font-black text-slate-800 mb-4 flex items-center gap-2"><Users size={18} className="text-violet-500"/> 2. โควต้าพนักงาน (คน/กะ/วัน)</h4>
@@ -818,7 +882,7 @@ export default function SchedulePage() {
                           <input type="number" min="0" value={quotas[preset.id]?.rider || 0} onChange={(e) => handleQuotaChange(preset.id, 'rider', e.target.value)} className="w-full p-2 rounded-lg border bg-white font-bold text-center outline-none focus:border-violet-400 mt-1"/>
                         </div>
                         <div className="flex-1">
-                          <label className="text-[10px] font-black text-slate-500 uppercase">แอดมิน</label>
+                          <label className="text-[10px] font-black text-slate-500 uppercase text-blue-500">แอดมิน</label>
                           <input type="number" min="0" value={quotas[preset.id]?.admin || 0} onChange={(e) => handleQuotaChange(preset.id, 'admin', e.target.value)} className="w-full p-2 rounded-lg border bg-white font-bold text-center outline-none focus:border-violet-400 mt-1"/>
                         </div>
                       </div>
@@ -829,38 +893,68 @@ export default function SchedulePage() {
 
               <div className="bg-white p-5 rounded-3xl border shadow-sm">
                 <h4 className="font-black text-slate-800 mb-4 flex items-center gap-2"><CalendarIcon size={18} className="text-violet-500"/> 3. เลือกวันว่างให้พนักงาน</h4>
-                {users.map(user => (
-                  <div key={user.id} className="mb-4 last:mb-0 border border-slate-100 rounded-2xl overflow-hidden">
-                    <div className="bg-slate-50 p-3 border-b flex justify-between items-center">
-                      <span className="font-black text-slate-800">{user.username}</span>
-                      <span className="text-[10px] font-black uppercase bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md">{user.role}</span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-7 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 bg-white">
-                      {dayNamesShort.map((dayName, dayIdx) => (
-                        <div key={dayIdx} className="p-2 flex flex-row sm:flex-col items-center justify-between sm:justify-start gap-2">
-                          <span className={`text-xs font-black ${dayIdx === 0 || dayIdx === 6 ? 'text-rose-500' : 'text-slate-500'}`}>{dayName}</span>
-                          <div className="flex sm:flex-col gap-1 w-full">
-                            {shiftPresets.map(shift => {
-                              const key = `${user.id}-${dayIdx}-${shift.id}`;
-                              const isChecked = !!autoAvailabilities[key];
-                              return (
-                                <button key={shift.id} type="button" onClick={() => toggleAutoAvailability(user.id, dayIdx, shift.id)} className={`flex-1 text-[10px] py-1.5 rounded font-bold transition-all border cursor-pointer ${isChecked ? 'bg-violet-100 text-violet-700 border-violet-200' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>
-                                  {shift.name}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                
+                {/* 🌟 เครื่องมือค้นหาและกรองสำหรับ AI Section */}
+                <div className="flex flex-col md:flex-row gap-3 mb-4 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <div className="flex-1 relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16}/>
+                    <input 
+                      type="text" 
+                      placeholder="ค้นหาชื่อพนักงาน..." 
+                      value={aiSearchText} 
+                      onChange={(e) => setAiSearchText(e.target.value)} 
+                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-violet-400"
+                    />
                   </div>
-                ))}
+                  <select value={aiFilterRole} onChange={(e) => setAiFilterRole(e.target.value)} className="p-2.5 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-violet-400 bg-white cursor-pointer">
+                    <option value="all">ทุกตำแหน่ง</option>
+                    <option value="kitchen">🍳 แม่ครัว</option>
+                    <option value="rider">🛵 ไรเดอร์</option>
+                    <option value="admin">🌟 แอดมิน</option>
+                  </select>
+                  <select value={aiFilterBranch} onChange={(e) => setAiFilterBranch(e.target.value)} className="p-2.5 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-violet-400 bg-white cursor-pointer">
+                    <option value="all">ทุกสาขา</option>
+                    <option value="none">ไม่มีสาขา (ยังไม่ได้ระบุ)</option>
+                    {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </div>
+
+                {filteredAiUsers.length === 0 ? (
+                  <div className="text-center py-8 bg-slate-50 rounded-2xl border border-slate-100 text-slate-400 font-bold text-sm">ไม่พบรายชื่อพนักงานตามเงื่อนไขที่ค้นหา</div>
+                ) : (
+                  filteredAiUsers.map(user => (
+                    <div key={user.id} className="mb-4 last:mb-0 border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
+                      <div className="bg-white p-3 border-b flex justify-between items-center">
+                        <span className="font-black text-slate-800">{user.username}</span>
+                        <span className="text-[10px] font-black uppercase bg-violet-50 text-violet-600 border border-violet-100 px-2 py-0.5 rounded-md">{user.role}</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-7 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 bg-slate-50">
+                        {dayNamesShort.map((dayName, dayIdx) => (
+                          <div key={dayIdx} className="p-2 flex flex-row sm:flex-col items-center justify-between sm:justify-start gap-2 hover:bg-slate-100/50 transition-colors">
+                            <span className={`text-[10px] font-black ${dayIdx === 0 || dayIdx === 6 ? 'text-rose-500' : 'text-slate-500'}`}>{dayName}</span>
+                            <div className="flex sm:flex-col gap-1.5 w-full">
+                              {shiftPresets.map(shift => {
+                                const key = `${user.id}-${dayIdx}-${shift.id}`;
+                                const isChecked = !!autoAvailabilities[key];
+                                return (
+                                  <button key={shift.id} type="button" onClick={() => toggleAutoAvailability(user.id, dayIdx, shift.id)} className={`flex-1 text-[10px] py-1.5 rounded font-bold transition-all border cursor-pointer ${isChecked ? 'bg-violet-600 text-white border-violet-700 shadow-sm' : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-100'}`}>
+                                    {shift.name}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
             <div className="p-6 border-t border-slate-100 bg-white flex gap-3">
               <button onClick={() => setIsAutoModalOpen(false)} className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl active:scale-95 cursor-pointer">ยกเลิก</button>
-              <button onClick={handleRunAutoSchedule} disabled={isAutoGenerating} className="flex-2 py-3.5 bg-linear-to-r from-violet-600 to-fuchsia-600 text-white font-black rounded-xl shadow-lg active:scale-95 flex justify-center gap-2 cursor-pointer">
+              <button onClick={handleRunAutoSchedule} disabled={isAutoGenerating} className="flex-[2] py-3.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white font-black rounded-xl shadow-lg active:scale-95 flex justify-center gap-2 cursor-pointer">
                 {isAutoGenerating ? <Loader2 size={18} className="animate-spin"/> : <><Wand2 size={18}/> ให้ AI จัดตารางเลย!</>}
               </button>
             </div>
