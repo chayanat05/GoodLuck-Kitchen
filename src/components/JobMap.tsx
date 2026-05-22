@@ -71,6 +71,7 @@ export default function JobMap({ lat, lng, savedLocations = [], onPinChange, rea
           zoomControl: true,
           streetViewControl: false,
           fullscreenControl: true,
+          mapTypeId: "satellite",
         }}
       >
         {savedLocations.map((loc, idx) => {
