@@ -245,7 +245,7 @@ export default function DormDatabasePage() {
                   
                   <div className="flex items-center gap-1">
                     <a 
-                      href={`http://googleusercontent.com/maps.google.com/maps?q=${dorm.lat},${dorm.lng}`}
+                      href={`https://maps.google.com/?q=${dorm.lat},${dorm.lng}`}
                       target="_blank" rel="noreferrer"
                       className="p-2 bg-slate-50 text-slate-500 hover:bg-emerald-500 hover:text-white rounded-xl transition-all active:scale-90"
                     >
