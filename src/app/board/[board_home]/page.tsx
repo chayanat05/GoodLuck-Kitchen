@@ -56,10 +56,7 @@ import Image from "next/image";
 import SharedGallery from "@/components/SharedGallery";
 import Swal from "sweetalert2";
 import { toast } from "sonner";
-
-const NOTIFICATION_SOUND_URL = "/audio-shop.mp3";
-const SHOP_LAT = 16.24813;
-const SHOP_LNG = 103.242206;
+import { useFCM } from "@/hooks/useFCM";
 
 export interface SavedLocation {
   id?: string;
@@ -131,6 +128,10 @@ export default function BoardPage({
 }) {
   const resolvedParams = use(params);
   const branchSlug = resolvedParams.board_home;
+  useFCM();
+  const NOTIFICATION_SOUND_URL = "/audio-shop.mp3";
+  const SHOP_LAT = 16.24813;
+  const SHOP_LNG = 103.242206;
 
   const [currentBranchId, setCurrentBranchId] = useState<string>("");
 
@@ -178,6 +179,28 @@ export default function BoardPage({
   // 🌟 State สำหรับเมนูและแหล่งที่มา
   const [allShopMenus, setAllShopMenus] = useState<ShopMenu[]>([]);
   const [contactSources, setContactSources] = useState<ContactSource[]>([]);
+
+  // 🌟 ฟังก์ชันยิงแจ้งเตือน Web Push
+  const notifyRoles = async (roles: string[], title: string, body: string, link: string) => {
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('fcm_token')
+        .in('role', roles)
+        .not('fcm_token', 'is', null);
+
+      if (data && data.length > 0) {
+        const tokens = data.map(u => u.fcm_token);
+        await fetch('/api/send-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tokens, title, message: body, link })
+        });
+      }
+    } catch (e) {
+      console.error('Push Error:', e);
+    }
+  };
 
   // 🌟 ฟังก์ชันดึงเมนู
   const fetchSyncData = useCallback(async () => {
@@ -834,10 +857,12 @@ export default function BoardPage({
         .eq("branch_id", currentBranchId)
         .eq("id", editingId)
         .select();
-      if (data)
+      if (data) {
         setOrders(
           orders.map((o) => (o.id === editingId ? (data[0] as Order) : o)),
         );
+        showToast("อัปเดตข้อมูลสำเร็จ! 📝");
+      }
     } else {
       const { data } = await supabase
         .from("orders")
@@ -846,6 +871,15 @@ export default function BoardPage({
       if (data && data.length > 0) {
         targetId = data[0].id;
         setOrders([data[0] as Order, ...orders]);
+        showToast("สร้างออเดอร์สำเร็จ! 🚀");
+        
+        // 🌟 ยิงแจ้งเตือนเมื่อมีออเดอร์ใหม่
+        notifyRoles(
+          ['kitchen', 'rider', 'admin', 'superadmin'], 
+          "✨ มีออเดอร์ใหม่เข้า!", 
+          `ออเดอร์ #${finalOrderNumber} รอการยืนยัน`, 
+          `/board/${branchSlug}`
+        );
       }
     }
 
@@ -854,8 +888,6 @@ export default function BoardPage({
     setImageFiles([]);
     setImagePreviews([]);
     setExistingImages([]);
-    if (isEdit) showToast("อัปเดตข้อมูลสำเร็จ! 📝");
-    else showToast("สร้างออเดอร์สำเร็จ! 🚀");
 
     if (filesToUpload.length > 0 && targetId) {
       const uploadedUrls: string[] = [];
@@ -903,6 +935,15 @@ export default function BoardPage({
         orders.map((o) => (o.id === targetOrder.id ? { ...o, ...data[0] } : o)),
       );
       showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`);
+      
+      // 🌟 ยิงแจ้งเตือนเมื่อถูกปรับสถานะด้วยมือ
+      notifyRoles(
+        ['rider', 'admin', 'superadmin', 'kitchen'], 
+        `🔄 อัปเดตสถานะออเดอร์`, 
+        `ออเดอร์ #${targetOrder.order_number} ถูกเปลี่ยนเป็น: ${newStatus}`, 
+        `/board/${branchSlug}`
+      );
+      
       setSelectedViewOrder(null);
     }
   };
@@ -918,6 +959,16 @@ export default function BoardPage({
     if (data) {
       setOrders(orders.map((o) => (o.id === orderId ? (data[0] as Order) : o)));
       showToast("ครัวเริ่มทำอาหารแล้ว! 🍳");
+      
+      // 🌟 ยิงแจ้งเตือน
+      const orderNum = orders.find(o => o.id === orderId)?.order_number || "ล่าสุด";
+      notifyRoles(
+        ['rider', 'admin', 'superadmin'], 
+        "🍳 ครัวกำลังทำอาหาร", 
+        `ออเดอร์ #${orderNum} เริ่มปรุงแล้ว`, 
+        `/board/${branchSlug}`
+      );
+
       setSelectedViewOrder(null);
     }
   };
@@ -945,6 +996,16 @@ export default function BoardPage({
           ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦"
           : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵",
       );
+
+      // 🌟 ยิงแจ้งเตือน
+      const orderNum = orders.find(o => o.id === orderId)?.order_number || "ล่าสุด";
+      notifyRoles(
+        ['rider', 'admin', 'superadmin'], 
+        "📦 อาหารพร้อมส่ง!", 
+        `ออเดอร์ #${orderNum} เสร็จแล้ว ไรเดอร์มารับได้เลย`, 
+        `/board/${branchSlug}`
+      );
+
       setSelectedViewOrder(null);
     }
   };
@@ -1180,7 +1241,7 @@ export default function BoardPage({
             onClick={() => setIsMenuOpen(false)}
           ></div>
           <div className="relative w-80 bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-300 z-10 rounded-r-4xl overflow-hidden">
-            <div className="bg-linear-to-br from-blue-600 to-indigo-800 p-8 text-white relative">
+            <div className="bg-gradient-to-br from-blue-600 to-indigo-800 p-8 text-white relative">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-bl-full pointer-events-none"></div>
               <button
                 onClick={() => setIsMenuOpen(false)}
@@ -1218,15 +1279,15 @@ export default function BoardPage({
               )}
 
               <Link
-  href="/schedule"
-  prefetch={false}
-  className="w-full flex items-center p-4 text-slate-600 hover:bg-teal-50 hover:text-teal-700 rounded-2xl transition-all font-bold border border-transparent hover:border-teal-100 group"
->
-  <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
-    <Calendar size={20} className="text-teal-600" />
-  </div>
-  ตารางงาน (Schedule)
-</Link>
+                href="/schedule"
+                prefetch={false}
+                className="w-full flex items-center p-4 text-slate-600 hover:bg-teal-50 hover:text-teal-700 rounded-2xl transition-all font-bold border border-transparent hover:border-teal-100 group"
+              >
+                <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                  <Calendar size={20} className="text-teal-600" />
+                </div>
+                ตารางงาน (Schedule)
+              </Link>
 
               <div className="h-px bg-slate-100 my-2"></div>
               <button
@@ -1355,7 +1416,7 @@ export default function BoardPage({
                   mapContainerStyle={{ width: "100%", height: "100%" }}
                   center={defaultMapCenter}
                   zoom={13}
-                  options={{ disableDefaultUI: true, zoomControl: true }}
+                  options={{ disableDefaultUI: true, zoomControl: true, mapTypeId: "satellite" }}
                 >
                   <MarkerF
                     position={{ lat: SHOP_LAT, lng: SHOP_LNG }}
@@ -1464,7 +1525,7 @@ export default function BoardPage({
                 ไรเดอร์
               </div>
               <span className="text-xs text-slate-400 my-auto ml-auto pl-4 whitespace-nowrap">
-                *พิกัดอัปเดตทุก 30 วินาที
+                *พิกัดอัปเดตทุก 30 วินาที*
               </span>
             </div>
           </div>

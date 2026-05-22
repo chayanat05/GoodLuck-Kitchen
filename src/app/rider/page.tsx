@@ -11,7 +11,6 @@ import {
   ClipboardList,
   Zap,
   AlertTriangle,
-  Info,
   Menu,
   LayoutDashboard,
   LogOut,
@@ -37,6 +36,7 @@ import Link from "next/link";
 import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from "@react-google-maps/api"; 
 import Swal from "sweetalert2";
 import { toast } from "sonner";
+import { useFCM } from "@/hooks/useFCM";
 
 const SHOP_LAT = 16.24813;
 const SHOP_LNG = 103.242206;
@@ -57,10 +57,10 @@ interface Branch {
   cut_off_hour: number;
 }
 
-// 🌟 สร้าง Type ใหม่เพื่อต่อยอดจาก Order เดิมโดยไม่ใช้ any
 type RiderOrder = Order & { branch_id?: string | null };
 
 export default function RiderPage() {
+  useFCM();
   const [orders, setOrders] = useState<RiderOrder[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -99,7 +99,6 @@ export default function RiderPage() {
   const [currentUserRole, setCurrentUserRole] = useState<string>("rider");
   const [isEmergencyMode, setIsEmergencyMode] = useState<boolean>(false);
 
-  // 🌟 State สำหรับเปิดรูปหอพัก (ดึงจากฐานข้อมูล)
   const [dormImageModal, setDormImageModal] = useState<{ isOpen: boolean; url: string | null; isLoading: boolean }>({ isOpen: false, url: null, isLoading: false });
   
   const [mapLibraries] = useState<"places"[]>(["places"]);
@@ -133,11 +132,30 @@ export default function RiderPage() {
     });
   };
 
-  // 🌟 ฟังก์ชันดึงรูปหอพักจาก Database (จากชื่อสถานที่จัดส่ง)
+  const notifyRoles = async (roles: string[], title: string, body: string, link: string) => {
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('fcm_token')
+        .in('role', roles)
+        .not('fcm_token', 'is', null);
+
+      if (data && data.length > 0) {
+        const tokens = data.map(u => u.fcm_token);
+        await fetch('/api/send-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tokens, title, message: body, link })
+        });
+      }
+    } catch (e) {
+      console.error('Push Error:', e);
+    }
+  };
+
   const handleViewDormImage = async (addressName: string) => {
     setDormImageModal({ isOpen: true, url: null, isLoading: true });
     
-    // ถ้า address เป็น Link ให้ข้ามไปเลย เพราะไม่มีชื่อหอให้ค้นหา
     if (addressName.startsWith("http")) {
       setDormImageModal({ isOpen: true, url: null, isLoading: false });
       return;
@@ -165,21 +183,19 @@ export default function RiderPage() {
     const { data: bData } = await supabase.from("branches").select("*").order("created_at", { ascending: true });
     if (bData) setBranches(bData as Branch[]);
 
-    // 🌟 ดึงงานของตัวเอง (ไม่เอางานที่โดนลบ / is_archived)
     const { data: myJobs } = await supabase
       .from("orders")
       .select("*")
       .eq("rider_id", userId)
-      .or("is_archived.is.null,is_archived.eq.false") // กรองงานที่ถูกลบหรือเก็บออกไป
+      .or("is_archived.is.null,is_archived.eq.false") 
       .order("created_at", { ascending: false });
 
-    // 🌟 ดึงงานว่าง (ไม่เอา shopee และไม่เอางานที่ถูกลบ)
     const { data: availableJobs } = await supabase
       .from("orders")
       .select("*")
       .is("rider_id", null)
       .or("job_type.is.null,job_type.neq.shopee")
-      .or("is_archived.is.null,is_archived.eq.false") // กรองงานที่ถูกลบหรือเก็บออกไป
+      .or("is_archived.is.null,is_archived.eq.false") 
       .in("status", ["New", "กำลังทำ", "รับงาน"])
       .order("created_at", { ascending: false });
 
@@ -200,7 +216,6 @@ export default function RiderPage() {
     if (data) setRidersLoc(data as RiderLocation[]);
   }, []);
 
-  // 🌟 เพิ่ม State ตัวจับเวลาให้อัปเดตทุก 30 วินาที
   const [currentTime, setCurrentTime] = useState(Date.now());
 
   useEffect(() => {
@@ -229,7 +244,6 @@ export default function RiderPage() {
       setRiderName(profile?.username || "ไรเดอร์");
       setCurrentUserRole(profile?.role || "rider");
       
-      // 🌟 ดึงค่าโหมดฉุกเฉินตอนโหลดครั้งแรก
       const { data: settings } = await supabase.from("store_settings").select("emergency_reveal_contacts").eq("id", 1).single();
       if (settings) setIsEmergencyMode(settings.emergency_reveal_contacts);
 
@@ -256,14 +270,14 @@ export default function RiderPage() {
 
     checkAuthAndInit();
 
-    // 🌟 แก้ 1 & 2: ใช้ const เลย ไม่ต้องประกาศ let ทิ้งไว้
-    // 🌟 แก้ 3: ระบุ Type ให้ payload ชัดเจนว่ามี { new: { emergency_reveal_contacts: boolean } }
     const settingsChannel = supabase.channel("public:store_settings_rider")
       .on(
         "postgres_changes", 
         { event: "UPDATE", schema: "public", table: "store_settings" }, 
-        (payload: { new: { emergency_reveal_contacts: boolean } }) => {
-          setIsEmergencyMode(payload.new.emergency_reveal_contacts);
+        (payload: { new: { emergency_reveal_contacts?: boolean } }) => {
+          if (payload.new && typeof payload.new.emergency_reveal_contacts !== 'undefined') {
+            setIsEmergencyMode(payload.new.emergency_reveal_contacts);
+          }
         }
       ).subscribe();
 
@@ -434,6 +448,13 @@ export default function RiderPage() {
     if (data && data.length > 0) {
       showAlert("จองงานสำเร็จ!", "งานอยู่ในความดูแลของคุณแล้วครับ 🎉", "success");
       fetchOrdersAndBranches(currentUser.id);
+
+      notifyRoles(
+        ['admin', 'superadmin', 'kitchen'], 
+        "🛵 ไรเดอร์รับงานแล้ว", 
+        `${riderName} รับออเดอร์ #${order.order_number}`, 
+        `/board/${order.branch_id}`
+      );
     } else {
       showAlert("อ๊ะ!", "งานนี้มีเพื่อนไรเดอร์ท่านอื่นกดรับไปก่อนแล้วครับ 😢", "error");
       fetchOrdersAndBranches(currentUser.id);
@@ -454,8 +475,21 @@ export default function RiderPage() {
         const updateData: { status: string; end_time?: string } = { status: nextStatus };
         if (nextStatus === "ส่งแล้ว/เสร็จ") updateData.end_time = new Date().toISOString();
         const { error } = await supabase.from("orders").update(updateData).eq("id", order.id);
-        if (error) showAlert("เกิดข้อผิดพลาด", "อัปเดตไม่สำเร็จ", "error");
-        else fetchOrdersAndBranches(currentUser!.id);
+        
+        if (error) {
+          showAlert("เกิดข้อผิดพลาด", "อัปเดตไม่สำเร็จ", "error");
+        } else {
+          fetchOrdersAndBranches(currentUser!.id);
+          
+          if (nextStatus === "ส่งแล้ว/เสร็จ") {
+            notifyRoles(
+              ['admin', 'superadmin'], 
+              "✅ ส่งลูกค้าสำเร็จ", 
+              `${riderName} ส่งออเดอร์ #${order.order_number} เรียบร้อยแล้ว`, 
+              `/board/${order.branch_id}`
+            );
+          }
+        }
       }, "ยืนยัน", "ยกเลิก"
     );
   };
@@ -466,19 +500,26 @@ export default function RiderPage() {
       "คืนงานใช่ไหม?", "งานนี้จะถูกปลดล็อกให้ไรเดอร์ท่านอื่นแย่งรับได้นะครับ",
       async () => {
         const { error } = await supabase.from("orders").update({ rider_id: null, rider_name: null, start_time: null }).eq("id", orderId);
-        if (error) showAlert("เกิดข้อผิดพลาด", "ไม่สามารถคืนงานได้", "error");
-        else {
+        if (error) {
+          showAlert("เกิดข้อผิดพลาด", "ไม่สามารถคืนงานได้", "error");
+        } else {
           showAlert("เรียบร้อย!", "คืนงานให้ระบบกลางแล้ว", "success");
           setActiveTab("available");
           fetchOrdersAndBranches(currentUser.id);
+
+          const orderNum = orders.find(o => o.id === orderId)?.order_number || "ล่าสุด";
+          notifyRoles(
+            ['admin', 'superadmin'], 
+            "⚠️ ไรเดอร์คืนงาน", 
+            `${riderName} คืนออเดอร์ #${orderNum}`, 
+            `/board/${myBranchId}`
+          );
         }
       }, "คืนงาน", "ยกเลิก"
     );
   };
 
-  // 🌟 ฟังก์ชันนำทางแบบอัจฉริยะ (แยกระหว่าง ลิงก์ vs พิกัดละติจูด vs ชื่อสถานที่)
   const calculateRoute = (order: RiderOrder) => {
-    // 1. ถ้าที่อยู่เป็น Link Google Maps (มีคำว่า http หรือ maps.app.goo.gl) ให้เปิดลิงก์ตรงๆ เลย
     if (order.address && (order.address.startsWith("http") || order.address.includes("maps."))) {
       window.open(order.address, "_blank");
       return;
@@ -490,16 +531,14 @@ export default function RiderPage() {
       return; 
     }
 
-    // 2. ถ้ามี lat, lng (ปักหมุดไว้) ให้นำทางแบบเส้นทางพิกัดเป๊ะๆ
     if (order.lat && order.lng) { 
       const lat = myLocation?.lat || SHOP_LAT;
       const lng = myLocation?.lng || SHOP_LNG;
-      const url = `http://googleusercontent.com/maps.google.com/9${lat},${lng}&destination=${order.lat},${order.lng}&travelmode=driving`;
+      const url = `https://www.google.com/maps/dir/?api=1&origin=${lat},${lng}&destination=${order.lat},${order.lng}&travelmode=driving`;
       window.open(url, "_blank");
       return;
     }
 
-    // 3. ถ้าไม่มีทั้งคู่ แต่มีชื่อสถานที่ (address) ให้โยนไปค้นหาใน Google Maps
     if (order.address) {
       const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.address)}`;
       window.open(url, "_blank");
@@ -516,10 +555,16 @@ export default function RiderPage() {
     );
   };
 
+  const isOnline = (lastSeen: string | null) => {
+    if (!lastSeen) return false;
+    const diffMins = (new Date().getTime() - new Date(lastSeen).getTime()) / 60000;
+    return diffMins < 5;
+  };
+
   const availableOrders = orders.filter((o) => !o.rider_id && ["New", "กำลังทำ", "รับงาน"].includes(o.status));
   const activeOrders = orders.filter((o) => o.rider_id === currentUser?.id && o.status !== "ส่งแล้ว/เสร็จ");
   const completedOrders = orders.filter((o) => o.rider_id === currentUser?.id && o.status === "ส่งแล้ว/เสร็จ");
-  // 🌟 คำนวณหาออเดอร์ในมือที่เลท (เกิน 35 นาที)
+  
   const lateRiderOrders = activeOrders.filter(o => 
     o.status === "รับงาน" && Math.floor((currentTime - new Date(o.created_at).getTime()) / 60000) >= 35
   );
@@ -547,12 +592,11 @@ export default function RiderPage() {
   const renderCard = (order: RiderOrder, idx: number, branch?: Branch) => {
     const isMainBranch = branch?.id === branches[0]?.id; 
     const cardBgClass = isMainBranch 
-      ? "bg-gradient-to-br from-red-500 to-red-600 border-red-700 shadow-red-500/30" 
-      : "bg-gradient-to-br from-blue-900 to-slate-900 border-blue-950 shadow-blue-900/30";
+      ? "bg-linear-to-br from-red-500 to-red-600 border-red-700 shadow-red-500/30" 
+      : "bg-linear-to-br from-blue-900 to-slate-900 border-blue-950 shadow-blue-900/30";
     
     const isAddressUrl = order.address && (order.address.startsWith("http") || order.address.includes("maps."));
 
-    // 🌟 คำนวณเวลา
     const elapsedMinutes = Math.floor((currentTime - new Date(order.created_at).getTime()) / 60000);
     const isKitchenLate = (order.status === "New" || order.status === "กำลังทำ") && elapsedMinutes >= 5;
     const isRiderLate = order.status === "รับงาน" && elapsedMinutes >= 35;
@@ -560,14 +604,12 @@ export default function RiderPage() {
     const isNearLate = elapsedMinutes >= (order.status === "รับงาน" ? 30 : 4);
 
     return (
-          <div 
+      <div 
         key={order.id} 
         className={`${isCompact ? "w-[42vw] sm:w-42.5" : "w-[82vw] sm:w-[320px]"} h-full shrink-0 snap-center rounded-2xl shadow-md border overflow-hidden flex flex-col transition-all duration-300 ${cardBgClass} ${isLate ? 'animate-border-blink' : ''}`} 
         style={{ animation: isLate ? undefined : `fadeIn 0.5s ease-out ${idx * 0.05}s both` }}
       >
-
         <div className="flex-1 overflow-y-auto hide-scrollbar p-2.5 sm:p-3 relative border-b border-white/10 flex flex-col">
-          
           <div className="flex justify-between items-start mb-2 shrink-0 gap-1">
             <div className="flex flex-wrap items-center gap-1">
               <span className={`${isCompact ? "text-[14px]" : "text-lg"} font-black text-white tracking-tight leading-none drop-shadow-sm mr-1`}>
@@ -580,9 +622,7 @@ export default function RiderPage() {
                 {order.job_type}
               </span>
             </div>
-            
             <div className="shrink-0 flex items-center gap-1">
-              {/* 🌟 ป้ายบอกเวลา (แบบใหม่ ตัดกับพื้นหลังทุกสี) */}
               {order.status !== "ส่งแล้ว/เสร็จ" && (
                 <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black uppercase shadow-sm transition-all ${
                   isLate 
@@ -595,14 +635,11 @@ export default function RiderPage() {
                   {elapsedMinutes} นาที {isLate ? "ด่วน!" : ""}
                 </div>
               )}
-
-
               {!isCompact && (
                 <button onClick={(e) => { e.stopPropagation(); setSelectedViewOrder(order); setShowContactInfo(false); }} className="bg-white/20 text-white px-1.5 py-0.5 rounded text-[8px] uppercase font-black flex items-center hover:bg-white/30 active:scale-95 transition-colors">
                   <Eye size={10} className="mr-0.5" /> ข้อมูล
                 </button>
               )}
-              
               <span className="text-[8px] sm:text-[9px] px-1.5 py-0.5 font-black rounded uppercase shadow-sm bg-white/20 text-white">
                 {order.status === "รับงาน" ? "ไปส่งเลย!" : order.status}
               </span>
@@ -623,8 +660,6 @@ export default function RiderPage() {
                   )}
                 </span>
               </div>
-              
-              {/* 🌟 ปุ่มดูรูปหอพัก (ไม่แสดงถ้าเป็นลิงก์) */}
               {!isAddressUrl && (
                 <button 
                   onClick={() => handleViewDormImage(order.address!)} 
@@ -705,28 +740,17 @@ export default function RiderPage() {
     );
   };
 
-  const isOnline = (lastSeen: string | null) => {
-    if (!lastSeen) return false;
-    const diffMins = (new Date().getTime() - new Date(lastSeen).getTime()) / 60000;
-    return diffMins < 5;
-  };
-
   if (isCheckingAuth)
     return (
       <div className="h-dvh bg-slate-50 flex flex-col items-center justify-center text-slate-800 overflow-hidden">
         <div className="relative flex flex-col items-center w-64 h-64 justify-center">
-          {/* ตัวรถ */}
           <div className="text-[5rem] z-10 animate-bike-bounce drop-shadow-xl relative mb-2">
             🛵
-            {/* ควันท่อไอเสีย */}
             <div className="absolute -left-2 bottom-4 w-4 h-4 bg-slate-300 rounded-full animate-ping opacity-60" style={{ animationDuration: '0.8s' }}></div>
           </div>
-          
-          {/* เส้นถนนวิ่ง */}
           <div className="absolute bottom-18 w-48 h-1.5 overflow-hidden rounded-full opacity-60">
             <div className="w-[200%] h-full animate-dash-lines"></div>
           </div>
-
           <h2 className="mt-4 font-black text-sm tracking-wider text-slate-600 flex items-center gap-2">
             <div className="w-4 h-4 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin"></div>
             กำลังเตรียมระบบ...
@@ -814,7 +838,6 @@ export default function RiderPage() {
         </div>
       </div>
 
-      {/* 🌟 [เพิ่มใหม่] ป้ายคาดจอเตือนภัยขั้นสุด จะโผล่มาแค่ตอนมีงานเลท */}
       {hasLateRiderOrder && (
         <div className="absolute top-16 left-0 right-0 z-40 px-4 pointer-events-none animate-in slide-in-from-top-5 duration-300">
           <div className="bg-linear-to-r from-rose-600 to-red-600 text-white p-3.5 rounded-2xl shadow-xl shadow-rose-500/50 flex items-center gap-3 border border-rose-400">
@@ -1030,15 +1053,15 @@ export default function RiderPage() {
               </button>
               
               <Link
-  href="/schedule"
-  prefetch={false}
-  className="w-full flex items-center p-4 text-slate-600 hover:bg-teal-50 hover:text-teal-700 rounded-2xl transition-all font-bold border border-transparent hover:border-teal-100 group"
->
-  <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
-    <Calendar size={20} className="text-teal-600" />
-  </div>
-  ตารางงาน (Schedule)
-</Link>
+                href="/schedule"
+                prefetch={false}
+                className="w-full flex items-center p-4 text-slate-600 hover:bg-teal-50 hover:text-teal-700 rounded-2xl transition-all font-bold border border-transparent hover:border-teal-100 group"
+              >
+                <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                  <Calendar size={20} className="text-teal-600" />
+                </div>
+                ตารางงาน (Schedule)
+              </Link>
 
               <button onClick={() => { setIsMenuOpen(false); setShowRiderMap(true); }} className="w-full flex items-center p-3 text-slate-700 bg-white hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-all text-sm font-bold cursor-pointer border border-slate-200 shadow-sm">
                 <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center mr-3">
@@ -1049,7 +1072,6 @@ export default function RiderPage() {
 
               <div className="h-px bg-slate-200 my-2"></div>
               
-              {/* 🌟 ปุ่มเข้าคลังหอพัก */}
               <Link 
                 href="/dorms"
                 className="w-full flex items-center p-3 text-slate-700 bg-white hover:bg-indigo-50 hover:text-indigo-700 rounded-xl transition-all text-sm font-bold cursor-pointer border border-slate-200 shadow-sm group"
@@ -1098,7 +1120,6 @@ export default function RiderPage() {
                 </div>
               </div>
 
-              {/* 🌟 คนที่จะเห็นลิ้งก์เฟส ต้องเป็นแอดมินหรือซุปเปอร์แอดมินที่แวะมาดูหน้าไรเดอร์เท่านั้น */}
               {(currentUserRole === 'admin' || currentUserRole === 'superadmin') && (selectedViewOrder as RiderOrder & { contact_link?: string }).contact_link && (
                 <div className="space-y-2">
                   <div className="text-[10px] font-black text-blue-600 uppercase tracking-wider flex items-center">
@@ -1142,7 +1163,6 @@ export default function RiderPage() {
                       )}
                     </span>
                   </div>
-                  {/* 🌟 ปุ่มดูรูปหอพักใน Modal */}
                   {selectedViewOrder.address && !selectedViewOrder.address.startsWith("http") && (
                     <button 
                       onClick={() => handleViewDormImage(selectedViewOrder.address!)} 
@@ -1214,6 +1234,42 @@ export default function RiderPage() {
         </div>
       )}
 
+      {/* 🌟 Modal โชว์รูปหอพัก */}
+      {dormImageModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-350 flex items-center justify-center p-4 animate-in fade-in" onClick={() => setDormImageModal({ isOpen: false, url: null, isLoading: false })}>
+          <button className="absolute top-6 right-6 text-white hover:bg-white/20 p-2 rounded-full transition-colors cursor-pointer">
+            <X size={32} />
+          </button>
+          
+          {dormImageModal.isLoading ? (
+            <div className="flex flex-col items-center text-white">
+              <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
+              <span className="font-black tracking-widest uppercase animate-pulse">กำลังค้นหารูปภาพ...</span>
+            </div>
+          ) : dormImageModal.url ? (
+            <div className="relative w-full max-w-lg aspect-square sm:h-[70vh] animate-in zoom-in-95 duration-300">
+              <Image src={dormImageModal.url} alt="Dorm" fill sizes="(max-width: 768px) 100vw, 800px" className="object-contain rounded-2xl" />
+            </div>
+          ) : (
+            <div className="bg-white p-8 rounded-4xl flex flex-col items-center max-w-xs text-center animate-in zoom-in-95 duration-300 border border-slate-100 shadow-2xl" onClick={e => e.stopPropagation()}>
+              <div className="w-20 h-20 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mb-5 shadow-inner border border-slate-100">
+                <ImageIcon size={40} strokeWidth={1.5} />
+              </div>
+              <h3 className="text-lg font-black text-slate-800 mb-2">ไม่พบรูปภาพ</h3>
+              <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                อาจจะเป็นเพราะยังไม่มีใครอัปโหลดรูปของหอพักนี้ หรือพิมพ์ชื่อไม่ตรงกับในคลังครับ
+              </p>
+              <button 
+                onClick={() => setDormImageModal({ isOpen: false, url: null, isLoading: false })}
+                className="mt-6 w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black rounded-xl transition-all cursor-pointer active:scale-95 text-xs uppercase tracking-widest"
+              >
+                รับทราบ
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {showRiderMap && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col h-5/6">
@@ -1240,7 +1296,7 @@ export default function RiderPage() {
                 >
                   <MarkerF
                     position={{ lat: shopLocation.lat, lng: shopLocation.lng }}
-                    icon={{ url: "http://maps.google.com/mapfiles/ms/icons/red-dot.png" }}
+                    icon={{ url: "https://maps.google.com/mapfiles/ms/icons/red-dot.png" }}
                     label={{
                       text: "ร้านที่ประจำอยู่",
                       color: "#b91c1c",
@@ -1264,7 +1320,7 @@ export default function RiderPage() {
                         <MarkerF
                           key={rider.id}
                           position={{ lat: rider.last_lat, lng: rider.last_lng }}
-                          icon={{ url: "http://maps.google.com/mapfiles/ms/icons/blue-dot.png" }}
+                          icon={{ url: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png" }}
                           label={{
                             text: rider.username,
                             color: "#1e293b",
@@ -1306,44 +1362,11 @@ export default function RiderPage() {
               <div className="px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg border border-blue-100 shrink-0 flex items-center gap-1.5">
                 <div className="w-3 h-3 bg-blue-500 rounded-full shadow-inner animate-pulse"></div> ไรเดอร์ (ทุกสาขา)
               </div>
+              <span className="text-xs text-slate-400 my-auto ml-auto pl-4 whitespace-nowrap">
+                *พิกัดอัปเดตทุก 30 วินาที*
+              </span>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* 🌟 Modal โชว์รูปหอพัก */}
-      {dormImageModal.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-350 flex items-center justify-center p-4 animate-in fade-in" onClick={() => setDormImageModal({ isOpen: false, url: null, isLoading: false })}>
-          <button className="absolute top-6 right-6 text-white hover:bg-white/20 p-2 rounded-full transition-colors z-50 cursor-pointer">
-            <X size={32} />
-          </button>
-          
-          {dormImageModal.isLoading ? (
-            <div className="flex flex-col items-center text-white">
-              <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
-              <span className="font-black tracking-widest uppercase animate-pulse">กำลังค้นหารูปภาพ...</span>
-            </div>
-          ) : dormImageModal.url ? (
-            <div className="relative w-full max-w-lg aspect-square sm:h-[70vh] animate-in zoom-in-95 duration-300">
-              <Image src={dormImageModal.url} alt="Dorm" fill sizes="(max-width: 768px) 100vw, 800px" className="object-contain rounded-2xl" />
-            </div>
-          ) : (
-            <div className="bg-white p-8 rounded-4xl flex flex-col items-center max-w-xs text-center animate-in zoom-in-95 duration-300 border border-slate-100 shadow-2xl" onClick={e => e.stopPropagation()}>
-              <div className="w-20 h-20 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mb-5 shadow-inner border border-slate-100">
-                <ImageIcon size={40} strokeWidth={1.5} />
-              </div>
-              <h3 className="text-lg font-black text-slate-800 mb-2">ไม่พบรูปภาพ</h3>
-              <p className="text-xs text-slate-500 font-medium leading-relaxed">
-                อาจจะเป็นเพราะยังไม่มีใครอัปโหลดรูปของหอพักนี้ หรือพิมพ์ชื่อไม่ตรงกับในคลังครับ
-              </p>
-              <button 
-                onClick={() => setDormImageModal({ isOpen: false, url: null, isLoading: false })}
-                className="mt-6 w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black rounded-xl transition-all cursor-pointer active:scale-95 text-xs uppercase tracking-widest"
-              >
-                รับทราบ
-              </button>
-            </div>
-          )}
         </div>
       )}
 
@@ -1449,7 +1472,7 @@ export default function RiderPage() {
   );
 }
 
-// 🌟 Helper Functions (เรียกใช้ปกติ ไม่ใช้ any)
+// 🌟 Helper Functions
 function canAction(order: RiderOrder) {
   return order.status === "รับงาน";
 }
