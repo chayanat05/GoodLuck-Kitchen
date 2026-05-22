@@ -1,6 +1,6 @@
 "use client";
 import { GoogleMap, useJsApiLoader, MarkerF, InfoWindowF } from '@react-google-maps/api';
-import { useCallback, useState, useMemo } from 'react';
+import { useCallback, useState, useMemo, useEffect } from 'react';
 
 const containerStyle = { width: '100%', height: '100%', minHeight: '350px', borderRadius: '1.5rem' };
 const LIBRARIES: ("places" | "drawing" | "geometry" | "visualization")[] = ["places"];
@@ -29,18 +29,24 @@ export default function JobMap({ lat, lng, savedLocations = [], onPinChange, rea
     region: 'TH'
   });
 
-  const [, setMap] = useState<google.maps.Map | null>(null);
+  const [map, setMap] = useState<google.maps.Map | null>(null);
   const [activeMarker, setActiveMarker] = useState<string | null>(null);
 
-  // 🌟 บังคับให้ Center เป็น Number เสมอ
   const center = useMemo(() => ({
     lat: lat ? Number(lat) : 16.248130,
     lng: lng ? Number(lng) : 103.242206
   }), [lat, lng]);
 
-  const onLoad = useCallback((map: google.maps.Map) => {
-    setMap(map);
+  const onLoad = useCallback((mapInstance: google.maps.Map) => {
+    setMap(mapInstance);
   }, []);
+
+  // 🌟 ทำให้แผนที่เลื่อนไปหาจุดศูนย์กลางทันทีเมื่อมีการพิมพ์พิกัดใหม่ในช่อง Input
+  useEffect(() => {
+    if (map && lat && lng) {
+      map.panTo({ lat: Number(lat), lng: Number(lng) });
+    }
+  }, [lat, lng, map]);
 
   const onMapClick = (e: google.maps.MapMouseEvent) => {
     if (readOnly || !onPinChange || !e.latLng) return;
@@ -67,7 +73,6 @@ export default function JobMap({ lat, lng, savedLocations = [], onPinChange, rea
           fullscreenControl: true,
         }}
       >
-        {/* 🌟 เรนเดอร์หมุดที่เคยบันทึกไว้ (เพิ่ม Number() ป้องกัน Error) */}
         {savedLocations.map((loc, idx) => {
           const position = { lat: Number(loc.lat), lng: Number(loc.lng) };
           if (isNaN(position.lat) || isNaN(position.lng)) return null;
@@ -89,7 +94,6 @@ export default function JobMap({ lat, lng, savedLocations = [], onPinChange, rea
           );
         })}
 
-        {/* 🌟 เรนเดอร์หมุดที่กำลังปัก */}
         {lat && lng && (
           <MarkerF 
             position={{ lat: Number(lat), lng: Number(lng) }} 

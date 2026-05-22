@@ -7,7 +7,6 @@ import {
   ExternalLink, ImagePlus, 
   Loader2, Trash2, ImageIcon, Camera, Edit, Lock, Key
 } from "lucide-react";
-//import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
@@ -146,7 +145,6 @@ export default function DormDatabasePage() {
   };
 
   const handleConfirmDelete = async () => {
-    // 🌟 ถ้าไม่ใช่ superadmin ต้องเช็ครหัสผ่าน 8888 ก่อนลบ
     if (userRole !== "superadmin" && adminPassInput !== "8888") {
       alert("รหัสผ่านไม่ถูกต้อง! ไม่สามารถลบได้");
       return;
@@ -158,7 +156,7 @@ export default function DormDatabasePage() {
       if (error) throw error;
       setDeleteId(null);
       setAdminPassInput("");
-      setSearchQuery(""); // 🌟 ล้างช่องค้นหาหลังลบเสร็จ จะได้กลับไปโชว์ข้อมูลหอพักทั้งหมดที่เหลืออยู่
+      setSearchQuery(""); 
       fetchDorms();
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
@@ -178,7 +176,6 @@ export default function DormDatabasePage() {
         
         <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-8">
           <div className="flex items-center gap-4 w-full">
-            {/* 🌟 เปลี่ยน Link เป็น button และใช้ router.back() */}
             <button 
               onClick={() => router.back()} 
               className="p-2 bg-white rounded-full shadow-sm border border-slate-200 hover:bg-slate-100 transition-colors active:scale-95 cursor-pointer"
@@ -190,9 +187,7 @@ export default function DormDatabasePage() {
                 <Camera className="text-indigo-500" size={28} /> Dormitory Bank
               </h1>
               <p className="text-xs font-bold text-slate-400 mt-1">คลังรูปและพิกัดหอพักสารคาม (ระบบจัดการโดย {userRole})</p>
-              
             </div>
-            
           </div>
           <p className="text-x font-bold text-slate-800 mt-1">กรุณาระบุชื่อตึก/ซอยให้ชัดเจน</p>
           <button 
@@ -263,7 +258,6 @@ export default function DormDatabasePage() {
                       <Edit size={16} />
                     </button>
 
-                    {/* 🌟 ให้ admin และ superadmin เห็นปุ่มลบ */}
                     {(userRole === 'admin' || userRole === 'superadmin') && (
                       <button 
                         onClick={() => { setDeleteId(dorm.id); setDeleteConfirmName(dorm.name); }}
@@ -272,7 +266,6 @@ export default function DormDatabasePage() {
                         <Trash2 size={16} />
                       </button>
                     )}
-                    
                   </div>
                 </div>
               </div>
@@ -281,7 +274,6 @@ export default function DormDatabasePage() {
         </div>
       </div>
 
-      {/* Modal ยืนยันการลบ */}
       {deleteId && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-200 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-sm shadow-2xl animate-in zoom-in-95">
@@ -297,7 +289,7 @@ export default function DormDatabasePage() {
               <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
                 type="password"
-                autoComplete="new-password" /* 🌟 ป้องกันบราวเซอร์เด้งรหัสผ่านเก่ามายัดใส่ */
+                autoComplete="new-password"
                 className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:bg-white focus:border-rose-500 transition-all font-black text-center tracking-widest"
                 placeholder="รหัสผ่านยืนยัน"
                 value={adminPassInput}
@@ -319,7 +311,6 @@ export default function DormDatabasePage() {
         </div>
       )}
 
-      {/* Full Image Preview */}
       {selectedFullImage && (
         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl z-300 flex items-center justify-center p-4 animate-in fade-in" onClick={() => setSelectedFullImage(null)}>
           <button className="absolute top-6 right-6 text-white p-2 hover:bg-white/10 rounded-full transition-colors cursor-pointer">
@@ -331,7 +322,6 @@ export default function DormDatabasePage() {
         </div>
       )}
 
-      {/* Modal เพิ่ม/แก้ไข */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-150 animate-in fade-in duration-200">
           <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 border border-slate-100">
@@ -385,6 +375,30 @@ export default function DormDatabasePage() {
                         onChange={e => setFormData({...formData, address: e.target.value})}
                         placeholder="เช่น ซอยตรงข้ามเซเว่น..."
                       />
+                    </div>
+                    
+                    {/* 🌟 เพิ่มช่องกรอกพิกัดแบบ Manual */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 ml-1">Latitude</label>
+                        <input 
+                          type="number" step="any"
+                          className="w-full p-4 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 font-bold text-slate-800 transition-all shadow-sm"
+                          value={formData.lat}
+                          onChange={e => setFormData({...formData, lat: parseFloat(e.target.value) || 0})}
+                          placeholder="เช่น 16.248130"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 ml-1">Longitude</label>
+                        <input 
+                          type="number" step="any"
+                          className="w-full p-4 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 font-bold text-slate-800 transition-all shadow-sm"
+                          value={formData.lng}
+                          onChange={e => setFormData({...formData, lng: parseFloat(e.target.value) || 0})}
+                          placeholder="เช่น 103.242206"
+                        />
+                      </div>
                     </div>
                   </div>
                 </form>
