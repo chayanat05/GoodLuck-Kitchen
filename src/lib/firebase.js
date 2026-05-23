@@ -1,5 +1,5 @@
-import { initializeApp, getApps } from "firebase/app";
-import { getMessaging, getToken } from "firebase/messaging";
+import { initializeApp, getApps } from 'firebase/app';
+import { getMessaging } from 'firebase/messaging';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -10,7 +10,12 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
-const messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
+const app =
+getApps().length
+? getApps()[0]
+: initializeApp(firebaseConfig);
 
-export { messaging, getToken };
+export const messaging =
+typeof window !== 'undefined'
+? getMessaging(app)
+: null;

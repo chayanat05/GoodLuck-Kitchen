@@ -3,12 +3,12 @@ importScripts('https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging-compa
 
 // ใส่ค่าให้ครบจาก Firebase Console
 firebase.initializeApp({
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.FIREBASE_PROJECT_ID,
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.FIREBASE_APP_ID
+  apiKey: "AIzaSyCyAxnYD36ETjr-eYquvvJNOX2IdRaUKJg",
+  authDomain: "goodluck-kitchen.firebaseapp.com",
+  projectId: "goodluck-kitchen",
+  storageBucket: "goodluck-kitchen.firebasestorage.app",
+  messagingSenderId: "859897989366",
+  appId: "1:859897989366:web:93358979409815dd12c4d7"
 });
 
 const messaging = firebase.messaging();

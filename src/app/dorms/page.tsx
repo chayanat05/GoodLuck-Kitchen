@@ -64,6 +64,17 @@ export default function DormDatabasePage() {
       fetchDorms();
     };
     initPage();
+
+    const channel = supabase
+      .channel('dorms_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'saved_locations' }, () => {
+        fetchDorms();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchDorms = async () => {
@@ -71,7 +82,7 @@ export default function DormDatabasePage() {
     const { data } = await supabase
       .from("saved_locations")
       .select("id, name, address, lat, lng, image_url")
-      .order("name");
+      .order("created_at", { ascending: false });
       
     if (data) setDorms(data as DormLocation[]);
     setIsLoading(false);
