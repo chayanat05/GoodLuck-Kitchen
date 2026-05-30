@@ -43,10 +43,10 @@ export default function SettingPage() {
   const [riderOrderLimit, setRiderOrderLimit] = useState<number>(3);
   const [isSavingLimit, setIsSavingLimit] = useState(false);
 
-  const [shift1Start, setShift1Start] = useState<string>('10:00');
-  const [shift1End, setShift1End] = useState<string>('17:00');
-  const [shift2Start, setShift2Start] = useState<string>('17:00');
-  const [shift2End, setShift2End] = useState<string>('03:00');
+  const [shift1Start, setShift1Start] = useState<string>('12:00');
+  const [shift1End, setShift1End] = useState<string>('20:00');
+  const [shift2Start, setShift2Start] = useState<string>('19:00');
+  const [shift2End, setShift2End] = useState<string>('04:00');
   const [businessDayStart, setBusinessDayStart] = useState<string>('07:00');
 
   const [isSavingTime, setIsSavingTime] = useState(false);

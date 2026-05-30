@@ -107,8 +107,8 @@ export default function SchedulePage() {
   
   const [autoAvailabilities, setAutoAvailabilities] = useState<Record<string, boolean>>({});
   const [shiftPresets, setShiftPresets] = useState<ShiftPreset[]>([
-    { id: "morning", name: "กะเช้า", start: "10:00", end: "19:00" },
-    { id: "evening", name: "กะค่ำ", start: "17:00", end: "02:00" }
+    { id: "morning", name: "กะเช้า", start: "12:00", end: "20:00" },
+    { id: "evening", name: "กะค่ำ", start: "19:00", end: "04:00" }
   ]);
   const [quotas, setQuotas] = useState<QuotaConfig>({
     morning: { kitchen: 2, rider: 2, admin: 1 },
@@ -116,7 +116,7 @@ export default function SchedulePage() {
   });
 
   const [formData, setFormData] = useState<FormData>({
-    user_id: "", start_time: "10:00", end_time: "19:00", status: "ทำงาน"
+    user_id: "", start_time: "12:00", end_time: "20:00", status: "ทำงาน"
   });
 
   // --- 🌟 ตัวกรองพนักงานใน AI Modal ---

@@ -55,10 +55,10 @@ export default function SlipsManagementPage() {
   // 🌟 State ใหม่สำหรับระบบเวลา
   const [timeRange, setTimeRange] = useState<TimeRange>("today");
   const [businessDayStart, setBusinessDayStart] = useState<string>("07:00");
-  const [shift1Start, setShift1Start] = useState<string>("10:00");
-  const [shift1End, setShift1End] = useState<string>("17:00");
-  const [shift2Start, setShift2Start] = useState<string>("17:00");
-  const [shift2End, setShift2End] = useState<string>("03:00");
+  const [shift1Start, setShift1Start] = useState<string>("12:00");
+  const [shift1End, setShift1End] = useState<string>("20:00");
+  const [shift2Start, setShift2Start] = useState<string>("19:00");
+  const [shift2End, setShift2End] = useState<string>("04:00");
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
 

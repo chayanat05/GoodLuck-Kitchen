@@ -1,9 +1,5 @@
-import { Metadata, Viewport } from 'next';
-
-export const metadata: Metadata = {
-  title: 'ระบบไรเดอร์',
-  manifest: '/manifest-rider.json', // 🌟 ชี้ไปที่ไฟล์ของไรเดอร์
-};
+// /rider/layout.tsx
+import { Viewport } from 'next';
 
 // 🌟 เพิ่มก้อนนี้เข้าไป เพื่อให้แถบด้านบนของไรเดอร์เป็นสีเขียว
 export const viewport: Viewport = {
