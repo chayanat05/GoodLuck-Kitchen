@@ -2,7 +2,7 @@
   "name": "GoodLuck Kitchen Admin",
   "short_name": "ร้าน GoodLuck",
   "description": "ระบบจัดการบิลและออเดอร์สำหรับร้าน",
-  "start_url": "/board",
+  "start_url": "/home",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#2563eb",

@@ -239,6 +239,17 @@ export default function RiderPage() {
         .eq("id", session.user.id)
         .single();
 
+      if (profile?.role === 'kitchen') {
+        if (profile.branch_id) {
+          const { data: branchData } = await supabase.from("branches").select("slug").eq("id", profile.branch_id).single();
+          const slugToUse = branchData?.slug || profile.branch_id;
+          window.location.href = `/board/${slugToUse}`;
+        } else {
+          window.location.href = "/login";
+        }
+        return;
+      }
+
       setCurrentUser(session.user);
       currentUserId = session.user.id;
       setRiderName(profile?.username || "ไรเดอร์");

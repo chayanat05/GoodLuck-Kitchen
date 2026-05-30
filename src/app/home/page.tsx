@@ -10,7 +10,8 @@ import {
   Search, CheckSquare, Banknote, LayoutDashboard, Landmark,PieChart,
   ImagePlus,
   Utensils,
-  Calendar
+  Calendar,
+  UserSquare2
 } from "lucide-react";
 import SharedGallery from "@/components/SharedGallery";
 
@@ -459,6 +460,18 @@ export default function BranchSelectorPage() {
             <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Dormitory Bank</div>
             </div>
             </Link>
+
+            <div className="h-px bg-slate-100 my-2"></div>
+<Link
+  href="/admin/applications"
+  prefetch={false}
+  className="w-full flex items-center p-4 text-slate-600 hover:bg-violet-50 hover:text-violet-700 rounded-2xl transition-all font-bold border border-transparent hover:border-violet-100 group"
+>
+  <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+    <UserSquare2 size={20} className="text-violet-600" />
+  </div>
+  ดูใบสมัครไรเดอร์ใหม่
+</Link>
 
             <Link
                     href="/menus"
