@@ -1,9 +1,9 @@
 'use client'
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation'; 
-import { User, Lock, LogIn, AlertCircle, Eye, EyeOff, Sparkles } from 'lucide-react';
-import { supabase } from '@/lib/supabase'; // 🌟 แนะนำใช้ @/ เพื่อลดโอกาส Path เพี้ยน
+import { User, Lock, LogIn, AlertCircle, Eye, EyeOff, Sparkles, Loader2 } from 'lucide-react'; // 🌟 เพิ่ม Loader2
+import { supabase } from '@/lib/supabase';
 
 export default function LoginPage() {
   const [formData, setFormData] = useState({
@@ -14,7 +14,57 @@ export default function LoginPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   
+  // 🌟 เพิ่ม State สำหรับโชว์หน้าโหลดตอนแอปกำลังแอบเช็คข้อมูล
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  
   const router = useRouter(); 
+
+  // 🌟 เพิ่ม useEffect สำหรับเช็ค Session อัตโนมัติเมื่อเปิดแอป
+  useEffect(() => {
+    const checkExistingSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (session) {
+          // ถ้ามี Session ค้างอยู่ ให้ดึงข้อมูล Profile และ Branch มาเช็ค Role
+          const { data: userProfile } = await supabase
+            .from('profiles')
+            .select('role, branch_id')
+            .eq('id', session.user.id)
+            .single();
+
+          // แยกเส้นทางตามระดับผู้ใช้งานแบบอัตโนมัติ
+          if (userProfile?.role === 'admin' || userProfile?.role === 'superadmin') {
+            router.replace('/home'); // ใช้ replace เพื่อไม่ให้กดย้อนกลับมาหน้า login ได้
+          } else if (userProfile?.role === 'kitchen') {
+            if (userProfile.branch_id) {
+              const { data: branchData } = await supabase
+                .from('branches')
+                .select('slug')
+                .eq('id', userProfile.branch_id)
+                .single();
+              
+              const slugToUse = branchData?.slug || userProfile.branch_id;
+              router.replace(`/board/${slugToUse}`);
+            } else {
+              // กรณีไอดีแม่ครัวไม่มีสาขา ให้บังคับออกจากระบบแล้วโชว์ฟอร์ม
+              await supabase.auth.signOut();
+              setIsCheckingAuth(false);
+            }
+          } else {
+            router.replace('/rider'); 
+          }
+        } else {
+          // ถ้าไม่มี Session ถึงจะยอมให้โชว์ฟอร์มล็อกอิน
+          setIsCheckingAuth(false);
+        }
+      } catch {
+        setIsCheckingAuth(false);
+      }
+    };
+
+    checkExistingSession();
+  }, [router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,7 +74,7 @@ export default function LoginPage() {
     try {
       let loginEmail = formData.identifier.trim();
 
-      // 🌟 ตรวจสอบ Username ผ่าน RPC (No Any!)
+      // ตรวจสอบ Username ผ่าน RPC
       if (!loginEmail.includes('@')) {
         const { data: userEmail, error: rpcError } = await supabase
           .rpc('get_email_by_username', { p_username: loginEmail });
@@ -37,7 +87,7 @@ export default function LoginPage() {
         loginEmail = userEmail as string; 
       }
 
-      // 🌟 ดำเนินการล็อกอิน
+      // ดำเนินการล็อกอิน
       const { data: authData, error } = await supabase.auth.signInWithPassword({
         email: loginEmail,
         password: formData.password,
@@ -47,14 +97,14 @@ export default function LoginPage() {
         setErrorMsg('รหัสผ่านไม่ถูกต้อง หรือบัญชีไม่มีในระบบครับ');
       } else if (authData.user) {
         
-        // 🌟 ดึงข้อมูล Profile และ Branch
+        // ดึงข้อมูล Profile และ Branch
         const { data: userProfile } = await supabase
           .from('profiles')
           .select('role, branch_id')
           .eq('id', authData.user.id)
           .single();
 
-        // 🌟 แยกเส้นทางตามระดับผู้ใช้งาน
+        // แยกเส้นทางตามระดับผู้ใช้งาน
         if (userProfile?.role === 'admin' || userProfile?.role === 'superadmin') {
           router.push('/home'); 
         } else if (userProfile?.role === 'kitchen') {
@@ -82,9 +132,22 @@ export default function LoginPage() {
     }
   };
 
+  // 🌟 ถ้ากำลังแอบเช็ค Auth อยู่ ให้โชว์หน้าโหลด
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen relative flex items-center justify-center overflow-hidden bg-slate-50 p-4 font-sans">
+        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-blue-400/20 rounded-full filter blur-[100px] animate-pulse"></div>
+        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-indigo-400/20 rounded-full filter blur-[100px] animate-pulse delay-700"></div>
+        <div className="relative flex flex-col items-center justify-center bg-white/50 p-10 rounded-[2.5rem] backdrop-blur-md">
+          <Loader2 className="animate-spin text-blue-600 mb-4" size={48} />
+          <p className="text-slate-500 font-bold uppercase tracking-widest text-sm">กำลังเชื่อมต่อระบบ...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen relative flex items-center justify-center overflow-hidden bg-slate-50 p-4 font-sans">
-      {/* 🌟 ปรับอนิเมชั่นพื้นหลังให้ลื่นไหลขึ้น */}
       <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-blue-400/20 rounded-full filter blur-[100px] animate-pulse"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-indigo-400/20 rounded-full filter blur-[100px] animate-pulse delay-700"></div>
 
