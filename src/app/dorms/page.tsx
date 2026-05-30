@@ -17,6 +17,7 @@ interface DormLocation {
   lat: number;
   lng: number;
   image_url: string | null;
+  last_edited_by?: string | null; // 🌟 1. เพิ่มฟิลด์สำหรับเก็บชื่อคนแก้ล่าสุด
 }
 
 export default function DormDatabasePage() {
@@ -28,8 +29,9 @@ export default function DormDatabasePage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // 🌟 User Role State
+  // 🌟 User State
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [currentUserName, setCurrentUserName] = useState<string>("ไม่ระบุ"); // 🌟 2. State เก็บชื่อคนใช้งานปัจจุบัน
   
   // 🌟 Delete Confirmation State
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -54,12 +56,18 @@ export default function DormDatabasePage() {
     const initPage = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
+        // 🌟 3. ดึงชื่อ หรือ ข้อมูลอื่นๆ ของ User จากตาราง profiles มาด้วย
         const { data: profile } = await supabase
           .from('profiles')
-          .select('role')
+          .select('role, username') // สมมติว่ามีคอลัมน์ full_name หรือ username
           .eq('id', user.id)
           .single();
+          
         setUserRole(profile?.role || 'rider');
+        
+        // กำหนดชื่อคนแก้: ถ้าไม่มี full_name ให้ใช้อีเมลส่วนหน้าแทน
+        const displayName =  profile?.username ;
+        setCurrentUserName(displayName);
       }
       fetchDorms();
     };
@@ -81,7 +89,7 @@ export default function DormDatabasePage() {
     setIsLoading(true);
     const { data } = await supabase
       .from("saved_locations")
-      .select("id, name, address, lat, lng, image_url")
+      .select("id, name, address, lat, lng, image_url, last_edited_by") // 🌟 4. ดึง last_edited_by มาแสดง
       .order("created_at", { ascending: false });
       
     if (data) setDorms(data as DormLocation[]);
@@ -139,7 +147,10 @@ export default function DormDatabasePage() {
     e.preventDefault();
     setIsSubmitting(true);
     
-    const payload = editingId ? { id: editingId, ...formData } : formData;
+    // 🌟 5. แนบชื่อคนที่แก้ไขล่าสุดเข้าไปใน Payload ก่อนส่งไปบันทึก
+    const payload = editingId 
+      ? { id: editingId, ...formData, last_edited_by: currentUserName } 
+      : { ...formData, last_edited_by: currentUserName };
 
     const { error } = await supabase
       .from("saved_locations")
@@ -250,8 +261,14 @@ export default function DormDatabasePage() {
                 </p>
                 
                 <div className="mt-auto pt-4 border-t border-slate-50 flex items-center justify-between">
-                  <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
-                    ID: {dorm.id.slice(0, 5)}
+                  {/* 🌟 6. เพิ่มส่วนแสดงชื่อคนแก้ไขที่นี่ */}
+                  <div className="flex flex-col gap-1">
+                    <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
+                      ID: {dorm.id.slice(0, 5)}
+                    </div>
+                    <div className="text-[9px] font-bold text-slate-400">
+                      ✍️ อัปเดตโดย: <span className="text-indigo-500">{dorm.last_edited_by || 'ไม่ระบุ'}</span>
+                    </div>
                   </div>
                   
                   <div className="flex items-center gap-1">
@@ -293,21 +310,24 @@ export default function DormDatabasePage() {
             </div>
             <h3 className="text-xl font-black text-slate-800 text-center mb-2">ยืนยันการลบ</h3>
             <p className="text-sm text-slate-500 text-center mb-6 font-bold">
-              กรุณาใส่รหัสผ่านแอดมินเพื่อลบ <br/>
+              {userRole === "superadmin" ? "ยืนยันการลบหอพัก" : "กรุณาใส่รหัสผ่านแอดมินเพื่อลบ"} <br/>
               <span className="text-rose-600">&quot;{deleteConfirmName}&quot;</span>
+              {userRole === "superadmin" ? " หรือไม่?" : ""}
             </p>
-            <div className="relative mb-6">
-              <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input 
-                type="password"
-                autoComplete="new-password"
-                className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:bg-white focus:border-rose-500 transition-all font-black text-center tracking-widest"
-                placeholder="รหัสผ่านยืนยัน"
-                value={adminPassInput}
-                onChange={e => setAdminPassInput(e.target.value)}
-                autoFocus
-              />
-            </div>
+            {userRole !== "superadmin" && (
+              <div className="relative mb-6">
+                <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input 
+                  type="password"
+                  autoComplete="new-password"
+                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:bg-white focus:border-rose-500 transition-all font-black text-center tracking-widest"
+                  placeholder="รหัสผ่านยืนยัน"
+                  value={adminPassInput}
+                  onChange={e => setAdminPassInput(e.target.value)}
+                  autoFocus
+                />
+              </div>
+            )}
             <div className="flex gap-3">
               <button onClick={() => { setDeleteId(null); setAdminPassInput(""); }} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl cursor-pointer hover:bg-slate-200">ยกเลิก</button>
               <button 
@@ -388,7 +408,6 @@ export default function DormDatabasePage() {
                       />
                     </div>
                     
-                    {/* 🌟 เพิ่มช่องกรอกพิกัดแบบ Manual */}
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 ml-1">Latitude</label>

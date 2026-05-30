@@ -1,6 +1,6 @@
 {
     "name": "GoodLuck Kitchen App",
-    "short_name": "GL Kitchen",
+    "short_name": "GoodLuck Kitchen",
     
     "description": "ระบบจัดการร้านอาหารและระบบไรเดอร์ GoodLuck",
     "start_url": "/login", 
