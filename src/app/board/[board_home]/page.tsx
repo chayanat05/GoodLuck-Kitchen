@@ -180,7 +180,8 @@ export default function BoardPage({
     details: "",
     location_name: "",
     address: "",
-    total_price: "",
+    total_price: "10",
+    delivery_fee: "10",
     payment_method: "โอน",
     lat: null as number | null,
     lng: null as number | null,
@@ -605,7 +606,8 @@ export default function BoardPage({
       details: "",
       location_name: "",
       address: "",
-      total_price: "",
+      total_price: "10",
+      delivery_fee: "10",
       payment_method: "โอน",
       lat: null,
       lng: null,
@@ -630,6 +632,7 @@ export default function BoardPage({
       location_name: order.address || "",
       address: "",
       total_price: order.total_price.toString(),
+      delivery_fee: order.delivery_fee?.toString() || "10",
       payment_method: order.payment_method || "โอน",
       lat: order.lat || null,
       lng: order.lng || null,
@@ -702,6 +705,7 @@ export default function BoardPage({
     }
 
     const cleanPrice = formData.job_type === "shopee" ? 0 : parseInt(formData.total_price.replace(/[^0-9]/g, ""), 10) || 0;
+    const cleanDelivery = formData.job_type === "shopee" ? 0 : parseInt(formData.delivery_fee.replace(/[^0-9]/g, ""), 10) || 0;
 
     const orderData = {
       order_number: finalOrderNumber,
@@ -711,6 +715,7 @@ export default function BoardPage({
       address: formData.job_type === "shopee" ? null : formData.location_name,
       image_url: currentExisting.join(","),
       total_price: cleanPrice,
+      delivery_fee: cleanDelivery,
       payment_method: formData.job_type === "shopee" ? "โอน" : formData.payment_method,
       lat: formData.job_type === "shopee" ? null : formData.lat,
       lng: formData.job_type === "shopee" ? null : formData.lng,
@@ -1049,7 +1054,7 @@ export default function BoardPage({
             onClick={() => setIsMenuOpen(false)}
           ></div>
           <div className="relative w-80 bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-300 z-10 rounded-r-4xl overflow-hidden">
-            <div className="bg-gradient-to-br from-blue-600 to-indigo-800 p-8 text-white relative">
+            <div className="bg-linear-to-br from-blue-600 to-indigo-800 p-8 text-white relative">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-bl-full pointer-events-none"></div>
               <button
                 onClick={() => setIsMenuOpen(false)}
@@ -1571,9 +1576,17 @@ export default function BoardPage({
                   value={formData.menu}
                   onChange={(e) => {
                     const newMenu = e.target.value;
-                    const newPrice = calculateAutoPrice(newMenu) || formData.total_price;
-                    setFormData({ ...formData, menu: newMenu, total_price: newPrice });
-                  }}
+      const autoFoodPrice = calculateAutoPrice(newMenu);
+      let newTotalPrice = formData.total_price;
+      
+      // 🌟 นำค่าอาหารที่คำนวณได้ มาบวกกับค่าส่งที่มีอยู่ในฟอร์ม
+      if (autoFoodPrice !== null) {
+        const currentDeliveryFee = parseInt(formData.delivery_fee || "0", 10);
+        newTotalPrice = (parseInt(autoFoodPrice, 10) + currentDeliveryFee).toString();
+      }
+      
+      setFormData({ ...formData, menu: newMenu, total_price: newTotalPrice });
+    }}
                   placeholder={"พิมคีย์เวิร์ด เช่น\n- กะเพราหมูกรอบ 2\n- ชาเขียว 1\nแล้วจะมีเมนูด้านล่างมาให้เลือก"}
                 />
                 
@@ -1592,24 +1605,31 @@ export default function BoardPage({
 
                     return currentMenus.map((item) => (
                       <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => {
-                          const newLines = [...lines];
-                          if (searchKeyword) {
-                            newLines[newLines.length - 1] = item.menu_name + " 1"; 
-                          } else {
-                            if (newLines[newLines.length - 1].trim() === "") {
-                              newLines[newLines.length - 1] = item.menu_name + " 1";
-                            } else {
-                              newLines.push(item.menu_name + " 1");
-                            }
-                          }
+    key={item.id}
+    type="button"
+    onClick={() => {
+      const newLines = [...lines];
+      if (searchKeyword) {
+        newLines[newLines.length - 1] = item.menu_name + " 1"; 
+      } else {
+        if (newLines[newLines.length - 1].trim() === "") {
+          newLines[newLines.length - 1] = item.menu_name + " 1";
+        } else {
+          newLines.push(item.menu_name + " 1");
+        }
+      }
+      
+      const newMenuText = newLines.join('\n');
+      const autoFoodPrice = calculateAutoPrice(newMenuText);
+      let newTotalPrice = formData.total_price;
+
+      // 🌟 นำค่าอาหารที่คำนวณได้ มาบวกกับค่าส่งที่มีอยู่ในฟอร์ม
+      if (autoFoodPrice !== null) {
+        const currentDeliveryFee = parseInt(formData.delivery_fee || "0", 10);
+        newTotalPrice = (parseInt(autoFoodPrice, 10) + currentDeliveryFee).toString();
+      }
                           
-                          const newMenuText = newLines.join('\n');
-                          const newPrice = calculateAutoPrice(newMenuText) || formData.total_price;
-                          
-                          setFormData({ ...formData, menu: newMenuText, total_price: newPrice });
+                          setFormData({ ...formData, menu: newMenuText, total_price: newTotalPrice });
                         }}
                         className={`shrink-0 snap-start text-[10px] font-black px-3 py-1.5 border rounded-lg transition-all active:scale-95 shadow-sm cursor-pointer whitespace-nowrap ${
                           searchKeyword && item.menu_name.toLowerCase().includes(searchKeyword)
@@ -1764,45 +1784,63 @@ export default function BoardPage({
 
               {formData.job_type !== "shopee" && (
                 <div className="space-y-6 pt-3 border-t border-slate-200/60 mt-6">
-                  <div className="grid grid-cols-2 gap-5">
+                  <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
-                        ยอดเก็บเงินรวม (บาท)
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-black text-blue-600 shadow-sm"
-                        value={formData.total_price}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            total_price: e.target.value.replace(/[^0-9]/g, ""),
-                          })
-                        }
-                        placeholder="0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
-                        ช่องทางชำระเงิน
-                      </label>
-                      <select
-                        className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer font-bold text-slate-800 shadow-sm"
-                        value={formData.payment_method}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            payment_method: e.target.value,
-                          })
-                        }
-                      >
-                        <option value="โอน">📱 เงินโอน</option>
-                        <option value="เงินสด">💵 เงินสด (เก็บปลายทาง)</option>
-                        <option value="คนละครึ่ง">🔵 คนละครึ่ง</option>
-                      </select>
-                    </div>
-                  </div>
+    <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase">
+      ค่าส่ง (บาท)
+    </label>
+    <input
+      type="text"
+      inputMode="numeric"
+      className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-lg outline-none focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 transition-all font-black text-orange-500 shadow-sm"
+      value={formData.delivery_fee}
+      onChange={(e) => {
+        const newFeeStr = e.target.value.replace(/[^0-9]/g, "");
+        const newFeeNum = parseInt(newFeeStr || "0", 10);
+        const oldFeeNum = parseInt(formData.delivery_fee || "0", 10);
+        const currentTotal = parseInt(formData.total_price || "0", 10);
+        
+        // 🌟 ปรับยอดรวมอัตโนมัติตามส่วนต่างค่าส่งที่เปลี่ยนไป
+        const newTotal = currentTotal - oldFeeNum + newFeeNum;
+        
+        setFormData({ 
+          ...formData, 
+          delivery_fee: newFeeStr, 
+          total_price: Math.max(0, newTotal).toString() 
+        });
+      }}
+      placeholder="0"
+    />
+  </div>
+  <div>
+    <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase">
+      ค่าอาหารรวมค่าส่ง (บาท)
+    </label>
+    <input
+      type="text"
+      inputMode="numeric"
+      className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-lg outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-black text-blue-600 shadow-sm"
+      value={formData.total_price}
+      onChange={(e) => setFormData({ ...formData, total_price: e.target.value.replace(/[^0-9]/g, "") })}
+      placeholder="0"
+    />
+  </div>
+  
+  <div>
+    <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase">
+      ช่องทางชำระเงิน
+    </label>
+    <select
+      className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-xs outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer font-bold text-slate-800 shadow-sm"
+      value={formData.payment_method}
+      onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
+    >
+      <option value="โอน">📱 โอน</option>
+      <option value="เงินสด">💵 เงินสด</option>
+      <option value="คนละครึ่ง">🔵 ครึ่งๆ</option>
+    </select>
+  </div>
+</div>
 
                   <div className="relative p-5 bg-white border border-slate-200/60 rounded-3xl shadow-sm">
                     <label className="text-xs font-black text-blue-600 mb-3 tracking-wide flex items-center uppercase">
@@ -2125,6 +2163,12 @@ export default function BoardPage({
                     ฿{selectedViewOrder.total_price || 0}
                   </span>
                 </div>
+                <div className="flex justify-between items-center pt-2 border-t border-slate-100">
+  <span className="text-slate-500 font-medium">ค่าส่ง:</span>
+  <span className="font-black text-orange-500 text-lg">
+                    ฿{selectedViewOrder.delivery_fee || 0}
+  </span>
+</div>
                 <div className="flex justify-between items-center">
                   <span className="text-slate-500 font-medium">
                     การชำระเงิน:

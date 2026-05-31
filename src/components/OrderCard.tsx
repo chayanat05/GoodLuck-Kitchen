@@ -27,6 +27,7 @@ export interface Order {
   sort_index?: number;
   contact_link?: string;
   contact_source?: string; 
+  delivery_fee?: number | null;
 }
 
 interface OrderProps {
@@ -236,7 +237,10 @@ function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onVi
                 </span>
               )
             )}
-            <span className={`font-black text-sm ${theme.text}`}>฿{order.total_price}</span>
+            <span className={`font-black text-sm ${theme.text}`}>
+  ฿{order.total_price}
+  {order.delivery_fee ? <span className="text-[10px] ml-1 opacity-80">(รวมค่าส่งแล้ว ฿{order.delivery_fee})</span> : null}
+</span>
             {order.payment_method && !isCompact && (
               <span className={`text-xs font-black uppercase px-2 py-0.5 rounded shadow-sm border ${theme.badgeBg}`}>
                 {order.payment_method}
