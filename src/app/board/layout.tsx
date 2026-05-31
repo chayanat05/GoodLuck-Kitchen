@@ -1,9 +1,5 @@
-import { Metadata , Viewport} from 'next';
+import { Viewport} from 'next';
 
-export const metadata: Metadata = {
-  title: 'ระบบจัดการร้าน',
-  manifest: '/manifest-board.json', // 🌟 ชี้ไปที่ไฟล์ของร้าน
-};
 
 // 🌟 เพิ่มก้อนนี้เข้าไป เพื่อให้แถบด้านบนของร้านเป็นสีน้ำเงิน
 export const viewport: Viewport = {

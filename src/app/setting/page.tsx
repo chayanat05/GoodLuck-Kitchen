@@ -55,6 +55,14 @@ export default function SettingPage() {
   const [isClearBoardOpen, setIsClearBoardOpen] = useState(false);
   const [clearTarget, setClearTarget] = useState("ALL");
   const [isClearing, setIsClearing] = useState(false);
+  
+  // 🌟 State สำหรับ Confirm Dialog กลางจอ
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: (() => void) | null;
+  }>({ isOpen: false, title: '', message: '', onConfirm: null });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [toast, setToast] = useState<{show: boolean, message: string, type: 'success'|'error'}>({ show: false, message: '', type: 'success' });
@@ -139,7 +147,7 @@ export default function SettingPage() {
 
   const processImageFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
-      alert('กรุณาอัปโหลดไฟล์รูปภาพเท่านั้นครับ');
+      showToast('กรุณาอัปโหลดไฟล์รูปภาพเท่านั้นครับ', 'error');
       return;
     }
     const reader = new FileReader();
@@ -151,7 +159,7 @@ export default function SettingPage() {
         showToast('อัปโหลดรูปพื้นหลังสำเร็จ!');
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (err) {
-        alert('รูปภาพมีขนาดใหญ่เกินไป กรุณาใช้รูปที่มีขนาดเล็กลงครับ');
+        showToast('รูปภาพมีขนาดใหญ่เกินไป กรุณาใช้รูปที่มีขนาดเล็กลงครับ', 'error');
       }
     };
     reader.readAsDataURL(file);
@@ -238,27 +246,32 @@ export default function SettingPage() {
   // 🌟 ฟังก์ชันล้างบอร์ด
   const handleClearBoard = async (e: React.FormEvent) => {
     e.preventDefault();
-    const isConfirmed = window.confirm("⚠️ ยืนยันการปิดยอดจบวัน?\nออเดอร์ในสาขาที่เลือกจะถูกซ่อนออกจากกระดานทันที");
-    if (!isConfirmed) return;
-
-    setIsClearing(true);
-    try {
-      let query = supabase.from("orders").update({ is_archived: true }).neq("is_archived", true);
-      if (clearTarget !== "ALL") {
-        query = query.eq("branch_id", clearTarget);
+    setConfirmDialog({
+      isOpen: true,
+      title: 'ยืนยันการปิดยอดจบวัน?',
+      message: 'ออเดอร์ในสาขาที่เลือกจะถูกซ่อนออกจากกระดานทันที',
+      onConfirm: async () => {
+        setConfirmDialog({ isOpen: false, title: '', message: '', onConfirm: null });
+        setIsClearing(true);
+        try {
+          let query = supabase.from("orders").update({ is_archived: true }).neq("is_archived", true);
+          if (clearTarget !== "ALL") {
+            query = query.eq("branch_id", clearTarget);
+          }
+          
+          const { error } = await query;
+          if (error) throw error;
+          
+          showToast("🌙 ปิดยอดจบวัน (ล้างกระดาน) เรียบร้อย!");
+          setIsClearBoardOpen(false);
+        } catch (error) {
+          console.error(error);
+          showToast("เกิดข้อผิดพลาดในการล้างบอร์ด", "error");
+        } finally {
+          setIsClearing(false);
+        }
       }
-      
-      const { error } = await query;
-      if (error) throw error;
-      
-      showToast("🌙 ปิดยอดจบวัน (ล้างกระดาน) เรียบร้อย!");
-      setIsClearBoardOpen(false);
-    } catch (error) {
-      console.error(error);
-      showToast("เกิดข้อผิดพลาดในการล้างบอร์ด", "error");
-    } finally {
-      setIsClearing(false);
-    }
+    });
   };
 
   if (loading) return <div className="min-h-screen bg-gray-50 flex justify-center items-center font-bold text-gray-400 animate-pulse">กำลังโหลดข้อมูล...</div>;
@@ -657,6 +670,44 @@ export default function SettingPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 🌟 Modal: ระบบยืนยัน (Confirm Dialog กลางจอ) */}
+      {confirmDialog.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-200 animate-in fade-in duration-300">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-5 duration-300 flex flex-col p-6 text-center border border-white/20">
+            <div className="w-20 h-20 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner relative">
+              <div className="absolute inset-0 bg-amber-200 rounded-full animate-ping opacity-20"></div>
+              <AlertTriangle size={40} className="animate-pulse drop-shadow-md" />
+            </div>
+            
+            <h3 className="text-xl font-black text-slate-800 tracking-tight mb-2">
+              {confirmDialog.title}
+            </h3>
+            <p className="text-sm text-slate-500 font-medium mb-6 leading-relaxed">
+              {confirmDialog.message}
+            </p>
+            
+            <div className="flex gap-3 mt-2">
+              <button 
+                type="button" 
+                onClick={() => setConfirmDialog({ isOpen: false, title: '', message: '', onConfirm: null })}
+                className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-black tracking-widest uppercase rounded-2xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-xs"
+              >
+                ยกเลิก
+              </button>
+              <button 
+                type="button" 
+                onClick={() => {
+                  if (confirmDialog.onConfirm) confirmDialog.onConfirm();
+                }}
+                className="flex-1 py-3.5 text-white font-black tracking-widest uppercase rounded-2xl transition-all cursor-pointer shadow-xl active:scale-95 text-xs bg-linear-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-amber-500/30"
+              >
+                ยืนยัน
+              </button>
+            </div>
           </div>
         </div>
       )}

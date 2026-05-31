@@ -113,7 +113,6 @@ function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onVi
             {isShopee ? (order.order_number.startsWith('#') ? order.order_number : `#${order.order_number}`) : order.order_number}
           </span>
           
-          {/* 🌟 ซ่อนเวลาถ้าสถานะเป็น "ส่งแล้ว/เสร็จ" */}
           {order.status !== 'ส่งแล้ว/เสร็จ' && (
             <div className={`flex items-center gap-1 px-2 py-0.5 rounded-lg font-black text-[10px] shadow-sm animate-in fade-in ${
               isKitchenLate || isRiderLate 

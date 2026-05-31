@@ -37,7 +37,6 @@ import {
   Settings,
   ArrowRightLeft,
   Lock,
-  Contact,
   ClipboardList,
   MapPin,
   Plus,
@@ -84,17 +83,19 @@ interface RiderLocation {
   last_seen: string | null;
 }
 
-// 🌟 Interfaces สำหรับดึงข้อมูลเมนูและร้าน
-interface ShopMenu {
+interface BranchMenu {
   id: string;
-  shop_name: string;
+  branch_id: string;
   menu_name: string;
   price: number;
 }
+
 interface ContactSource {
   id: string;
+  branch_id: string;
   name: string;
 }
+
 interface CalcItem {
   name: string;
   qty: number;
@@ -133,113 +134,45 @@ export default function BoardPage({
   const SHOP_LAT = 16.24813;
   const SHOP_LNG = 103.242206;
 
+  // ---------------------------------------------------------------------------
+  // 1. STATES & REFS (ประกาศตัวแปรก่อนเพื่อน)
+  // ---------------------------------------------------------------------------
   const [currentBranchId, setCurrentBranchId] = useState<string>("");
-
   const [isMounted, setIsMounted] = useState<boolean>(false);
   const [orders, setOrders] = useState<Order[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-
   const [bgColor, setBgColor] = useState<string>("#f8fafc");
   const [bgImage, setBgImage] = useState<string | null>(null);
-  const [bgOption, setBgOption] = useState<"cover" | "contain" | "repeat">(
-    "cover",
-  );
-
+  const [bgOption, setBgOption] = useState<"cover" | "contain" | "repeat">("cover");
   const [isCompact, setIsCompact] = useState<boolean>(false);
-
-  const defaultMapCenter = useMemo(
-    () => ({ lat: SHOP_LAT, lng: SHOP_LNG }),
-    [],
-  );
-
-  const [scannerConfig, setScannerConfig] = useState<{
-    isOpen: boolean;
-    orderId: string;
-    amount: number;
-    initialImageUrls?: string[];
-  } | null>(null);
-
-  const [statusModal, setStatusModal] = useState<{
-    isOpen: boolean;
-    order: Order | null;
-  }>({ isOpen: false, order: null });
-
+  const [scannerConfig, setScannerConfig] = useState<{ isOpen: boolean; orderId: string; amount: number; initialImageUrls?: string[]; } | null>(null);
+  const [statusModal, setStatusModal] = useState<{ isOpen: boolean; order: Order | null; }>({ isOpen: false, order: null });
   const [isEmergencyMode, setIsEmergencyMode] = useState<boolean>(false);
-
   const [showContactInfo, setShowContactInfo] = useState(false);
-
   const [currentUserRole, setCurrentUserRole] = useState<string>("admin");
-
   const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
   const [adminName, setAdminName] = useState<string>("กำลังโหลด...");
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
-
-  // 🌟 State สำหรับเมนูและแหล่งที่มา
-  const [allShopMenus, setAllShopMenus] = useState<ShopMenu[]>([]);
+  const [allBranchMenus, setAllBranchMenus] = useState<BranchMenu[]>([]);
   const [contactSources, setContactSources] = useState<ContactSource[]>([]);
-
-  // 🌟 ฟังก์ชันยิงแจ้งเตือน Web Push
-  const notifyRoles = async (roles: string[], title: string, body: string, link: string) => {
-    try {
-      const { data } = await supabase
-        .from('profiles')
-        .select('fcm_token')
-        .in('role', roles)
-        .not('fcm_token', 'is', null);
-
-      if (data && data.length > 0) {
-        const tokens = data.map(u => u.fcm_token);
-        await fetch('/api/send-push', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tokens, title, message: body, link })
-        });
-      }
-    } catch (e) {
-      console.error('Push Error:', e);
-    }
-  };
-
-  // 🌟 ฟังก์ชันดึงเมนู
-  const fetchSyncData = useCallback(async () => {
-    const { data: menuData } = await supabase.from("shop_menus").select("*");
-    const { data: sourceData } = await supabase.from("contact_sources").select("*").order("name");
-    
-    if (menuData) setAllShopMenus(menuData as ShopMenu[]);
-    if (sourceData) setContactSources(sourceData as ContactSource[]);
-  }, []);
-
-  // 🌟 ระบบคำนวณราคาอัตโนมัติอัจฉริยะ (No Any & Safe TypeScript)
-  const calculateAutoPrice = useCallback((menuText: string, currentSource: string): string | null => {
-    if (!menuText.trim()) return null;
-
-    const lines = menuText.split('\n');
-    let total = 0;
-    const shopMenus = allShopMenus.filter(m => m.shop_name === currentSource);
-    const sortedMenus = [...shopMenus].sort((a, b) => b.menu_name.length - a.menu_name.length);
-
-    lines.forEach(line => {
-      const cleanLine = line.trim();
-      if (!cleanLine) return;
-
-      for (const item of sortedMenus) {
-        if (cleanLine.toLowerCase().includes(item.menu_name.toLowerCase())) {
-          let qty = 1;
-          const matches = cleanLine.match(/\d+/g);
-          if (matches && matches.length > 0) {
-              qty = parseInt(matches[matches.length - 1], 10);
-          }
-          total += (item.price * qty);
-          break;
-        }
-      }
-    });
-
-    return total > 0 ? total.toString() : null;
-  }, [allShopMenus]);
-
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedViewOrder, setSelectedViewOrder] = useState<Order | null>(null);
+  const [imageGallery, setImageGallery] = useState<{ urls: string[]; startIndex: number; } | null>(null);
+  const [imgScale, setImgScale] = useState(1);
+  const [savedLocations, setSavedLocations] = useState<SavedLocation[]>([]);
+  const [unifiedResults, setUnifiedResults] = useState<UnifiedSearchResult[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [existingImages, setExistingImages] = useState<string[]>([]);
+  const [showRiderMap, setShowRiderMap] = useState<boolean>(false);
+  const [ridersLoc, setRidersLoc] = useState<RiderLocation[]>([]);
+  const [selectedRiderMapInfo, setSelectedRiderMapInfo] = useState<RiderLocation | null>(null);
+  
   const [formData, setFormData] = useState({
     order_number: "",
     job_type: "ร้าน",
@@ -255,14 +188,131 @@ export default function BoardPage({
     contact_source: "", 
   });
 
-  // 🌟 สร้างใบเสร็จแจกแจงรายการ (Breakdown) แบบ Real-time ผ่าน useMemo (แก้ปัญหาโค้ดแดง 100%)
+  const galleryRef = useRef<HTMLDivElement>(null);
+  const dbTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const googleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const notificationAudio = useRef<HTMLAudioElement | null>(null);
+
+  const defaultMapCenter = useMemo(() => ({ lat: SHOP_LAT, lng: SHOP_LNG }), []);
+  const [mapLibraries] = useState<"places"[]>(["places"]);
+  const { isLoaded } = useJsApiLoader({
+    id: "google-map-script",
+    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "",
+    libraries: mapLibraries,
+    language: "th",
+    region: "TH",
+  });
+
+  // ---------------------------------------------------------------------------
+  // 2. CORE FUNCTIONS (ประกาศฟังก์ชันให้เสร็จก่อนให้ useEffect เรียกใช้)
+  // ---------------------------------------------------------------------------
+  
+  const showToast = useCallback((msg: string) => {
+    if (msg.includes('❌') || msg.includes('เกิดข้อผิดพลาด')) {
+      toast.error(msg);
+    } else if (msg.includes('🔔')) {
+      toast.info(msg);
+    } else {
+      toast.success(msg);
+    }
+  }, []);
+
+  const notifyRoles = async (roles: string[], title: string, body: string, link: string) => {
+    try {
+      const { data } = await supabase.from('profiles').select('fcm_token').in('role', roles).not('fcm_token', 'is', null);
+      if (data && data.length > 0) {
+        const tokens = data.map(u => u.fcm_token);
+        await fetch('/api/send-push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tokens, title, message: body, link }) });
+      }
+    } catch (e) {
+      console.error('Push Error:', e);
+    }
+  };
+
+  const fetchOrdersAndLocations = useCallback(async () => {
+    if (!currentBranchId) return;
+
+    // Fetch Orders
+    const { data: orderData, error: orderError } = await supabase
+      .from("orders")
+      .select("*")
+      .eq("branch_id", currentBranchId)
+      .or("is_archived.is.null,is_archived.eq.false")
+      .order("sort_index", { ascending: true })
+      .order("created_at", { ascending: false });
+
+    if (orderError) console.error("Error fetching orders:", orderError);
+    if (orderData) {
+      if (currentUserRole === "kitchen") {
+        const kitchenOrders = (orderData as Order[]).filter((o) => o.job_type === "ร้าน");
+        setOrders(kitchenOrders);
+      } else {
+        setOrders(orderData as Order[]);
+      }
+    }
+
+    // Fetch Locations
+    const { data: locData } = await supabase.from("saved_locations").select("*").order("name", { ascending: true });
+    if (locData) setSavedLocations(locData as SavedLocation[]);
+
+    // 🌟 Fetch Menus & Sources ของสาขานี้ (เปลี่ยนการเรียงให้เหมือนหน้าเมนู)
+    const { data: menuData } = await supabase
+      .from("branch_menus")
+      .select("*")
+      .eq("branch_id", currentBranchId)
+      .order("created_at", { ascending: false }); // 👈 เรียงจากใหม่ไปเก่า
+
+    const { data: sourceData } = await supabase
+      .from("contact_sources")
+      .select("*")
+      .eq("branch_id", currentBranchId)
+      .order("created_at", { ascending: false }); // 👈 เรียงจากใหม่ไปเก่า
+
+    if (menuData) setAllBranchMenus(menuData as BranchMenu[]);
+    if (sourceData) setContactSources(sourceData as ContactSource[]);
+
+  }, [currentBranchId, currentUserRole]);
+
+  const fetchRidersLocation = useCallback(async () => {
+    if (!currentBranchId) return;
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, username, last_lat, last_lng, last_seen")
+      .not("last_lat", "is", null);
+
+    if (error) console.error(error);
+    if (data) setRidersLoc(data as RiderLocation[]);
+  }, [currentBranchId]);
+
+  const calculateAutoPrice = useCallback((menuText: string): string | null => {
+    if (!menuText.trim()) return null;
+    const lines = menuText.split('\n');
+    let total = 0;
+    const sortedMenus = [...allBranchMenus].sort((a, b) => b.menu_name.length - a.menu_name.length);
+
+    lines.forEach(line => {
+      const cleanLine = line.trim();
+      if (!cleanLine) return;
+      for (const item of sortedMenus) {
+        if (cleanLine.toLowerCase().includes(item.menu_name.toLowerCase())) {
+          let qty = 1;
+          const matches = cleanLine.match(/\d+/g);
+          if (matches && matches.length > 0) {
+              qty = parseInt(matches[matches.length - 1], 10);
+          }
+          total += (item.price * qty);
+          break;
+        }
+      }
+    });
+    return total > 0 ? total.toString() : null;
+  }, [allBranchMenus]);
+
   const calcBreakdown = useMemo<CalcItem[]>(() => {
     if (!formData.menu.trim()) return [];
-
     const lines = formData.menu.split('\n');
     const breakdown: CalcItem[] = [];
-    const shopMenus = allShopMenus.filter(m => m.shop_name === formData.contact_source);
-    const sortedMenus = [...shopMenus].sort((a, b) => b.menu_name.length - a.menu_name.length);
+    const sortedMenus = [...allBranchMenus].sort((a, b) => b.menu_name.length - a.menu_name.length);
 
     lines.forEach(line => {
       const cleanLine = line.trim();
@@ -276,13 +326,11 @@ export default function BoardPage({
           if (matches && matches.length > 0) {
               qty = parseInt(matches[matches.length - 1], 10);
           }
-
-          const lineTotal = item.price * qty;
           breakdown.push({
             name: item.menu_name,
             qty,
             unitPrice: item.price,
-            total: lineTotal,
+            total: item.price * qty,
             found: true
           });
           matched = true;
@@ -290,48 +338,38 @@ export default function BoardPage({
         }
       }
       if (!matched) {
-         breakdown.push({
-            name: cleanLine,
-            qty: 0,
-            unitPrice: 0,
-            total: 0,
-            found: false
-         });
+         breakdown.push({ name: cleanLine, qty: 0, unitPrice: 0, total: 0, found: false });
       }
     });
-
     return breakdown;
-  }, [formData.menu, formData.contact_source, allShopMenus]);
+  }, [formData.menu, allBranchMenus]);
 
+
+  // ---------------------------------------------------------------------------
+  // 3. EFFECTS (ทำงานหลังจากที่ฟังก์ชันหลักถูกประกาศแล้ว)
+  // ---------------------------------------------------------------------------
+
+  // โหลด Branch และ Theme
   useEffect(() => {
     const fetchSettings = async () => {
       const { data } = await supabase.from("store_settings").select("emergency_reveal_contacts").eq("id", 1).single();
       if (data) setIsEmergencyMode(data.emergency_reveal_contacts);
     };
-    
-    const init = async () => {
-      await Promise.all([fetchSyncData(), fetchSettings()]);
-    };
-    init();
+    fetchSettings();
 
     const settingsChannel = supabase
       .channel("public:store_settings")
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "store_settings", filter: "id=eq.1" }, (payload) => {
         setIsEmergencyMode(payload.new.emergency_reveal_contacts);
       }).subscribe();
-    const fetchBranchAndTheme = async () => {
-      const { data } = await supabase
-        .from("branches")
-        .select("id, theme_bg_color, theme_bg_image, theme_bg_option")
-        .eq("slug", branchSlug)
-        .single();
 
+    const fetchBranchAndTheme = async () => {
+      const { data } = await supabase.from("branches").select("id, theme_bg_color, theme_bg_image, theme_bg_option").eq("slug", branchSlug).single();
       if (data) {
         setCurrentBranchId(data.id);
         if (data.theme_bg_color) setBgColor(data.theme_bg_color);
         if (data.theme_bg_image) setBgImage(data.theme_bg_image);
-        if (data.theme_bg_option)
-          setBgOption(data.theme_bg_option as "cover" | "contain" | "repeat");
+        if (data.theme_bg_option) setBgOption(data.theme_bg_option as "cover" | "contain" | "repeat");
       } else {
         setCurrentBranchId(branchSlug);
       }
@@ -340,153 +378,32 @@ export default function BoardPage({
 
     const themeChannel = supabase
       .channel("public:branches:theme")
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "branches",
-          filter: `slug=eq.${branchSlug}`,
-        },
-        (payload) => {
-          if (payload.new.theme_bg_color)
-            setBgColor(payload.new.theme_bg_color);
-          if (payload.new.theme_bg_image)
-            setBgImage(payload.new.theme_bg_image);
-          if (payload.new.theme_bg_option)
-            setBgOption(
-              payload.new.theme_bg_option as "cover" | "contain" | "repeat",
-            );
-        },
-      )
-      .subscribe();
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "branches", filter: `slug=eq.${branchSlug}` }, (payload) => {
+          if (payload.new.theme_bg_color) setBgColor(payload.new.theme_bg_color);
+          if (payload.new.theme_bg_image) setBgImage(payload.new.theme_bg_image);
+          if (payload.new.theme_bg_option) setBgOption(payload.new.theme_bg_option as "cover" | "contain" | "repeat");
+        }
+      ).subscribe();
 
     return () => {
       supabase.removeChannel(settingsChannel);
       supabase.removeChannel(themeChannel);
     };
-  }, [branchSlug, fetchSyncData]);
+  }, [branchSlug]);
 
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setDebouncedQuery(searchQuery);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [searchQuery]);
-
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-
-  const [selectedViewOrder, setSelectedViewOrder] = useState<Order | null>(
-    null,
-  );
-  const [imageGallery, setImageGallery] = useState<{
-    urls: string[];
-    startIndex: number;
-  } | null>(null);
-  const [imgScale, setImgScale] = useState(1);
-  const galleryRef = useRef<HTMLDivElement>(null);
-
-  const [savedLocations, setSavedLocations] = useState<SavedLocation[]>([]);
-  const [unifiedResults, setUnifiedResults] = useState<UnifiedSearchResult[]>(
-    [],
-  );
-  const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
-
-  const dbTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const googleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const notificationAudio = useRef<HTMLAudioElement | null>(null);
-  const [isUploading, setIsUploading] = useState<boolean>(false);
-
-  const [imageFiles, setImageFiles] = useState<File[]>([]);
-  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
-  const [existingImages, setExistingImages] = useState<string[]>([]);
-
-  const [showRiderMap, setShowRiderMap] = useState<boolean>(false);
-  const [ridersLoc, setRidersLoc] = useState<RiderLocation[]>([]);
-  const [selectedRiderMapInfo, setSelectedRiderMapInfo] =
-    useState<RiderLocation | null>(null);
-  const [mapLibraries] = useState<"places"[]>(["places"]);
-  const { isLoaded } = useJsApiLoader({
-    id: "google-map-script",
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "",
-    libraries: mapLibraries,
-    language: "th",
-    region: "TH",
-  });
-
-  const showToast = useCallback((msg: string) => {
-    if (msg.includes('❌') || msg.includes('เกิดข้อผิดพลาด')) {
-      toast.error(msg);
-    } else if (msg.includes('🔔')) {
-      toast.info(msg);
-    } else {
-      toast.success(msg);
-    }
-  }, []);
-
-  const fetchOrdersAndLocations = useCallback(async () => {
-    if (!currentBranchId) return;
-
-    const { data: orderData, error: orderError } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("branch_id", currentBranchId)
-      .or("is_archived.is.null,is_archived.eq.false")
-      .order("sort_index", { ascending: true })
-      .order("created_at", { ascending: false });
-
-    if (orderError) console.error("Error fetching orders:", orderError);
-    if (orderData) {
-      if (currentUserRole === "kitchen") {
-        const kitchenOrders = (orderData as Order[]).filter(
-          (o) => o.job_type === "ร้าน",
-        );
-        setOrders(kitchenOrders);
-      } else {
-        setOrders(orderData as Order[]);
-      }
-    }
-
-    const { data: locData, error: locError } = await supabase
-      .from("saved_locations")
-      .select("*")
-      .order("name", { ascending: true });
-    if (locError) console.error("Error fetching locations:", locError);
-    if (locData) setSavedLocations(locData as SavedLocation[]);
-  }, [currentBranchId, currentUserRole]);
-
-  const fetchRidersLocation = useCallback(async () => {
-    if (!currentBranchId) return;
-
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, username, last_lat, last_lng, last_seen")
-      .not("last_lat", "is", null);
-
-    if (error) console.error(error);
-    if (data) setRidersLoc(data as RiderLocation[]);
-  }, [currentBranchId]);
-
+  // โหลด Orders และฟัง Realtime
   useEffect(() => {
     if (!currentBranchId) return;
 
     notificationAudio.current = new Audio(NOTIFICATION_SOUND_URL);
 
     const checkAuthAndInit = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         window.location.href = "/login";
         return;
       }
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("role, username")
-        .eq("id", session.user.id)
-        .single();
+      const { data: profile, error } = await supabase.from("profiles").select("role, username").eq("id", session.user.id).single();
 
       if (error || !profile || !["admin", "kitchen", "superadmin"].includes(profile.role)) {
         alert("สิทธิ์การเข้าถึงถูกปฏิเสธ! คุณถูกพาไปยังหน้าของไรเดอร์");
@@ -495,9 +412,7 @@ export default function BoardPage({
       }
 
       setCurrentUser(session.user);
-      setAdminName(
-        profile.username || (profile.role === "admin" ? "แอดมิน" : "แม่ครัว" ),
-      );
+      setAdminName(profile.username || (profile.role === "admin" ? "แอดมิน" : "แม่ครัว" ));
       setCurrentUserRole(profile.role);
       setIsMounted(true);
       fetchOrdersAndLocations();
@@ -507,81 +422,70 @@ export default function BoardPage({
 
     const orderChannel = supabase
       .channel("public:orders")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "orders",
-          filter: `branch_id=eq.${currentBranchId}`,
-        },
-        (payload) => {
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
           if (!payload.new.is_archived) {
             notificationAudio.current?.play().catch(() => {});
-            showToast(
-              `🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`,
-            );
+            showToast(`🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`);
           }
           fetchOrdersAndLocations();
-        },
+        }
       )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "orders",
-          filter: `branch_id=eq.${currentBranchId}`,
-        },
-        () => fetchOrdersAndLocations(),
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "DELETE",
-          schema: "public",
-          table: "orders",
-          filter: `branch_id=eq.${currentBranchId}`,
-        },
-        () => fetchOrdersAndLocations(),
-      )
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, () => fetchOrdersAndLocations())
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, () => fetchOrdersAndLocations())
       .subscribe();
 
+      // 👇 เพิ่มโค้ดก้อนนี้เข้าไปเพื่อดักฟังการเปลี่ยนแปลงเมนูและแหล่งที่มา 👇
+    const syncChannel = supabase
+      .channel("public:sync_menus_sources")
+      .on("postgres_changes", { event: "*", schema: "public", table: "branch_menus", filter: `branch_id=eq.${currentBranchId}` }, () => fetchOrdersAndLocations())
+      .on("postgres_changes", { event: "*", schema: "public", table: "contact_sources", filter: `branch_id=eq.${currentBranchId}` }, () => fetchOrdersAndLocations())
+      .subscribe();
+      
     return () => {
       supabase.removeChannel(orderChannel);
+      supabase.removeChannel(syncChannel);
     };
   }, [fetchOrdersAndLocations, showToast, currentBranchId]);
 
+  // ติดตามพิกัดไรเดอร์
   useEffect(() => {
     if (showRiderMap && currentBranchId) {
-      const getInitialLocation = async () => {
-        await fetchRidersLocation();
-      };
-      getInitialLocation();
+      // Use a timeout to move the state update out of the synchronous effect execution
+      const timer = setTimeout(() => fetchRidersLocation(), 0);
+      
       const interval = setInterval(fetchRidersLocation, 10000);
       const profileChannel = supabase
         .channel("public:profiles")
-        .on(
-          "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "profiles" },
-          () => fetchRidersLocation(),
-        )
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles" }, () => fetchRidersLocation())
         .subscribe();
       return () => {
         clearInterval(interval);
+        clearTimeout(timer);
         supabase.removeChannel(profileChannel);
       };
     }
   }, [showRiderMap, fetchRidersLocation, currentBranchId]);
 
+  // ซูมแกลอรี่
   useEffect(() => {
     if (imageGallery && galleryRef.current) {
-      const target = galleryRef.current.children[
-        imageGallery.startIndex
-      ] as HTMLElement;
+      const target = galleryRef.current.children[imageGallery.startIndex] as HTMLElement;
       if (target) galleryRef.current.scrollLeft = target.offsetLeft;
     }
   }, [imageGallery]);
+
+  // Search Delay
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+
+  // ---------------------------------------------------------------------------
+  // 4. EVENT HANDLERS
+  // ---------------------------------------------------------------------------
 
   const scrollGallery = (direction: "left" | "right") => {
     setImgScale(1);
@@ -596,16 +500,9 @@ export default function BoardPage({
     const fileExt = file.name.split(".").pop();
     const fileName = `${Math.random()}.${fileExt}`;
     const filePath = `order-photos/${fileName}`;
-    const { error: uploadError } = await supabase.storage
-      .from("order-images")
-      .upload(filePath, file);
-    if (uploadError) {
-      console.error("Upload error:", uploadError);
-      return null;
-    }
-    const { data } = supabase.storage
-      .from("order-images")
-      .getPublicUrl(filePath);
+    const { error: uploadError } = await supabase.storage.from("order-images").upload(filePath, file);
+    if (uploadError) return null;
+    const { data } = supabase.storage.from("order-images").getPublicUrl(filePath);
     return data.publicUrl;
   };
 
@@ -620,11 +517,7 @@ export default function BoardPage({
     }
 
     dbTimeoutRef.current = setTimeout(async () => {
-      const { data: storeData } = await supabase
-        .from("saved_locations")
-        .select("*")
-        .ilike("name", `%${text}%`)
-        .limit(5);
+      const { data: storeData } = await supabase.from("saved_locations").select("*").ilike("name", `%${text}%`).limit(5);
       let storeResults: UnifiedSearchResult[] = [];
       if (storeData && storeData.length > 0) {
         storeResults = (storeData as SavedLocation[]).map((loc) => ({
@@ -647,22 +540,15 @@ export default function BoardPage({
           {
             input: text,
             componentRestrictions: { country: "th" },
-            locationBias: {
-              radius: 20000,
-              center: { lat: SHOP_LAT, lng: SHOP_LNG },
-            },
+            locationBias: { radius: 20000, center: { lat: SHOP_LAT, lng: SHOP_LNG } },
           },
           (predictions, status) => {
-            if (
-              status === window.google.maps.places.PlacesServiceStatus.OK &&
-              predictions
-            ) {
+            if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
               const googleResults = predictions.slice(0, 3).map((p) => ({
                 type: "google" as const,
                 place_id: p.place_id,
                 name: p.structured_formatting.main_text,
-                address:
-                  p.structured_formatting.secondary_text || "Google Maps",
+                address: p.structured_formatting.secondary_text || "Google Maps",
               }));
               setUnifiedResults((prev) => {
                 const combined = [...prev, ...googleResults];
@@ -705,16 +591,12 @@ export default function BoardPage({
   };
 
   const openCreateModal = () => {
-    const storeOrders = orders.filter(
-      (o) => o.job_type === "ร้าน" && !isNaN(Number(o.order_number)),
-    );
+    const storeOrders = orders.filter((o) => o.job_type === "ร้าน" && !isNaN(Number(o.order_number)));
     let nextNum = "1";
     if (storeOrders.length > 0) {
       nextNum = (Number(storeOrders[0].order_number) + 1).toString();
     }
-
-    const defaultSource = contactSources.length > 0 ? contactSources[0].name : "เพจหลัก";
-
+    const defaultSource = contactSources.length > 0 ? contactSources[0].name : "";
     setEditingId(null);
     setFormData({
       order_number: nextNum,
@@ -737,12 +619,9 @@ export default function BoardPage({
     setIsModalOpen(true);
   };
 
-  const openEditModal = (
-    order: Order & { contact_link?: string; contact_source?: string },
-  ) => {
+  const openEditModal = (order: Order & { contact_link?: string; contact_source?: string }) => {
     setEditingId(order.id);
-    const source = order.contact_source || (contactSources.length > 0 ? contactSources[0].name : "เพจหลัก");
-    
+    const source = order.contact_source || (contactSources.length > 0 ? contactSources[0].name : "");
     setFormData({
       order_number: order.order_number,
       job_type: order.job_type,
@@ -757,12 +636,9 @@ export default function BoardPage({
       contact_link: order.contact_link || "",
       contact_source: source,
     });
-
-    if (order.image_url) {
-      setExistingImages(order.image_url.split(",").filter(Boolean));
-    } else {
-      setExistingImages([]);
-    }
+    if (order.image_url) setExistingImages(order.image_url.split(",").filter(Boolean));
+    else setExistingImages([]);
+    
     setImageFiles([]);
     setImagePreviews([]);
     setShowSuggestions(false);
@@ -770,18 +646,16 @@ export default function BoardPage({
   };
 
   const handleAddFiles = (files: FileList | File[]) => {
-    const validFiles = Array.from(files).filter((f) =>
-      f.type.startsWith("image/"),
-    );
+    const validFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
     if (validFiles.length === 0) return;
     setImageFiles((prev) => [...prev, ...validFiles]);
     validFiles.forEach((file) => {
       const reader = new FileReader();
-      reader.onloadend = () =>
-        setImagePreviews((prev) => [...prev, reader.result as string]);
+      reader.onloadend = () => setImagePreviews((prev) => [...prev, reader.result as string]);
       reader.readAsDataURL(file);
     });
   };
+
   const handlePasteImage = (event: React.ClipboardEvent) => {
     const items = event.clipboardData.items;
     if (!items) return;
@@ -794,17 +668,21 @@ export default function BoardPage({
     }
     handleAddFiles(files);
   };
+
   const handleDropImage = (event: React.DragEvent) => {
     event.preventDefault();
     event.stopPropagation();
     if (event.dataTransfer.files) handleAddFiles(event.dataTransfer.files);
   };
+
   const handleFileInput = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) handleAddFiles(event.target.files);
   };
+
   const removeExistingImage = (index: number) => {
     setExistingImages((prev) => prev.filter((_, i) => i !== index));
   };
+
   const removeNewImage = (index: number) => {
     setImageFiles((prev) => prev.filter((_, i) => i !== index));
     setImagePreviews((prev) => prev.filter((_, i) => i !== index));
@@ -819,17 +697,11 @@ export default function BoardPage({
     let finalOrderNumber = formData.order_number.trim();
     if (formData.job_type === "shopee" && !finalOrderNumber) {
       finalOrderNumber = `#SHP-${Math.floor(1000 + Math.random() * 9000)}`;
-    } else if (
-      formData.job_type === "shopee" &&
-      !finalOrderNumber.startsWith("#")
-    ) {
+    } else if (formData.job_type === "shopee" && !finalOrderNumber.startsWith("#")) {
       finalOrderNumber = "#" + finalOrderNumber;
     }
 
-    const cleanPrice =
-      formData.job_type === "shopee"
-        ? 0
-        : parseInt(formData.total_price.replace(/[^0-9]/g, ""), 10) || 0;
+    const cleanPrice = formData.job_type === "shopee" ? 0 : parseInt(formData.total_price.replace(/[^0-9]/g, ""), 10) || 0;
 
     const orderData = {
       order_number: finalOrderNumber,
@@ -839,8 +711,7 @@ export default function BoardPage({
       address: formData.job_type === "shopee" ? null : formData.location_name,
       image_url: currentExisting.join(","),
       total_price: cleanPrice,
-      payment_method:
-        formData.job_type === "shopee" ? "โอน" : formData.payment_method,
+      payment_method: formData.job_type === "shopee" ? "โอน" : formData.payment_method,
       lat: formData.job_type === "shopee" ? null : formData.lat,
       lng: formData.job_type === "shopee" ? null : formData.lng,
       contact_link: formData.contact_link.trim(),
@@ -851,29 +722,18 @@ export default function BoardPage({
     const isEdit = !!editingId;
 
     if (isEdit) {
-      const { data } = await supabase
-        .from("orders")
-        .update(orderData)
-        .eq("branch_id", currentBranchId)
-        .eq("id", editingId)
-        .select();
+      const { data } = await supabase.from("orders").update(orderData).eq("branch_id", currentBranchId).eq("id", editingId).select();
       if (data) {
-        setOrders(
-          orders.map((o) => (o.id === editingId ? (data[0] as Order) : o)),
-        );
+        setOrders(orders.map((o) => (o.id === editingId ? (data[0] as Order) : o)));
         showToast("อัปเดตข้อมูลสำเร็จ! 📝");
       }
     } else {
-      const { data } = await supabase
-        .from("orders")
-        .insert([{ ...orderData, branch_id: currentBranchId, status: "New" }])
-        .select();
+      const { data } = await supabase.from("orders").insert([{ ...orderData, branch_id: currentBranchId, status: "New" }]).select();
       if (data && data.length > 0) {
         targetId = data[0].id;
         setOrders([data[0] as Order, ...orders]);
         showToast("สร้างออเดอร์สำเร็จ! 🚀");
         
-        // 🌟 ยิงแจ้งเตือนเมื่อมีออเดอร์ใหม่
         notifyRoles(
           ['kitchen', 'rider', 'admin', 'superadmin'], 
           "✨ มีออเดอร์ใหม่เข้า!", 
@@ -897,11 +757,7 @@ export default function BoardPage({
       }
       if (uploadedUrls.length > 0) {
         const finalUrls = [...currentExisting, ...uploadedUrls].join(",");
-        await supabase
-          .from("orders")
-          .update({ image_url: finalUrls })
-          .eq("branch_id", currentBranchId)
-          .eq("id", targetId);
+        await supabase.from("orders").update({ image_url: finalUrls }).eq("branch_id", currentBranchId).eq("id", targetId);
         showToast("อัปโหลดรูปภาพทั้งหมดเสร็จสิ้น! 📸");
         fetchOrdersAndLocations();
       }
@@ -912,31 +768,21 @@ export default function BoardPage({
     if (!statusModal.order) return;
     const targetOrder = statusModal.order;
 
-    const updateData: { status: string; end_time?: string } = {
-      status: newStatus,
-    };
+    const updateData: { status: string; end_time?: string } = { status: newStatus };
     if (newStatus === "ส่งแล้ว/เสร็จ" && targetOrder.job_type === "shopee") {
       updateData.end_time = new Date().toISOString();
     }
 
     setStatusModal({ isOpen: false, order: null });
 
-    const { data, error } = await supabase
-      .from("orders")
-      .update(updateData)
-      .eq("branch_id", currentBranchId)
-      .eq("id", targetOrder.id)
-      .select();
+    const { data, error } = await supabase.from("orders").update(updateData).eq("branch_id", currentBranchId).eq("id", targetOrder.id).select();
     if (error) {
       console.error(error);
       showToast("เกิดข้อผิดพลาดในการเปลี่ยนสถานะ ❌");
     } else if (data) {
-      setOrders(
-        orders.map((o) => (o.id === targetOrder.id ? { ...o, ...data[0] } : o)),
-      );
+      setOrders(orders.map((o) => (o.id === targetOrder.id ? { ...o, ...data[0] } : o)));
       showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`);
       
-      // 🌟 ยิงแจ้งเตือนเมื่อถูกปรับสถานะด้วยมือ
       notifyRoles(
         ['rider', 'admin', 'superadmin', 'kitchen'], 
         `🔄 อัปเดตสถานะออเดอร์`, 
@@ -949,18 +795,12 @@ export default function BoardPage({
   };
 
   const handleStartOrder = async (orderId: string) => {
-    const { data, error } = await supabase
-      .from("orders")
-      .update({ status: "กำลังทำ" })
-      .eq("branch_id", currentBranchId)
-      .eq("id", orderId)
-      .select();
+    const { data, error } = await supabase.from("orders").update({ status: "กำลังทำ" }).eq("branch_id", currentBranchId).eq("id", orderId).select();
     if (error) console.error(error);
     if (data) {
       setOrders(orders.map((o) => (o.id === orderId ? (data[0] as Order) : o)));
       showToast("ครัวเริ่มทำอาหารแล้ว! 🍳");
       
-      // 🌟 ยิงแจ้งเตือน
       const orderNum = orders.find(o => o.id === orderId)?.order_number || "ล่าสุด";
       notifyRoles(
         ['rider', 'admin', 'superadmin'], 
@@ -968,7 +808,6 @@ export default function BoardPage({
         `ออเดอร์ #${orderNum} เริ่มปรุงแล้ว`, 
         `/board/${branchSlug}`
       );
-
       setSelectedViewOrder(null);
     }
   };
@@ -977,27 +816,15 @@ export default function BoardPage({
     const targetOrder = orders.find((o) => o.id === orderId);
     const isShopee = targetOrder?.job_type === "shopee";
     const nextStatus = isShopee ? "ส่งแล้ว/เสร็จ" : "รับงาน";
-    const updateData: { status: string; end_time?: string } = {
-      status: nextStatus,
-    };
+    const updateData: { status: string; end_time?: string } = { status: nextStatus };
     if (isShopee) updateData.end_time = new Date().toISOString();
 
-    const { data, error } = await supabase
-      .from("orders")
-      .update(updateData)
-      .eq("branch_id", currentBranchId)
-      .eq("id", orderId)
-      .select();
+    const { data, error } = await supabase.from("orders").update(updateData).eq("branch_id", currentBranchId).eq("id", orderId).select();
     if (error) console.error(error);
     if (data) {
       setOrders(orders.map((o) => (o.id === orderId ? (data[0] as Order) : o)));
-      showToast(
-        isShopee
-          ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦"
-          : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵",
-      );
+      showToast(isShopee ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦" : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵");
 
-      // 🌟 ยิงแจ้งเตือน
       const orderNum = orders.find(o => o.id === orderId)?.order_number || "ล่าสุด";
       notifyRoles(
         ['rider', 'admin', 'superadmin'], 
@@ -1005,7 +832,6 @@ export default function BoardPage({
         `ออเดอร์ #${orderNum} เสร็จแล้ว ไรเดอร์มารับได้เลย`, 
         `/board/${branchSlug}`
       );
-
       setSelectedViewOrder(null);
     }
   };
@@ -1041,11 +867,7 @@ export default function BoardPage({
       reverseButtons: true,
     }).then(async (result) => {
       if (result.isConfirmed) {
-        const { error } = await supabase
-          .from("orders")
-          .delete()
-          .eq("branch_id", currentBranchId)
-          .eq("id", id);
+        const { error } = await supabase.from("orders").delete().eq("branch_id", currentBranchId).eq("id", id);
         if (error) {
           console.error(error);
           showToast("เกิดข้อผิดพลาดในการลบออเดอร์ ❌");
@@ -1062,25 +884,15 @@ export default function BoardPage({
     const items = Array.from(orders);
     const [reorderedItem] = items.splice(result.source.index, 1);
     items.splice(result.destination.index, 0, reorderedItem);
-
     setOrders(items);
-
     items.forEach((item, index) => {
-      supabase
-        .from("orders")
-        .update({ sort_index: index })
-        .eq("branch_id", currentBranchId)
-        .eq("id", item.id)
-        .then(({ error }) => {
+      supabase.from("orders").update({ sort_index: index }).eq("branch_id", currentBranchId).eq("id", item.id).then(({ error }) => {
           if (error) console.error("Error updating sort index:", error);
         });
     });
   };
 
-  const pendingOrders = useMemo(
-    () => orders.filter((o) => ["New", "กำลังทำ", "รับงาน"].includes(o.status)),
-    [orders],
-  );
+  const pendingOrders = useMemo(() => orders.filter((o) => ["New", "กำลังทำ", "รับงาน"].includes(o.status)), [orders]);
 
   const filteredOrders = useMemo(() => {
     const q = debouncedQuery.toLowerCase();
@@ -1091,6 +903,10 @@ export default function BoardPage({
         (order.rider_name?.toLowerCase() || "").includes(q),
     );
   }, [orders, debouncedQuery]);
+
+  // ---------------------------------------------------------------------------
+  // 5. RENDER UI
+  // ---------------------------------------------------------------------------
 
   if (!currentUser || !isMounted || !currentBranchId)
     return (
@@ -1129,7 +945,7 @@ export default function BoardPage({
         backgroundAttachment: "fixed",
       }}
     >
-
+      {/* 🌟 Header */}
       <div className="shrink-0 p-2 pb-0 z-40">
         <div className="flex flex-col lg:flex-row justify-between items-center gap-2 mb-0 bg-white/90 backdrop-blur-xl p-2 rounded-2xl shadow-sm border border-slate-200/60">
           <div className="flex items-center gap-2 w-full lg:w-auto">
@@ -1213,19 +1029,10 @@ export default function BoardPage({
               </button>
             )}
 
-            {currentUserRole === "admin" && (
+            {(currentUserRole === "admin" || currentUserRole === 'superadmin') && (
               <button
                 onClick={openCreateModal}
                 className="w-full sm:w-auto px-4 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 hover:shadow-lg transition-all duration-300 cursor-pointer active:scale-95 shadow-md"
-              >
-                + สร้างออเดอร์
-              </button>
-            )}
-
-            {currentUserRole === 'superadmin' && (
-              <button
-                onClick={openCreateModal}
-                className="w-full sm:w-auto px-4 py-1.5 bg-purple-600 text-white text-xs font-bold rounded-xl hover:bg-purple-700 hover:shadow-lg transition-all duration-300 cursor-pointer active:scale-95 shadow-md"
               >
                 + สร้างออเดอร์
               </button>
@@ -1234,6 +1041,7 @@ export default function BoardPage({
         </div>
       </div>
 
+      {/* 🌟 Sidebar Menu */}
       {isMenuOpen && (
         <div className="fixed inset-0 flex z-50">
           <div
@@ -1393,6 +1201,7 @@ export default function BoardPage({
         </div>
       )}
 
+      {/* 🌟 Rider Map Modal */}
       {showRiderMap && (currentUserRole === "admin" || currentUserRole === "superadmin" || currentUserRole === "kitchen") && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 flex flex-col h-5/6 relative">
@@ -1532,7 +1341,7 @@ export default function BoardPage({
         </div>
       )}
 
-      {/* 🌟 บอร์ดหลัก */}
+      {/* 🌟 KANBAN BOARD */}
       <div className="flex-1 p-2 md:p-4 overflow-hidden z-10 flex flex-col">
         {orders.length === 0 && !searchQuery ? (
           <div className="flex flex-col items-center justify-center h-full bg-white/30 backdrop-blur-md rounded-3xl border border-white/40 shadow-xl animate-in fade-in duration-500 m-2">
@@ -1629,55 +1438,7 @@ export default function BoardPage({
         )}
       </div>
 
-      {/* 🌟 Modal เปลี่ยนสถานะออเดอร์สุดล้ำ */}
-      {statusModal.isOpen && statusModal.order && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-150">
-          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col relative border border-white/20">
-            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-blue-100 text-blue-500 rounded-full flex items-center justify-center shadow-inner">
-                  <ArrowRightLeft size={24} className="animate-wiggle" />
-                </div>
-                <h3 className="text-xl font-black text-slate-800 tracking-tight">
-                  เปลี่ยนสถานะ
-                </h3>
-              </div>
-              <button
-                onClick={() => setStatusModal({ isOpen: false, order: null })}
-                className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 active:scale-90"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="p-6 flex flex-col gap-3 bg-slate-50/50">
-              {["New", "กำลังทำ", "รับงาน", "ส่งแล้ว/เสร็จ"].map((st) => (
-                <button
-                  key={st}
-                  disabled={statusModal.order?.status === st}
-                  onClick={() => executeStatusChange(st)}
-                  className={`w-full py-4 rounded-2xl text-sm font-black transition-all shadow-sm flex items-center justify-center active:scale-95 ${
-                    statusModal.order?.status === st
-                      ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
-                      : st === "New"
-                        ? "bg-blue-50 hover:bg-blue-500 hover:text-white text-blue-700 border border-blue-200 hover:shadow-lg shadow-blue-500/30"
-                        : st === "กำลังทำ"
-                          ? "bg-amber-50 hover:bg-amber-500 hover:text-white text-amber-700 border border-amber-200 hover:shadow-lg shadow-amber-500/30"
-                          : st === "รับงาน"
-                            ? "bg-purple-50 hover:bg-purple-500 hover:text-white text-purple-700 border border-purple-200 hover:shadow-lg shadow-purple-500/30"
-                            : "bg-emerald-50 hover:bg-emerald-500 hover:text-white text-emerald-700 border border-emerald-200 hover:shadow-lg shadow-emerald-500/30"
-                  }`}
-                >
-                  {statusModal.order?.status === st
-                    ? `📌 สถานะปัจจุบัน: ${st}`
-                    : `เปลี่ยนเป็น: ${st}`}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* 🌟 Create / Edit Order Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-white shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 thin-scrollbar rounded-4xl max-h-full pb-10 overflow-y-auto">
@@ -1750,41 +1511,34 @@ export default function BoardPage({
                 </div>
               </div>
 
-              {/* 🌟 นำปีกกาเงื่อนไขมาครอบส่วนนี้ไว้ (ไม่โชว์ในงาน Shopee) */}
               {formData.job_type !== "shopee" && (
                 <>
                   <div className="grid grid-cols-3 gap-5">
                     <div className="col-span-1">
-                      <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase">
-                        แหล่งที่มา (เพจ)
-                      </label>
-                      <select
-                        className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer font-bold text-slate-800 shadow-sm"
-                        value={formData.contact_source}
-                        onChange={(e) => {
-                          const newSource = e.target.value;
-                          const newPrice = calculateAutoPrice(formData.menu, newSource) || formData.total_price;
-                          setFormData({
-                            ...formData,
-                            contact_source: newSource,
-                            total_price: newPrice,
-                          });
-                        }}
-                      >
-                        {contactSources.length > 0 ? (
-                          contactSources.map((s) => (
-                            <option key={s.id} value={s.name}>
-                              {s.name}
-                            </option>
-                          ))
-                        ) : (
-                          <>
-                            <option value="เพจหลัก">เพจหลัก</option>
-                            <option value="Fortune Findss">Fortune Findss</option>
-                          </>
-                        )}
-                      </select>
-                    </div>
+  <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase">
+    แหล่งที่มา (เพจ)
+  </label>
+  <select
+    className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer font-bold text-slate-800 shadow-sm"
+    value={formData.contact_source}
+    onChange={(e) => {
+      setFormData({
+        ...formData,
+        contact_source: e.target.value,
+      });
+    }}
+  >
+    {contactSources.length > 0 ? (
+      contactSources.map((s) => (
+        <option key={s.id} value={s.name}>
+          {s.name}
+        </option>
+      ))
+    ) : (
+      <option value="" disabled>ไม่พบข้อมูล (เพิ่มที่หน้าจัดการเมนู)</option>
+    )}
+  </select>
+</div>
                     <div className="col-span-2">
                       <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase items-center">
                         <Lock size={12} className="mr-1" /> ลิ้งค์ติดต่อ
@@ -1817,41 +1571,34 @@ export default function BoardPage({
                   value={formData.menu}
                   onChange={(e) => {
                     const newMenu = e.target.value;
-                    const newPrice = calculateAutoPrice(newMenu, formData.contact_source) || formData.total_price;
+                    const newPrice = calculateAutoPrice(newMenu) || formData.total_price;
                     setFormData({ ...formData, menu: newMenu, total_price: newPrice });
                   }}
                   placeholder={"พิมคีย์เวิร์ด เช่น\n- กะเพราหมูกรอบ 2\n- ชาเขียว 1\nแล้วจะมีเมนูด้านล่างมาให้เลือก"}
                 />
                 
-                {/* 🌟 ปุ่มกดเพิ่มเมนูด่วน (อัปเกรดเป็นระบบ Suggestion ค้นหาตามคำที่พิมพ์) */}
                 <div className="flex overflow-x-auto gap-2 mt-3 pb-2 thin-scrollbar snap-x">
                   {(() => {
-                    // 1. อ่านข้อความบรรทัดล่าสุดที่กำลังพิมพ์
                     const lines = formData.menu.split('\n');
                     const currentLine = lines[lines.length - 1] || "";
-                    // ตัดตัวเลขออก เผื่อแอดมินพิมพ์จำนวนไปแล้ว จะได้ค้นหาแค่ชื่อเมนู
                     const searchKeyword = currentLine.replace(/[0-9]/g, '').trim().toLowerCase();
 
-                    // 2. ดึงเมนูของร้านที่เลือก
-                    let shopMenus = allShopMenus.filter((m) => m.shop_name === formData.contact_source);
+                    let currentMenus = allBranchMenus;
 
-                    // 3. กรองเมนูถ้ามีการพิมพ์
                     if (searchKeyword) {
-                      const matched = shopMenus.filter(m => m.menu_name.toLowerCase().includes(searchKeyword));
-                      if (matched.length > 0) shopMenus = matched; // โชว์เฉพาะอันที่ค้นเจอ
+                      const matched = currentMenus.filter(m => m.menu_name.toLowerCase().includes(searchKeyword));
+                      if (matched.length > 0) currentMenus = matched; 
                     }
 
-                    return shopMenus.map((item) => (
+                    return currentMenus.map((item) => (
                       <button
                         key={item.id}
                         type="button"
                         onClick={() => {
-                          // 4. แทนที่บรรทัดล่าสุดที่พิมพ์ไม่จบ ด้วยชื่อเมนูเต็มๆ (Autocomplete)
                           const newLines = [...lines];
                           if (searchKeyword) {
-                            newLines[newLines.length - 1] = item.menu_name + " 1"; // แทนที่คำที่พิมพ์ค้างไว้
+                            newLines[newLines.length - 1] = item.menu_name + " 1"; 
                           } else {
-                            // ถ้าบรรทัดว่างอยู่แล้ว ให้แทรกเข้าไปเลย
                             if (newLines[newLines.length - 1].trim() === "") {
                               newLines[newLines.length - 1] = item.menu_name + " 1";
                             } else {
@@ -1860,13 +1607,13 @@ export default function BoardPage({
                           }
                           
                           const newMenuText = newLines.join('\n');
-                          const newPrice = calculateAutoPrice(newMenuText, formData.contact_source) || formData.total_price;
+                          const newPrice = calculateAutoPrice(newMenuText) || formData.total_price;
                           
                           setFormData({ ...formData, menu: newMenuText, total_price: newPrice });
                         }}
                         className={`shrink-0 snap-start text-[10px] font-black px-3 py-1.5 border rounded-lg transition-all active:scale-95 shadow-sm cursor-pointer whitespace-nowrap ${
                           searchKeyword && item.menu_name.toLowerCase().includes(searchKeyword)
-                            ? "bg-blue-50 border-blue-300 text-blue-700 ring-1 ring-blue-200" // ไฮไลท์สีฟ้าถ้าค้นเจอ
+                            ? "bg-blue-50 border-blue-300 text-blue-700 ring-1 ring-blue-200" 
                             : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
                         }`}
                       >
@@ -1877,7 +1624,6 @@ export default function BoardPage({
                   })()}
                 </div>
 
-                {/* 🌟 สรุปรายละเอียดการคำนวณ */}
                 {calcBreakdown.length > 0 && formData.job_type !== "shopee" && (
                   <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 shadow-inner">
                     <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
@@ -1899,7 +1645,7 @@ export default function BoardPage({
                               <AlertTriangle size={14} className="text-amber-500" />
                               {item.name}
                             </span>
-                            <span className="text-amber-500 text-[10px] bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100">ไม่พบในฐานข้อมูลร้าน</span>
+                            <span className="text-amber-500 text-[10px] bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100">ไม่พบในฐานข้อมูลสาขา</span>
                           </>
                         )}
                       </div>
@@ -2060,8 +1806,7 @@ export default function BoardPage({
 
                   <div className="relative p-5 bg-white border border-slate-200/60 rounded-3xl shadow-sm">
                     <label className="text-xs font-black text-blue-600 mb-3 tracking-wide flex items-center uppercase">
-                      <Search size={14} className="mr-1.5" /> สถานที่จัดส่ง /
-                      ลิงก์แผนที่ *
+                      <Search size={14} className="mr-1.5" /> สถานที่จัดส่ง / ลิงก์แผนที่ *
                     </label>
                     <input
                       type="text"
@@ -2088,15 +1833,9 @@ export default function BoardPage({
                             <div className="flex flex-col pr-4">
                               <div className="font-black text-slate-800 flex items-center group-hover/item:text-blue-700 transition-colors">
                                 {item.type === "store" ? (
-                                  <Store
-                                    size={14}
-                                    className="mr-2 text-blue-500"
-                                  />
+                                  <Store size={14} className="mr-2 text-blue-500" />
                                 ) : (
-                                  <MapIcon
-                                    size={14}
-                                    className="mr-2 text-rose-500"
-                                  />
+                                  <MapIcon size={14} className="mr-2 text-rose-500" />
                                 )}
                                 {item.name}
                               </div>
@@ -2151,7 +1890,55 @@ export default function BoardPage({
         </div>
       )}
 
-      {/* 🌟 Modal สำหรับแสดงรายละเอียดออเดอร์ */}
+      {/* 🌟 Status Change & Details Modals ... */}
+      {statusModal.isOpen && statusModal.order && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-150">
+          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col relative border border-white/20">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-blue-100 text-blue-500 rounded-full flex items-center justify-center shadow-inner">
+                  <ArrowRightLeft size={24} className="animate-wiggle" />
+                </div>
+                <h3 className="text-xl font-black text-slate-800 tracking-tight">
+                  เปลี่ยนสถานะ
+                </h3>
+              </div>
+              <button
+                onClick={() => setStatusModal({ isOpen: false, order: null })}
+                className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 active:scale-90"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 flex flex-col gap-3 bg-slate-50/50">
+              {["New", "กำลังทำ", "รับงาน", "ส่งแล้ว/เสร็จ"].map((st) => (
+                <button
+                  key={st}
+                  disabled={statusModal.order?.status === st}
+                  onClick={() => executeStatusChange(st)}
+                  className={`w-full py-4 rounded-2xl text-sm font-black transition-all shadow-sm flex items-center justify-center active:scale-95 ${
+                    statusModal.order?.status === st
+                      ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
+                      : st === "New"
+                        ? "bg-blue-50 hover:bg-blue-500 hover:text-white text-blue-700 border border-blue-200 hover:shadow-lg shadow-blue-500/30"
+                        : st === "กำลังทำ"
+                          ? "bg-amber-50 hover:bg-amber-500 hover:text-white text-amber-700 border border-amber-200 hover:shadow-lg shadow-amber-500/30"
+                          : st === "รับงาน"
+                            ? "bg-purple-50 hover:bg-purple-500 hover:text-white text-purple-700 border border-purple-200 hover:shadow-lg shadow-purple-500/30"
+                            : "bg-emerald-50 hover:bg-emerald-500 hover:text-white text-emerald-700 border border-emerald-200 hover:shadow-lg shadow-emerald-500/30"
+                  }`}
+                >
+                  {statusModal.order?.status === st
+                    ? `📌 สถานะปัจจุบัน: ${st}`
+                    : `เปลี่ยนเป็น: ${st}`}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedViewOrder && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 flex flex-col max-h-[90vh]">
@@ -2179,7 +1966,6 @@ export default function BoardPage({
                     {selectedViewOrder.order_number}
                   </div>
                 </div>
-                {/* 🌟 ป้ายสถานะ เปลี่ยนให้กดได้ เพื่อแก้สถานะย้อนหลัง */}
                 <div className="text-right mb-1">
                   <button
                     onClick={() => {
@@ -2205,7 +1991,6 @@ export default function BoardPage({
                 </div>
               </div>
 
-              {/* 🌟 แสดงแหล่งที่มา (โชว์ให้ Admin/Superadmin เห็นเลยโดยไม่ต้องใช้ PIN) */}
               {(currentUserRole === "admin" || currentUserRole === "superadmin") &&
                 (selectedViewOrder as Order & { contact_source?: string })
                   .contact_source && (
@@ -2225,14 +2010,12 @@ export default function BoardPage({
                   </div>
                 )}
 
-              {/* 🌟 แสดงเฉพาะ admin และ superadmin เท่านั้น */}
               {(currentUserRole === 'admin' || currentUserRole === 'superadmin') && (selectedViewOrder as Order & { contact_link?: string }).contact_link && (
                 <div className="space-y-2">
                   <div className="text-xs font-black text-indigo-500 uppercase tracking-wider flex items-center">
                     <Lock size={14} className="mr-1.5" /> ช่องทางติดต่อลูกค้า (ลับ)
                   </div>
                   
-                  {/* 🌟 เช็คว่าควรแสดงข้อมูลไหม (Superadmin ทะลุหมด หรือ เกิดเหตุฉุกเฉิน หรือ แอดมินใส่รหัสผ่านถูก) */}
                   {(() => {
                     const isRevealed = currentUserRole === 'superadmin' || isEmergencyMode || showContactInfo;
                     return (
@@ -2252,7 +2035,6 @@ export default function BoardPage({
                           </div>
                         )}
                         
-                        {/* 🌟 ปุ่มปลดล็อกด้วย PIN โชว์เฉพาะตอนยังไม่เปิดเผยข้อมูล */}
                         {!isRevealed && (
                           <button
                             onClick={() => {

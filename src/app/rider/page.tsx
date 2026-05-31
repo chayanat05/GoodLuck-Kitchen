@@ -609,10 +609,9 @@ export default function RiderPage() {
     const isAddressUrl = order.address && (order.address.startsWith("http") || order.address.includes("maps."));
 
     const elapsedMinutes = Math.floor((currentTime - new Date(order.created_at).getTime()) / 60000);
-    const isKitchenLate = (order.status === "New" || order.status === "กำลังทำ") && elapsedMinutes >= 5;
     const isRiderLate = order.status === "รับงาน" && elapsedMinutes >= 35;
-    const isLate = isKitchenLate || isRiderLate;
-    const isNearLate = elapsedMinutes >= (order.status === "รับงาน" ? 30 : 4);
+    const isLate = isRiderLate;
+    const isNearLate = order.status === "รับงาน" && elapsedMinutes >= 30;
 
     return (
       <div 
@@ -1066,16 +1065,17 @@ export default function RiderPage() {
               <Link
                 href="/schedule"
                 prefetch={false}
-                className="w-full flex items-center p-4 text-slate-600 hover:bg-teal-50 hover:text-teal-700 rounded-2xl transition-all font-bold border border-transparent hover:border-teal-100 group"
+                className="w-full flex items-center p-3 text-slate-600 bg-white hover:bg-teal-50 hover:text-teal-700 rounded-xl transition-all text-sm font-bold border border-transparent hover:border-teal-100 group"
               >
-                <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
                   <Calendar size={20} className="text-teal-600" />
                 </div>
                 ตารางงาน (Schedule)
               </Link>
 
-              <button onClick={() => { setIsMenuOpen(false); setShowRiderMap(true); }} className="w-full flex items-center p-3 text-slate-700 bg-white hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-all text-sm font-bold cursor-pointer border border-slate-200 shadow-sm">
-                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center mr-3">
+              <button onClick={() => { setIsMenuOpen(false); setShowRiderMap(true); }} 
+                className="w-full flex items-center p-3 text-slate-700 bg-white hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-all text-sm font-bold cursor-pointer border border-slate-200 shadow-sm">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center mr-3 group-hover:bg-emerald-100 transition-colors">
                   <MapPinned size={16} className="text-emerald-600" />
                 </div>
                 พิกัดเพื่อนไรเดอร์ (รวมสาขา)
