@@ -97,14 +97,14 @@ export default function MenusManagementPage() {
         .from("branch_menus")
         .select("*")
         .eq("branch_id", selectedBranchId)
-        .order("menu_name", { ascending: true });
+        .order("menu_name", { ascending: false });
 
       // ดึงแหล่งที่มาเฉพาะสาขาที่เลือก
       const { data: sourceData } = await supabase
         .from("contact_sources")
         .select("*")
         .eq("branch_id", selectedBranchId)
-        .order("name", { ascending: true });
+        .order("name", { ascending: false });
 
       setMenus((menuData as BranchMenu[]) || []);
       setSources((sourceData as ContactSource[]) || []);
@@ -162,6 +162,28 @@ export default function MenusManagementPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    
+    // 🌟 ระบบเช็คข้อมูลซ้ำ (Duplicate Check)
+    const checkName = activeTab === "menus" ? menuForm.menu_name.trim() : sourceForm.name.trim();
+    let isDuplicate = false;
+
+    if (activeTab === "menus") {
+      isDuplicate = menus.some(
+        (m) => m.menu_name.toLowerCase() === checkName.toLowerCase() && m.id !== editingId
+      );
+    } else {
+      isDuplicate = sources.some(
+        (s) => s.name.toLowerCase() === checkName.toLowerCase() && s.id !== editingId
+      );
+    }
+
+    // 🌟 ถ้าเจอชื่อซ้ำ ให้เด้ง Error แล้วหยุดการทำงานทันที
+    if (isDuplicate) {
+      showToast(`ชื่อ${activeTab === "menus" ? "เมนู" : "แหล่งที่มา"}นี้มีอยู่แล้วในสาขานี้!`, "error");
+      setIsSubmitting(false);
+      return;
+    }
+
     const table = activeTab === "menus" ? "branch_menus" : "contact_sources";
     
     let payload: {
@@ -173,9 +195,9 @@ export default function MenusManagementPage() {
 
     if (activeTab === "menus") {
       const priceNum = parseInt(menuForm.price.replace(/[^0-9]/g, ""), 10) || 0;
-      payload = { branch_id: selectedBranchId, menu_name: menuForm.menu_name.trim(), price: priceNum };
+      payload = { branch_id: selectedBranchId, menu_name: checkName, price: priceNum };
     } else {
-      payload = { branch_id: selectedBranchId, name: sourceForm.name.trim() };
+      payload = { branch_id: selectedBranchId, name: checkName };
     }
 
     if (editingId) {
@@ -191,8 +213,9 @@ export default function MenusManagementPage() {
       const { data, error } = await supabase.from(table).insert([payload]).select();
       if (error) showToast("เพิ่มข้อมูลไม่สำเร็จ", "error");
       else {
-        if (activeTab === "menus") setMenus(prev => [...prev, data[0] as BranchMenu]);
-        else setSources(prev => [...prev, data[0] as ContactSource]);
+        // 🌟 ดันของใหม่ขึ้นไปอยู่ตำแหน่งบนสุดของ Array (เพื่อให้เห็นทันทีว่าใหม่สุด)
+        if (activeTab === "menus") setMenus(prev => [data[0] as BranchMenu, ...prev]);
+        else setSources(prev => [data[0] as ContactSource, ...prev]);
         showToast("เพิ่มข้อมูลใหม่เรียบร้อย", "success");
         setIsModalOpen(false);
       }
