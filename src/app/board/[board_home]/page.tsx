@@ -205,7 +205,7 @@ export default function BoardPage({
   });
 
   // ---------------------------------------------------------------------------
-  // 2. CORE FUNCTIONS (ประกาศฟังก์ชันให้เสร็จก่อนให้ useEffect เรียกใช้)
+  // 2. CORE FUNCTIONS
   // ---------------------------------------------------------------------------
   
   const showToast = useCallback((msg: string) => {
@@ -233,7 +233,7 @@ export default function BoardPage({
   const fetchOrdersAndLocations = useCallback(async () => {
     if (!currentBranchId) return;
 
-    // Fetch Orders
+    // Fetch Orders - แม่ครัวมองเห็นทั้งหมด
     const { data: orderData, error: orderError } = await supabase
       .from("orders")
       .select("*")
@@ -244,35 +244,30 @@ export default function BoardPage({
 
     if (orderError) console.error("Error fetching orders:", orderError);
     if (orderData) {
-      if (currentUserRole === "kitchen") {
-        const kitchenOrders = (orderData as Order[]).filter((o) => o.job_type === "ร้าน");
-        setOrders(kitchenOrders);
-      } else {
-        setOrders(orderData as Order[]);
-      }
+      // ยกเลิกการฟิลเตอร์เฉพาะร้าน ให้แม่ครัวเห็นหมด
+      setOrders(orderData as Order[]);
     }
 
     // Fetch Locations
     const { data: locData } = await supabase.from("saved_locations").select("*").order("name", { ascending: true });
     if (locData) setSavedLocations(locData as SavedLocation[]);
 
-    // 🌟 Fetch Menus & Sources ของสาขานี้ (เปลี่ยนการเรียงให้เหมือนหน้าเมนู)
     const { data: menuData } = await supabase
       .from("branch_menus")
       .select("*")
       .eq("branch_id", currentBranchId)
-      .order("created_at", { ascending: false }); // 👈 เรียงจากใหม่ไปเก่า
+      .order("created_at", { ascending: false });
 
     const { data: sourceData } = await supabase
       .from("contact_sources")
       .select("*")
       .eq("branch_id", currentBranchId)
-      .order("created_at", { ascending: false }); // 👈 เรียงจากใหม่ไปเก่า
+      .order("created_at", { ascending: false }); 
 
     if (menuData) setAllBranchMenus(menuData as BranchMenu[]);
     if (sourceData) setContactSources(sourceData as ContactSource[]);
 
-  }, [currentBranchId, currentUserRole]);
+  }, [currentBranchId]);
 
   const fetchRidersLocation = useCallback(async () => {
     if (!currentBranchId) return;
@@ -285,6 +280,25 @@ export default function BoardPage({
     if (data) setRidersLoc(data as RiderLocation[]);
   }, [currentBranchId]);
 
+  // 🌟 Smart Menu Matching
+  const getExtractedQty = (cleanLine: string, menuName: string): number => {
+    let qty = 1;
+    const idx = cleanLine.toLowerCase().indexOf(menuName.toLowerCase()) + menuName.length;
+    const afterStr = cleanLine.substring(idx);
+    
+    // ดึงตัวเลขแรกที่เจอหลังจากชื่อเมนู (อนุญาตให้มีคำต่อท้ายเช่น "ค่ะ", "เยอะๆ")
+    const nextNumMatch = afterStr.match(/\D*?(\d+)/);
+    if (nextNumMatch && nextNumMatch[1]) {
+        qty = parseInt(nextNumMatch[1], 10);
+    } else {
+        const numbers = cleanLine.match(/\d+/g);
+        if (numbers && numbers.length > 0) {
+            qty = parseInt(numbers[numbers.length - 1], 10);
+        }
+    }
+    return qty;
+  }
+
   const calculateAutoPrice = useCallback((menuText: string): string | null => {
     if (!menuText.trim()) return null;
     const lines = menuText.split('\n');
@@ -296,11 +310,7 @@ export default function BoardPage({
       if (!cleanLine) return;
       for (const item of sortedMenus) {
         if (cleanLine.toLowerCase().includes(item.menu_name.toLowerCase())) {
-          let qty = 1;
-          const matches = cleanLine.match(/\d+/g);
-          if (matches && matches.length > 0) {
-              qty = parseInt(matches[matches.length - 1], 10);
-          }
+          const qty = getExtractedQty(cleanLine, item.menu_name);
           total += (item.price * qty);
           break;
         }
@@ -322,11 +332,7 @@ export default function BoardPage({
       let matched = false;
       for (const item of sortedMenus) {
         if (cleanLine.toLowerCase().includes(item.menu_name.toLowerCase())) {
-          let qty = 1;
-          const matches = cleanLine.match(/\d+/g);
-          if (matches && matches.length > 0) {
-              qty = parseInt(matches[matches.length - 1], 10);
-          }
+          const qty = getExtractedQty(cleanLine, item.menu_name);
           breakdown.push({
             name: item.menu_name,
             qty,
@@ -347,10 +353,9 @@ export default function BoardPage({
 
 
   // ---------------------------------------------------------------------------
-  // 3. EFFECTS (ทำงานหลังจากที่ฟังก์ชันหลักถูกประกาศแล้ว)
+  // 3. EFFECTS
   // ---------------------------------------------------------------------------
 
-  // โหลด Branch และ Theme
   useEffect(() => {
     const fetchSettings = async () => {
       const { data } = await supabase.from("store_settings").select("emergency_reveal_contacts").eq("id", 1).single();
@@ -392,7 +397,6 @@ export default function BoardPage({
     };
   }, [branchSlug]);
 
-  // โหลด Orders และฟัง Realtime
   useEffect(() => {
     if (!currentBranchId) return;
 
@@ -435,7 +439,6 @@ export default function BoardPage({
       .on("postgres_changes", { event: "DELETE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, () => fetchOrdersAndLocations())
       .subscribe();
 
-      // 👇 เพิ่มโค้ดก้อนนี้เข้าไปเพื่อดักฟังการเปลี่ยนแปลงเมนูและแหล่งที่มา 👇
     const syncChannel = supabase
       .channel("public:sync_menus_sources")
       .on("postgres_changes", { event: "*", schema: "public", table: "branch_menus", filter: `branch_id=eq.${currentBranchId}` }, () => fetchOrdersAndLocations())
@@ -448,12 +451,9 @@ export default function BoardPage({
     };
   }, [fetchOrdersAndLocations, showToast, currentBranchId]);
 
-  // ติดตามพิกัดไรเดอร์
   useEffect(() => {
     if (showRiderMap && currentBranchId) {
-      // Use a timeout to move the state update out of the synchronous effect execution
       const timer = setTimeout(() => fetchRidersLocation(), 0);
-      
       const interval = setInterval(fetchRidersLocation, 10000);
       const profileChannel = supabase
         .channel("public:profiles")
@@ -467,7 +467,6 @@ export default function BoardPage({
     }
   }, [showRiderMap, fetchRidersLocation, currentBranchId]);
 
-  // ซูมแกลอรี่
   useEffect(() => {
     if (imageGallery && galleryRef.current) {
       const target = galleryRef.current.children[imageGallery.startIndex] as HTMLElement;
@@ -475,7 +474,6 @@ export default function BoardPage({
     }
   }, [imageGallery]);
 
-  // Search Delay
   useEffect(() => {
     const t = setTimeout(() => {
       setDebouncedQuery(searchQuery);
@@ -591,13 +589,15 @@ export default function BoardPage({
     }
   };
 
+  // 🌟 รันเลขออเดอร์แบบรวมศูนย์
   const openCreateModal = () => {
-    const storeOrders = orders.filter((o) => o.job_type === "ร้าน" && !isNaN(Number(o.order_number)));
-    let nextNum = "1";
-    if (storeOrders.length > 0) {
-      nextNum = (Number(storeOrders[0].order_number) + 1).toString();
-    }
-    const defaultSource = contactSources.length > 0 ? contactSources[0].name : "";
+    const numberedOrders = orders.map(o => {
+        const match = String(o.order_number).match(/\d+/);
+        return match ? parseInt(match[0], 10) : NaN;
+    }).filter(n => !isNaN(n));
+    const maxNum = numberedOrders.length > 0 ? Math.max(...numberedOrders) : 0;
+    const nextNum = (maxNum + 1).toString();
+
     setEditingId(null);
     setFormData({
       order_number: nextNum,
@@ -612,7 +612,7 @@ export default function BoardPage({
       lat: null,
       lng: null,
       contact_link: "",
-      contact_source: defaultSource,
+      contact_source: "",
     });
     setImageFiles([]);
     setImagePreviews([]);
@@ -623,7 +623,6 @@ export default function BoardPage({
 
   const openEditModal = (order: Order & { contact_link?: string; contact_source?: string }) => {
     setEditingId(order.id);
-    const source = order.contact_source || (contactSources.length > 0 ? contactSources[0].name : "");
     setFormData({
       order_number: order.order_number,
       job_type: order.job_type,
@@ -637,7 +636,7 @@ export default function BoardPage({
       lat: order.lat || null,
       lng: order.lng || null,
       contact_link: order.contact_link || "",
-      contact_source: source,
+      contact_source: order.contact_source || "",
     });
     if (order.image_url) setExistingImages(order.image_url.split(",").filter(Boolean));
     else setExistingImages([]);
@@ -698,10 +697,13 @@ export default function BoardPage({
     const currentExisting = [...existingImages];
 
     let finalOrderNumber = formData.order_number.trim();
-    if (formData.job_type === "shopee" && !finalOrderNumber) {
-      finalOrderNumber = `#SHP-${Math.floor(1000 + Math.random() * 9000)}`;
-    } else if (formData.job_type === "shopee" && !finalOrderNumber.startsWith("#")) {
-      finalOrderNumber = "#" + finalOrderNumber;
+    if (!finalOrderNumber) {
+      const numberedOrders = orders.map(o => {
+          const match = String(o.order_number).match(/\d+/);
+          return match ? parseInt(match[0], 10) : NaN;
+      }).filter(n => !isNaN(n));
+      const maxNum = numberedOrders.length > 0 ? Math.max(...numberedOrders) : 0;
+      finalOrderNumber = (maxNum + 1).toString();
     }
 
     const cleanPrice = formData.job_type === "shopee" ? 0 : parseInt(formData.total_price.replace(/[^0-9]/g, ""), 10) || 0;
@@ -1396,7 +1398,6 @@ export default function BoardPage({
                         <div
                           ref={provided.innerRef}
                           {...provided.draggableProps}
-                          {...provided.dragHandleProps}
                           className={`shrink-0 max-h-full flex flex-col transition-all duration-300 ${isCompact ? "w-48 md:w-56" : "w-72 md:w-80"} ${snapshot.isDragging ? "scale-[1.02] rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl" : ""} ${
   ((order.status === "New" || order.status === "กำลังทำ") && Math.floor((new Date().getTime() - new Date(order.created_at).getTime()) / 60000) >= 5) || 
   (order.status === "รับงาน" && Math.floor((new Date().getTime() - new Date(order.created_at).getTime()) / 60000) >= 35) 
@@ -1408,6 +1409,7 @@ export default function BoardPage({
                             order={order}
                             isCompact={isCompact}
                             userRole={currentUserRole}
+                            dragHandleProps={provided.dragHandleProps}
                             onEdit={openEditModal}
                             onStart={handleStartOrder}
                             onFinish={handleFinishOrder}
@@ -1443,19 +1445,19 @@ export default function BoardPage({
         )}
       </div>
 
-      {/* 🌟 Create / Edit Order Modal */}
+      {/* 🌟 Create / Edit Order Modal (Dark Theme) */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
-          <div className="bg-white shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 thin-scrollbar rounded-4xl max-h-full pb-10 overflow-y-auto">
-            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white/80 backdrop-blur-xl sticky top-0 z-10">
-              <h3 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+          <div className="bg-slate-900 shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-800 thin-scrollbar rounded-4xl max-h-full pb-10 overflow-y-auto">
+            <div className="flex justify-between items-center p-6 border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl sticky top-0 z-10">
+              <h3 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
                 <ClipboardCheck className="text-blue-500" />
                 {editingId ? "แก้ไขออเดอร์ 📝" : "สร้างออเดอร์ใหม่ ✨"}
               </h3>
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-xl transition-all cursor-pointer hover:rotate-90 duration-300 active:scale-90"
+                className="text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 p-2 rounded-xl transition-all cursor-pointer hover:rotate-90 duration-300 active:scale-90"
               >
                 <X size={20} strokeWidth={3} />
               </button>
@@ -1463,51 +1465,32 @@ export default function BoardPage({
 
             <form
               onSubmit={handleSubmitOrder}
-              className="p-6 space-y-6 bg-slate-50/50"
+              className="p-6 space-y-6 bg-slate-900"
             >
               <div className="grid grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
+                  <label className="block text-xs font-black text-slate-400 mb-2 tracking-wide uppercase">
                     ออเดอร์ (ร้าน) *
                   </label>
                   <input
-                    className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-bold text-slate-800 shadow-sm"
+                    className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-bold text-white placeholder-slate-500 shadow-sm"
                     value={formData.order_number}
                     onChange={(e) =>
                       setFormData({ ...formData, order_number: e.target.value })
                     }
-                    placeholder="ปล่อยว่างเพื่อสุ่ม (Shopee)"
+                    placeholder="พิมพ์หรือปล่อยว่างเพื่อรันอัตโนมัติ"
                     required={formData.job_type === "ร้าน"}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
+                  <label className="block text-xs font-black text-slate-400 mb-2 tracking-wide uppercase">
                     ประเภทงาน
                   </label>
                   <select
-                    className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer font-bold text-slate-800 shadow-sm"
+                    className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer font-bold text-white shadow-sm"
                     value={formData.job_type}
                     onChange={(e) => {
-                      const newJobType = e.target.value;
-                      if (newJobType === "ร้าน" && !editingId) {
-                        const storeOrders = orders.filter(
-                          (o) =>
-                            o.job_type === "ร้าน" &&
-                            !isNaN(Number(o.order_number)),
-                        );
-                        let nextNum = "1";
-                        if (storeOrders.length > 0)
-                          nextNum = (
-                            Number(storeOrders[0].order_number) + 1
-                          ).toString();
-                        setFormData({
-                          ...formData,
-                          job_type: newJobType,
-                          order_number: nextNum,
-                        });
-                      } else {
-                        setFormData({ ...formData, job_type: newJobType });
-                      }
+                      setFormData({ ...formData, job_type: e.target.value });
                     }}
                   >
                     <option value="ร้าน">🍽️ งานร้าน</option>
@@ -1520,38 +1503,38 @@ export default function BoardPage({
                 <>
                   <div className="grid grid-cols-3 gap-5">
                     <div className="col-span-1">
-  <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase">
-    แหล่งที่มา (เพจ)
-  </label>
-  <select
-    className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer font-bold text-slate-800 shadow-sm"
-    value={formData.contact_source}
-    onChange={(e) => {
-      setFormData({
-        ...formData,
-        contact_source: e.target.value,
-      });
-    }}
-  >
-    {contactSources.length > 0 ? (
-      contactSources.map((s) => (
-        <option key={s.id} value={s.name}>
-          {s.name}
-        </option>
-      ))
-    ) : (
-      <option value="" disabled>ไม่พบข้อมูล (เพิ่มที่หน้าจัดการเมนู)</option>
-    )}
-  </select>
-</div>
+                      <label className="block text-[10px] font-black text-slate-400 mb-2 tracking-wide uppercase">
+                        แหล่งที่มา (เพจ)
+                      </label>
+                      <select
+                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer font-bold text-white shadow-sm"
+                        value={formData.contact_source}
+                        onChange={(e) => {
+                          setFormData({
+                            ...formData,
+                            contact_source: e.target.value,
+                          });
+                        }}
+                      >
+                        {contactSources.length > 0 ? (
+                          contactSources.map((s) => (
+                            <option key={s.id} value={s.name}>
+                              {s.name}
+                            </option>
+                          ))
+                        ) : (
+                          <option value="" disabled>ไม่พบข้อมูล</option>
+                        )}
+                      </select>
+                    </div>
                     <div className="col-span-2">
-                      <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase items-center">
+                      <label className="block text-[10px] font-black text-slate-400 mb-2 tracking-wide uppercase flex items-center">
                         <Lock size={12} className="mr-1" /> ลิ้งค์ติดต่อ
                         (ซ่อนเป็นความลับ)
                       </label>
                       <input
                         type="text"
-                        className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-bold text-slate-800 shadow-sm"
+                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-bold text-white placeholder-slate-500 shadow-sm"
                         value={formData.contact_link}
                         onChange={(e) =>
                           setFormData({
@@ -1567,27 +1550,26 @@ export default function BoardPage({
               )}
 
               <div>
-                <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
+                <label className="block text-xs font-black text-slate-400 mb-2 tracking-wide uppercase">
                   รายการอาหาร / เมนู
                 </label>
                 <textarea
                   rows={3}
-                  className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all resize-none font-bold leading-relaxed text-slate-800 shadow-sm"
+                  className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none font-bold leading-relaxed text-white placeholder-slate-500 shadow-sm"
                   value={formData.menu}
                   onChange={(e) => {
                     const newMenu = e.target.value;
-      const autoFoodPrice = calculateAutoPrice(newMenu);
-      let newTotalPrice = formData.total_price;
-      
-      // 🌟 นำค่าอาหารที่คำนวณได้ มาบวกกับค่าส่งที่มีอยู่ในฟอร์ม
-      if (autoFoodPrice !== null) {
-        const currentDeliveryFee = parseInt(formData.delivery_fee || "0", 10);
-        newTotalPrice = (parseInt(autoFoodPrice, 10) + currentDeliveryFee).toString();
-      }
-      
-      setFormData({ ...formData, menu: newMenu, total_price: newTotalPrice });
-    }}
-                  placeholder={"พิมคีย์เวิร์ด เช่น\n- กะเพราหมูกรอบ 2\n- ชาเขียว 1\nแล้วจะมีเมนูด้านล่างมาให้เลือก"}
+                    const autoFoodPrice = calculateAutoPrice(newMenu);
+                    let newTotalPrice = formData.total_price;
+                    
+                    if (autoFoodPrice !== null) {
+                      const currentDeliveryFee = parseInt(formData.delivery_fee || "0", 10);
+                      newTotalPrice = (parseInt(autoFoodPrice, 10) + currentDeliveryFee).toString();
+                    }
+                    
+                    setFormData({ ...formData, menu: newMenu, total_price: newTotalPrice });
+                  }}
+                  placeholder={"พิมพ์คีย์เวิร์ด เช่น\n- กะเพราหมูกรอบ 2\n- ชาเขียว 1\nแล้วจะมีเมนูด้านล่างมาให้เลือก"}
                 />
                 
                 <div className="flex overflow-x-auto gap-2 mt-3 pb-2 thin-scrollbar snap-x">
@@ -1605,36 +1587,35 @@ export default function BoardPage({
 
                     return currentMenus.map((item) => (
                       <button
-    key={item.id}
-    type="button"
-    onClick={() => {
-      const newLines = [...lines];
-      if (searchKeyword) {
-        newLines[newLines.length - 1] = item.menu_name + " 1"; 
-      } else {
-        if (newLines[newLines.length - 1].trim() === "") {
-          newLines[newLines.length - 1] = item.menu_name + " 1";
-        } else {
-          newLines.push(item.menu_name + " 1");
-        }
-      }
-      
-      const newMenuText = newLines.join('\n');
-      const autoFoodPrice = calculateAutoPrice(newMenuText);
-      let newTotalPrice = formData.total_price;
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          const newLines = [...lines];
+                          if (searchKeyword) {
+                            newLines[newLines.length - 1] = item.menu_name + " 1"; 
+                          } else {
+                            if (newLines[newLines.length - 1].trim() === "") {
+                              newLines[newLines.length - 1] = item.menu_name + " 1";
+                            } else {
+                              newLines.push(item.menu_name + " 1");
+                            }
+                          }
+                          
+                          const newMenuText = newLines.join('\n');
+                          const autoFoodPrice = calculateAutoPrice(newMenuText);
+                          let newTotalPrice = formData.total_price;
 
-      // 🌟 นำค่าอาหารที่คำนวณได้ มาบวกกับค่าส่งที่มีอยู่ในฟอร์ม
-      if (autoFoodPrice !== null) {
-        const currentDeliveryFee = parseInt(formData.delivery_fee || "0", 10);
-        newTotalPrice = (parseInt(autoFoodPrice, 10) + currentDeliveryFee).toString();
-      }
+                          if (autoFoodPrice !== null) {
+                            const currentDeliveryFee = parseInt(formData.delivery_fee || "0", 10);
+                            newTotalPrice = (parseInt(autoFoodPrice, 10) + currentDeliveryFee).toString();
+                          }
                           
                           setFormData({ ...formData, menu: newMenuText, total_price: newTotalPrice });
                         }}
                         className={`shrink-0 snap-start text-[10px] font-black px-3 py-1.5 border rounded-lg transition-all active:scale-95 shadow-sm cursor-pointer whitespace-nowrap ${
                           searchKeyword && item.menu_name.toLowerCase().includes(searchKeyword)
-                            ? "bg-blue-50 border-blue-300 text-blue-700 ring-1 ring-blue-200" 
-                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                            ? "bg-blue-900 border-blue-500 text-blue-300 ring-1 ring-blue-500/50" 
+                            : "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
                         }`}
                       >
                         {searchKeyword && item.menu_name.toLowerCase().includes(searchKeyword) ? "✨ แนะนำ: " : "+ "} 
@@ -1645,7 +1626,7 @@ export default function BoardPage({
                 </div>
 
                 {calcBreakdown.length > 0 && formData.job_type !== "shopee" && (
-                  <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 shadow-inner">
+                  <div className="mt-4 p-4 bg-slate-800 border border-slate-700 rounded-2xl space-y-2 shadow-inner">
                     <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
                       <LayoutDashboard size={12} /> สรุปการคำนวณอัตโนมัติ
                     </div>
@@ -1653,19 +1634,19 @@ export default function BoardPage({
                       <div key={idx} className="flex justify-between items-center text-xs font-bold">
                         {item.found ? (
                           <>
-                            <span className="text-slate-700 flex items-center gap-2">
-                              <CheckCircle2 size={14} className="text-emerald-500" />
-                              {item.name} <span className="text-slate-400 font-medium">x{item.qty}</span>
+                            <span className="text-slate-300 flex items-center gap-2">
+                              <CheckCircle2 size={14} className="text-emerald-400" />
+                              {item.name} <span className="text-slate-500 font-medium">x{item.qty}</span>
                             </span>
-                            <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">{item.total}.-</span>
+                            <span className="text-emerald-400 bg-emerald-900/30 px-2 py-0.5 rounded-md border border-emerald-800/50">{item.total}.-</span>
                           </>
                         ) : (
                           <>
-                            <span className="text-slate-400 flex items-center gap-2 line-through decoration-slate-300">
-                              <AlertTriangle size={14} className="text-amber-500" />
+                            <span className="text-slate-500 flex items-center gap-2 line-through decoration-slate-600">
+                              <AlertTriangle size={14} className="text-amber-500/50" />
                               {item.name}
                             </span>
-                            <span className="text-amber-500 text-[10px] bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100">ไม่พบในฐานข้อมูลสาขา</span>
+                            <span className="text-amber-500/70 text-[10px] bg-amber-900/20 px-2 py-0.5 rounded-md border border-amber-800/30">ไม่พบในฐานข้อมูลสาขา</span>
                           </>
                         )}
                       </div>
@@ -1677,12 +1658,12 @@ export default function BoardPage({
               {formData.job_type !== "shopee" && (
                 <>
                   <div>
-                    <label className="block text-xs font-black text-slate-500 mb-2 tracking-wide uppercase">
+                    <label className="block text-xs font-black text-slate-400 mb-2 tracking-wide uppercase">
                       รายละเอียดเพิ่มเติม (Note)
                     </label>
                     <textarea
                       rows={2}
-                      className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all resize-none font-medium leading-relaxed text-slate-700 shadow-sm"
+                      className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none font-medium leading-relaxed text-white placeholder-slate-500 shadow-sm"
                       value={formData.details}
                       onChange={(e) =>
                         setFormData({ ...formData, details: e.target.value })
@@ -1694,7 +1675,7 @@ export default function BoardPage({
               )}
 
               <div className="pt-2">
-                <label className="block text-xs font-black text-slate-500 mb-3 tracking-wide uppercase">
+                <label className="block text-xs font-black text-slate-400 mb-3 tracking-wide uppercase">
                   แนบรูปภาพ (หลายรูปได้)
                 </label>
                 {(existingImages.length > 0 || imagePreviews.length > 0) && (
@@ -1702,7 +1683,7 @@ export default function BoardPage({
                     {existingImages.map((url, i) => (
                       <div
                         key={`exist-${i}`}
-                        className="relative w-20 h-20 rounded-xl overflow-hidden shadow-sm border border-slate-200 group"
+                        className="relative w-20 h-20 rounded-xl overflow-hidden shadow-sm border border-slate-700 group"
                       >
                         <Image
                           src={url}
@@ -1723,7 +1704,7 @@ export default function BoardPage({
                     {imagePreviews.map((url, i) => (
                       <div
                         key={`new-${i}`}
-                        className="relative w-20 h-20 rounded-xl overflow-hidden shadow-sm border-2 border-blue-400 border-dashed group"
+                        className="relative w-20 h-20 rounded-xl overflow-hidden shadow-sm border-2 border-blue-500 border-dashed group"
                       >
                         <Image
                           src={url}
@@ -1750,23 +1731,23 @@ export default function BoardPage({
                     e.stopPropagation();
                   }}
                   onPaste={handlePasteImage}
-                  className="border-2 border-dashed border-slate-300 rounded-3xl p-8 text-center hover:border-blue-400 hover:bg-blue-50/50 transition-all bg-white flex flex-col items-center justify-center cursor-pointer shadow-sm"
+                  className="border-2 border-dashed border-slate-600 rounded-3xl p-8 text-center hover:border-blue-500 hover:bg-slate-800/80 transition-all bg-slate-800 flex flex-col items-center justify-center cursor-pointer shadow-sm"
                 >
                   <div className="text-slate-400 text-sm">
                     <ImagePlus
-                      className="mx-auto mb-3 text-slate-300"
+                      className="mx-auto mb-3 text-slate-500"
                       size={36}
                       strokeWidth={1.5}
                     />
-                    <div className="font-bold text-slate-700 text-sm mb-1">
+                    <div className="font-bold text-slate-300 text-sm mb-1">
                       ลากไฟล์มาวาง หรือ กด Ctrl+V
                     </div>
-                    <div className="my-2 text-xs font-black text-slate-400 uppercase tracking-widest">
+                    <div className="my-2 text-xs font-black text-slate-500 uppercase tracking-widest">
                       หรือ
                     </div>
                     <label
                       htmlFor="file-upload"
-                      className="inline-block bg-white border border-slate-200 text-slate-600 rounded-xl px-5 py-2 text-xs font-black tracking-wide cursor-pointer hover:bg-slate-50 hover:border-slate-300 hover:shadow-sm transition-all mt-1"
+                      className="inline-block bg-slate-700 border border-slate-600 text-slate-300 rounded-xl px-5 py-2 text-xs font-black tracking-wide cursor-pointer hover:bg-slate-600 hover:text-white transition-all mt-1"
                     >
                       เลือกไฟล์จากอุปกรณ์
                     </label>
@@ -1783,72 +1764,70 @@ export default function BoardPage({
               </div>
 
               {formData.job_type !== "shopee" && (
-                <div className="space-y-6 pt-3 border-t border-slate-200/60 mt-6">
+                <div className="space-y-6 pt-3 border-t border-slate-800 mt-6">
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-    <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase">
-      ค่าส่ง (บาท)
-    </label>
-    <input
-      type="text"
-      inputMode="numeric"
-      className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-lg outline-none focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 transition-all font-black text-orange-500 shadow-sm"
-      value={formData.delivery_fee}
-      onChange={(e) => {
-        const newFeeStr = e.target.value.replace(/[^0-9]/g, "");
-        const newFeeNum = parseInt(newFeeStr || "0", 10);
-        const oldFeeNum = parseInt(formData.delivery_fee || "0", 10);
-        const currentTotal = parseInt(formData.total_price || "0", 10);
-        
-        // 🌟 ปรับยอดรวมอัตโนมัติตามส่วนต่างค่าส่งที่เปลี่ยนไป
-        const newTotal = currentTotal - oldFeeNum + newFeeNum;
-        
-        setFormData({ 
-          ...formData, 
-          delivery_fee: newFeeStr, 
-          total_price: Math.max(0, newTotal).toString() 
-        });
-      }}
-      placeholder="0"
-    />
-  </div>
-  <div>
-    <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase">
-      ค่าอาหารรวมค่าส่ง (บาท)
-    </label>
-    <input
-      type="text"
-      inputMode="numeric"
-      className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-lg outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-black text-blue-600 shadow-sm"
-      value={formData.total_price}
-      onChange={(e) => setFormData({ ...formData, total_price: e.target.value.replace(/[^0-9]/g, "") })}
-      placeholder="0"
-    />
-  </div>
-  
-  <div>
-    <label className="block text-[10px] font-black text-slate-500 mb-2 tracking-wide uppercase">
-      ช่องทางชำระเงิน
-    </label>
-    <select
-      className="w-full bg-white border border-slate-200 p-4 rounded-2xl text-xs outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all cursor-pointer font-bold text-slate-800 shadow-sm"
-      value={formData.payment_method}
-      onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
-    >
-      <option value="โอน">📱 โอน</option>
-      <option value="เงินสด">💵 เงินสด</option>
-      <option value="คนละครึ่ง">🔵 ครึ่งๆ</option>
-    </select>
-  </div>
-</div>
+                      <label className="block text-[10px] font-black text-slate-400 mb-2 tracking-wide uppercase">
+                        ค่าอาหาร (บาท)
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-lg outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-black text-blue-400 shadow-sm"
+                        value={formData.total_price}
+                        onChange={(e) => setFormData({ ...formData, total_price: e.target.value.replace(/[^0-9]/g, "") })}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 mb-2 tracking-wide uppercase">
+                        ค่าส่ง (บาท)
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-lg outline-none focus:ring-4 focus:ring-orange-500/20 focus:border-orange-500 transition-all font-black text-orange-400 shadow-sm"
+                        value={formData.delivery_fee}
+                        onChange={(e) => {
+                          const newFeeStr = e.target.value.replace(/[^0-9]/g, "");
+                          const newFeeNum = parseInt(newFeeStr || "0", 10);
+                          const oldFeeNum = parseInt(formData.delivery_fee || "0", 10);
+                          const currentTotal = parseInt(formData.total_price || "0", 10);
+                          
+                          const newTotal = currentTotal - oldFeeNum + newFeeNum;
+                          
+                          setFormData({ 
+                            ...formData, 
+                            delivery_fee: newFeeStr, 
+                            total_price: Math.max(0, newTotal).toString() 
+                          });
+                        }}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 mb-2 tracking-wide uppercase">
+                        ช่องทางชำระเงิน
+                      </label>
+                      <select
+                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-xs outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer font-bold text-white shadow-sm"
+                        value={formData.payment_method}
+                        onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
+                      >
+                        <option value="โอน">📱 โอน</option>
+                        <option value="เงินสด">💵 เงินสด</option>
+                        <option value="คนละครึ่ง">🔵 ครึ่งๆ</option>
+                      </select>
+                    </div>
+                  </div>
 
-                  <div className="relative p-5 bg-white border border-slate-200/60 rounded-3xl shadow-sm">
-                    <label className="text-xs font-black text-blue-600 mb-3 tracking-wide flex items-center uppercase">
+                  <div className="relative p-5 bg-slate-800 border border-slate-700 rounded-3xl shadow-sm">
+                    <label className="text-xs font-black text-blue-400 mb-3 tracking-wide flex items-center uppercase">
                       <Search size={14} className="mr-1.5" /> สถานที่จัดส่ง / ลิงก์แผนที่ *
                     </label>
                     <input
                       type="text"
-                      className="w-full bg-slate-50 border border-slate-200 p-4 rounded-2xl text-sm outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 font-bold text-slate-800 transition-all placeholder-slate-400"
+                      className="w-full bg-slate-900 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 font-bold text-white transition-all placeholder-slate-500"
                       value={formData.location_name}
                       onChange={(e) => handleLocationSearch(e.target.value)}
                       onFocus={() => {
@@ -1861,33 +1840,33 @@ export default function BoardPage({
                     />
 
                     {showSuggestions && unifiedResults.length > 0 && (
-                      <ul className="absolute z-50 bg-white border border-slate-100 rounded-2xl shadow-2xl mt-2 max-h-60 overflow-y-auto divide-y divide-slate-50 thin-scrollbar w-11/12 max-w-full">
+                      <ul className="absolute z-50 bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl mt-2 max-h-60 overflow-y-auto divide-y divide-slate-700 thin-scrollbar w-11/12 max-w-full">
                         {unifiedResults.map((item, idx) => (
                           <li
                             key={idx}
-                            className="p-4 hover:bg-blue-50 cursor-pointer text-sm flex justify-between items-center transition-colors group/item"
+                            className="p-4 hover:bg-slate-700 cursor-pointer text-sm flex justify-between items-center transition-colors group/item"
                             onClick={() => selectUnifiedResult(item)}
                           >
                             <div className="flex flex-col pr-4">
-                              <div className="font-black text-slate-800 flex items-center group-hover/item:text-blue-700 transition-colors">
+                              <div className="font-black text-white flex items-center group-hover/item:text-blue-400 transition-colors">
                                 {item.type === "store" ? (
-                                  <Store size={14} className="mr-2 text-blue-500" />
+                                  <Store size={14} className="mr-2 text-blue-400" />
                                 ) : (
-                                  <MapIcon size={14} className="mr-2 text-rose-500" />
+                                  <MapIcon size={14} className="mr-2 text-rose-400" />
                                 )}
                                 {item.name}
                               </div>
-                              <div className="text-xs text-slate-500 font-medium truncate mt-1">
+                              <div className="text-xs text-slate-400 font-medium truncate mt-1">
                                 {item.address}
                               </div>
                             </div>
                             <div className="shrink-0">
                               {item.type === "store" ? (
-                                <span className="text-xs font-black bg-blue-100 text-blue-700 px-2.5 py-1 rounded-lg">
+                                <span className="text-xs font-black bg-blue-900/50 text-blue-300 px-2.5 py-1 rounded-lg border border-blue-800">
                                   หมุดร้าน ({item.distanceText})
                                 </span>
                               ) : (
-                                <span className="text-xs font-black bg-slate-100 text-slate-600 px-2.5 py-1 rounded-lg border border-slate-200">
+                                <span className="text-xs font-black bg-slate-900 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700">
                                   Google Maps
                                 </span>
                               )}
@@ -1901,7 +1880,7 @@ export default function BoardPage({
                       <Link
                         href="/dorms"
                         target="_blank"
-                        className="inline-flex items-center gap-1.5 text-[10px] font-black text-indigo-600 hover:text-white hover:bg-indigo-500 transition-colors uppercase tracking-widest bg-indigo-50 border border-indigo-100 px-3 py-2 rounded-xl active:scale-95 cursor-pointer shadow-sm"
+                        className="inline-flex items-center gap-1.5 text-[10px] font-black text-blue-400 hover:text-white hover:bg-blue-600 transition-colors uppercase tracking-widest bg-blue-900/30 border border-blue-800 px-3 py-2 rounded-xl active:scale-95 cursor-pointer shadow-sm"
                       >
                         <Plus size={12} strokeWidth={3} /> ไปหน้าเพิ่มที่อยู่ใหม่หากยังไม่มีข้อมูลในระบบร้าน
                       </Link>
@@ -1910,11 +1889,11 @@ export default function BoardPage({
                 </div>
               )}
 
-              <div className="pt-5 flex gap-4 mt-2 border-t border-slate-200/60">
+              <div className="pt-5 flex gap-4 mt-2 border-t border-slate-800">
                 <button
                   type="submit"
                   disabled={isUploading}
-                  className="w-full bg-slate-900 text-white font-black py-4 rounded-4xl hover:bg-blue-600 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-300 flex justify-center items-center cursor-pointer text-sm uppercase tracking-widest disabled:bg-slate-300 disabled:hover:translate-y-0 disabled:hover:shadow-none active:scale-95"
+                  className="w-full bg-blue-600 text-white font-black py-4 rounded-4xl hover:bg-blue-500 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-500/20 transition-all duration-300 flex justify-center items-center cursor-pointer text-sm uppercase tracking-widest disabled:bg-slate-700 disabled:text-slate-400 disabled:hover:translate-y-0 disabled:hover:shadow-none active:scale-95"
                 >
                   {isUploading
                     ? "กำลังจัดเก็บข้อมูล..."
@@ -1928,7 +1907,7 @@ export default function BoardPage({
         </div>
       )}
 
-      {/* 🌟 Status Change & Details Modals ... */}
+      {/* 🌟 Status Change Modal */}
       {statusModal.isOpen && statusModal.order && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-150">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col relative border border-white/20">
@@ -1968,8 +1947,8 @@ export default function BoardPage({
                   }`}
                 >
                   {statusModal.order?.status === st
-                    ? `📌 สถานะปัจจุบัน: ${st}`
-                    : `เปลี่ยนเป็น: ${st}`}
+                    ? `📌 สถานะปัจจุบัน: ${st === 'รับงาน' ? 'รับงาน (ทำอาหารเสร็จ)' : st}`
+                    : `เปลี่ยนเป็น: ${st === 'รับงาน' ? 'รับงาน (ทำอาหารเสร็จ)' : st}`}
                 </button>
               ))}
             </div>
@@ -1977,6 +1956,7 @@ export default function BoardPage({
         </div>
       )}
 
+      {/* 🌟 View Details Modal */}
       {selectedViewOrder && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 flex flex-col max-h-[90vh]">
@@ -2023,7 +2003,7 @@ export default function BoardPage({
                     }`}
                     title="คลิกเพื่อแก้ไขสถานะ"
                   >
-                    {selectedViewOrder.status}{" "}
+                    {selectedViewOrder.status === 'รับงาน' ? 'รับงาน (ทำเสร็จแล้ว)' : selectedViewOrder.status}{" "}
                     <ArrowRightLeft size={12} className="opacity-70" />
                   </button>
                 </div>
@@ -2164,11 +2144,11 @@ export default function BoardPage({
                   </span>
                 </div>
                 <div className="flex justify-between items-center pt-2 border-t border-slate-100">
-  <span className="text-slate-500 font-medium">ค่าส่ง:</span>
-  <span className="font-black text-orange-500 text-lg">
+                  <span className="text-slate-500 font-medium">ค่าส่ง:</span>
+                  <span className="font-black text-orange-500 text-lg">
                     ฿{selectedViewOrder.delivery_fee || 0}
-  </span>
-</div>
+                  </span>
+                </div>
                 <div className="flex justify-between items-center">
                   <span className="text-slate-500 font-medium">
                     การชำระเงิน:
@@ -2240,7 +2220,7 @@ export default function BoardPage({
         </div>
       )}
 
-      {/* 🌟 แสดงป๊อปอัพ SlipScanner ถ้ามีการสั่งตรวจ */}
+      {/* 🌟 SlipScanner */}
       {scannerConfig?.isOpen && (
         <SlipScanner
           orderId={scannerConfig.orderId}
@@ -2280,15 +2260,16 @@ export default function BoardPage({
         />
       )}
 
+      {/* 🌟 Image Gallery (ปรับพื้นหลังโปร่งใส) */}
       {imageGallery && (
         <div
-          className="fixed inset-0 bg-gray-900/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200 z-200"
+          className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex flex-col animate-in fade-in duration-200 z-[200]"
           onClick={() => {
             setImageGallery(null);
             setImgScale(1);
           }}
         >
-          <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-210 text-white pointer-events-none">
+          <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-[210] text-white pointer-events-none">
             <span className="font-bold text-xs bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm">
               คลิก 2 ครั้งเพื่อซูม / ใช้ปุ่มลูกศรเลื่อน
             </span>
@@ -2310,7 +2291,7 @@ export default function BoardPage({
                   e.stopPropagation();
                   scrollGallery("left");
                 }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-210 transition-all cursor-pointer hidden md:block"
+                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-[210] transition-all cursor-pointer hidden md:block"
               >
                 <ChevronLeft size={24} />
               </button>
@@ -2319,7 +2300,7 @@ export default function BoardPage({
                   e.stopPropagation();
                   scrollGallery("right");
                 }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-210 transition-all cursor-pointer hidden md:block"
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-[210] transition-all cursor-pointer hidden md:block"
               >
                 <ChevronRight size={24} />
               </button>
@@ -2327,7 +2308,7 @@ export default function BoardPage({
           )}
           <div
             ref={galleryRef}
-            className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory thin-scrollbar z-200"
+            className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory thin-scrollbar z-[200]"
           >
             {imageGallery.urls.map((url, i) => (
               <div
@@ -2355,7 +2336,7 @@ export default function BoardPage({
             ))}
           </div>
           <div
-            className="absolute bottom-10 left-1/2 transform -translate-x-1/2 flex items-center gap-6 bg-gray-800/80 px-6 py-3 rounded-full backdrop-blur-md shadow-2xl z-210"
+            className="absolute bottom-10 left-1/2 transform -translate-x-1/2 flex items-center gap-6 bg-gray-800/80 px-6 py-3 rounded-full backdrop-blur-md shadow-2xl z-[210]"
             onClick={(e) => e.stopPropagation()}
           >
             <button

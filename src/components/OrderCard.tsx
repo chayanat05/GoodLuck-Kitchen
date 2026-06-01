@@ -3,6 +3,7 @@ import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, Mor
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { motion } from "framer-motion";
 import Image from 'next/image';
+import { DraggableProvidedDragHandleProps } from "@hello-pangea/dnd"; // 🌟 Import Type ที่ถูกต้อง (No Any)
 
 export interface Order {
   slip_image?: string | null;
@@ -34,6 +35,7 @@ interface OrderProps {
   order: Order;
   isCompact?: boolean;
   userRole?: string; 
+  dragHandleProps?: DraggableProvidedDragHandleProps | null; // 🌟 ใช้ Type ที่ถูกต้องแทน any
   onEdit?: (order: Order) => void; 
   onStart?: (id: string) => void;  
   onFinish?: (id: string) => void; 
@@ -54,7 +56,7 @@ const getCardTheme = (status: string) => {
   }
 };
 
-function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onViewDetails, onViewImages, onVerifySlip, onDelete, onChangeStatusRequest }: OrderProps) {
+function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStart, onFinish, onViewDetails, onViewImages, onVerifySlip, onDelete, onChangeStatusRequest }: OrderProps) {
   const isShopee = order.job_type === "shopee";
   const isLocked = !!order.rider_id;
 
@@ -93,7 +95,7 @@ function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onVi
     };
 
     calculateTime();
-    const interval = setInterval(calculateTime, 30000); // อัปเดตทุก 30 วินาที
+    const interval = setInterval(calculateTime, 30000); 
     return () => clearInterval(interval);
   }, [order.created_at]);
 
@@ -107,9 +109,8 @@ function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onVi
       transition={{ duration: 0.3 }}
       className={`${isCompact ? 'p-3' : 'p-4'} rounded-3xl shadow-xl border-b-8 relative transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:-translate-y-1 flex flex-col max-h-full w-full min-h-56 ${theme.bg}`}
     >
-      
-      <div className={`shrink-0 flex justify-between items-start ${isCompact ? 'mb-3' : 'mb-4'} gap-2 border-b border-white/10 pb-3`}>
-        <div className="flex flex-wrap gap-2 items-center">
+      <div {...dragHandleProps} className={`shrink-0 flex justify-between items-start ${isCompact ? 'mb-3' : 'mb-4'} gap-2 border-b border-white/10 pb-3 ${dragHandleProps ? 'cursor-grab active:cursor-grabbing' : ''}`}>
+        <div className="flex flex-wrap gap-2 items-center pointer-events-none">
           <span className={`${isCompact ? 'text-xs px-2 py-1' : 'text-sm px-2.5 py-1'} font-black rounded-lg bg-white/90 text-slate-800 tracking-wider shadow-sm`}>
             {isShopee ? (order.order_number.startsWith('#') ? order.order_number : `#${order.order_number}`) : order.order_number}
           </span>
@@ -132,7 +133,7 @@ function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onVi
             {order.job_type}
           </span>
           <span className={`text-xs font-black ${isCompact ? 'px-1.5 py-0.5' : 'px-2.5 py-1'} rounded-md uppercase tracking-wider border ${theme.badgeBg}`}>
-            {order.status}
+            {order.status === 'รับงาน' ? 'ทำอาหารเสร็จแล้ว' : order.status}
           </span>
         </div>
 
@@ -187,15 +188,15 @@ function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onVi
 
       <div className="flex-1 overflow-y-auto thin-scrollbar pr-1 flex flex-col mb-3">
         {order.menu && (
-          <div className={`${isCompact ? 'mb-2 text-xs' : 'mb-3 text-sm'} font-black whitespace-pre-line leading-relaxed shrink-0 ${theme.text}`}>
+          <div className={`${isCompact ? 'mb-2 text-sm' : 'mb-3 text-base md:text-lg'} font-black whitespace-pre-line leading-relaxed shrink-0 ${theme.text}`}>
             {order.menu}
           </div>
         )}
 
         {hasImages && (
-          <div className={`flex flex-col gap-2 shrink-0 ${isCompact ? 'mb-3' : 'mb-4'} mt-1 items-center`}>
+          <div className={`flex flex-col gap-2 shrink-0 ${isCompact ? 'mb-3' : 'mb-4'} mt-1 items-center w-full`}>
             {images.map((url, i) => (
-              <div key={i} onClick={(e) => { e.stopPropagation(); if (onViewImages) onViewImages(images, i); else onViewDetails?.(); }} className="relative w-[65%] rounded-xl overflow-hidden border border-white/20 shadow-sm cursor-pointer group/img bg-black/10" style={{ aspectRatio: '9/16' }}>
+              <div key={i} onClick={(e) => { e.stopPropagation(); if (onViewImages) onViewImages(images, i); else onViewDetails?.(); }} className="relative w-full aspect-video rounded-xl overflow-hidden border border-white/20 shadow-sm cursor-pointer group/img bg-black/10">
                 <Image src={url} fill sizes="(max-width: 768px) 100vw, 33vw" alt={`Order attachment ${i}`} className="object-cover block group-hover/img:scale-105 transition-transform duration-500" />
               </div>
             ))}
@@ -205,7 +206,7 @@ function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onVi
         {order.details && <p className={`text-xs font-medium shrink-0 leading-relaxed p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${isCompact ? 'mb-2' : 'mb-4'} ${theme.subText}`}>{order.details}</p>}
 
         {order.address && (
-          <div className={`flex items-start shrink-0 text-xs ${isCompact ? 'mb-1' : 'mb-1'} p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${theme.text}`}>
+          <div className={`flex items-start shrink-0 text-[10px] md:text-xs ${isCompact ? 'mb-1' : 'mb-1'} p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${theme.text}`}>
             <MapPin size={14} className="mr-1.5 mt-0.5 shrink-0" />
             <span className="leading-relaxed font-medium">{order.address}</span>
           </div>
@@ -219,7 +220,7 @@ function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onVi
         </div>
         {!isShopee && (
           <div className="flex items-center gap-2">
-            {order.payment_method === 'โอน' && (
+            {order.payment_method === 'โอน' && userRole !== 'kitchen' && (
               slipStatus === 'ผ่าน' ? (
                 <span className="flex items-center text-emerald-600 bg-white/95 px-1.5 py-0.5 rounded shadow-sm" title="ตรวจสลิปผ่านแล้ว">
                   <CheckCircle2 size={12} className="mr-1" />
@@ -237,10 +238,10 @@ function OrderCard({ order, isCompact, userRole, onEdit, onStart, onFinish, onVi
                 </span>
               )
             )}
-            <span className={`font-black text-sm ${theme.text}`}>
-  ฿{order.total_price}
-  {order.delivery_fee ? <span className="text-[10px] ml-1 opacity-80">(รวมค่าส่งแล้ว ฿{order.delivery_fee})</span> : null}
-</span>
+            <span className={`font-black text-sm flex items-baseline ${theme.text}`}>
+              ฿{order.total_price}
+              {order.delivery_fee ? <span className="text-[10px] ml-1 opacity-80">(รวมค่าส่งแล้ว ฿{order.delivery_fee})</span> : null}
+            </span>
             {order.payment_method && !isCompact && (
               <span className={`text-xs font-black uppercase px-2 py-0.5 rounded shadow-sm border ${theme.badgeBg}`}>
                 {order.payment_method}
