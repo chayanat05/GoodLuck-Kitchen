@@ -190,6 +190,11 @@ export default function BoardPage({
   });
 
   const galleryRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isDraggingBoard, setIsDraggingBoard] = useState(false);
+  const [startDragX, setStartDragX] = useState(0);
+  const [scrollDragLeft, setScrollDragLeft] = useState(0);
+
   const dbTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const googleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const notificationAudio = useRef<HTMLAudioElement | null>(null);
@@ -933,7 +938,7 @@ export default function BoardPage({
             className="loader mb-4"
             style={{ "--loader-color": "#fff" } as React.CSSProperties}
           ></div>
-          <p className="text-white text-sm font-bold tracking-widest mt-2 animate-pulse">
+          <p className="text-white text-base font-bold tracking-widest mt-2 animate-pulse">
             กำลังเตรียมบอร์ด...
           </p>
         </div>
@@ -962,10 +967,15 @@ export default function BoardPage({
             >
               <Menu size={18} />
             </button>
-            <h1 className="text-base md:text-lg font-black text-slate-800 flex items-center whitespace-nowrap tracking-tight">
-              KANBAN{" "}
-              <span className="text-blue-600 ml-1 mr-2 md:mr-3">BOARD</span>
-              <span className="text-xs md:text-sm text-slate-500 font-bold border-l-2 border-slate-200 pl-2 md:pl-3 py-1 flex items-center gap-2">
+            <h1 className="text-lg md:text-xl font-black text-slate-800 flex items-center whitespace-nowrap tracking-tight">
+              <button
+                onClick={() => window.location.reload()}
+                className="flex items-center hover:opacity-70 transition-opacity cursor-pointer text-left mr-2 md:mr-3"
+                title="โหลดหน้าเว็บใหม่เพื่อแก้หน้าจอค้าง"
+              >
+                KANBAN <span className="text-blue-600 ml-1">BOARD</span>
+              </button>
+              <span className="text-sm md:text-base text-slate-500 font-bold border-l-2 border-slate-200 pl-2 md:pl-3 py-1 flex items-center gap-2">
                 <span>
                   ทั้งหมด:{" "}
                   <span className="text-blue-600 font-black">
@@ -993,7 +1003,7 @@ export default function BoardPage({
                 placeholder="ค้นหาออเดอร์, สถานที่..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:bg-white focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 transition-all font-medium shadow-inner"
+                className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:bg-white focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 transition-all font-medium shadow-inner"
               />
             </div>
 
@@ -1005,7 +1015,7 @@ export default function BoardPage({
                   await supabase.from("store_settings").update({ emergency_reveal_contacts: newVal }).eq("id", 1);
                   showToast(newVal ? "เปิดโหมดฉุกเฉิน: แอดมินทุกคนเห็นลิ้งก์แล้ว! 🚨" : "ปิดโหมดฉุกเฉิน: ล็อกลิ้งก์ตามปกติ 🔒");
                 }}
-                className={`w-full sm:w-auto px-3 py-1.5 text-xs font-bold rounded-xl border transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95 ${
+                className={`w-full sm:w-auto px-3 py-1.5 text-sm font-bold rounded-xl border transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95 ${
                   isEmergencyMode 
                     ? "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100" 
                     : "bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200"
@@ -1017,7 +1027,7 @@ export default function BoardPage({
             
             <button
               onClick={() => setIsCompact(!isCompact)}
-              className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 text-xs font-bold rounded-xl hover:bg-slate-200 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
+              className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 text-sm font-bold rounded-xl hover:bg-slate-200 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
             >
               {isCompact ? (
                 <Expand size={14} className="text-blue-500" />
@@ -1030,7 +1040,7 @@ export default function BoardPage({
             {(currentUserRole === "admin" || currentUserRole === 'superadmin' || currentUserRole === 'kitchen') && (
               <button
                 onClick={() => setShowRiderMap(true)}
-                className="w-full sm:w-auto px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl hover:bg-indigo-100 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                className="w-full sm:w-auto px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-sm font-bold rounded-xl hover:bg-indigo-100 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
               >
                 <MapViewIcon size={14} className="animate-pulse" /> พิกัดไรเดอร์
               </button>
@@ -1039,7 +1049,7 @@ export default function BoardPage({
             {(currentUserRole === "admin" || currentUserRole === 'superadmin') && (
               <button
                 onClick={openCreateModal}
-                className="w-full sm:w-auto px-4 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 hover:shadow-lg transition-all duration-300 cursor-pointer active:scale-95 shadow-md"
+                className="w-full sm:w-auto px-4 py-1.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 hover:shadow-lg transition-all duration-300 cursor-pointer active:scale-95 shadow-md"
               >
                 + สร้างออเดอร์
               </button>
@@ -1064,13 +1074,13 @@ export default function BoardPage({
               >
                 <X size={18} />
               </button>
-              <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-5 text-2xl font-black uppercase shadow-inner border border-white/30">
+              <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-5 text-3xl font-black uppercase shadow-inner border border-white/30">
                 {adminName.charAt(0)}
               </div>
-              <h2 className="font-black text-2xl mb-1 tracking-tight">
+              <h2 className="font-black text-3xl mb-1 tracking-tight">
                 {adminName}
               </h2>
-              <p className="text-blue-200 text-xs font-bold tracking-wide flex items-center">
+              <p className="text-blue-200 text-sm font-bold tracking-wide flex items-center">
                 <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 mr-2 shadow-md shadow-emerald-400"></span>{" "}
                 {currentUserRole === "admin"
                   ? "ผู้ดูแลระบบ (ADMIN)"
@@ -1119,7 +1129,7 @@ export default function BoardPage({
                   />
                 </div>
                 <div>
-                  <div className="text-l font-black">คลังรูปภาพสาขา</div>
+                  <div className="text-lg font-black">คลังรูปภาพสาขา</div>
                   <div className="text-[15px] text-slate-400 font-bold uppercase tracking-widest">
                     Branch Gallery
                   </div>
@@ -1138,7 +1148,7 @@ export default function BoardPage({
                   />
                 </div>
                 <div>
-                  <div className="text-l font-black">ที่ปักหมุด</div>
+                  <div className="text-lg font-black">ที่ปักหมุด</div>
                   <div className="text-[15px] text-slate-400 font-bold uppercase tracking-widest">
                     ฐานข้อมูลหอพัก
                   </div>
@@ -1213,7 +1223,7 @@ export default function BoardPage({
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 flex flex-col h-5/6 relative">
             <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-white sticky top-0 z-10 shrink-0">
-              <h3 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+              <h3 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
                 <MapViewIcon className="text-indigo-600" size={24} />{" "}
                 ติดตามพิกัดไรเดอร์ (Live)
               </h3>
@@ -1243,7 +1253,7 @@ export default function BoardPage({
                       text: "ร้านของเรา",
                       color: "#b91c1c",
                       className:
-                        "bg-white/90 px-2 py-0.5 rounded-full shadow-sm text-xs font-black mt-8 border border-red-200",
+                        "bg-white/90 px-2 py-0.5 rounded-full shadow-sm text-sm font-black mt-8 border border-red-200",
                     }}
                     onClick={() =>
                       setSelectedRiderMapInfo({
@@ -1273,7 +1283,7 @@ export default function BoardPage({
                             text: rider.username,
                             color: "#1e293b",
                             className:
-                              "bg-white/80 px-2 py-0.5 rounded-full shadow-sm text-xs font-bold mt-8 border border-slate-200 backdrop-blur-sm",
+                              "bg-white/80 px-2 py-0.5 rounded-full shadow-sm text-sm font-bold mt-8 border border-slate-200 backdrop-blur-sm",
                           }}
                           onClick={() => setSelectedRiderMapInfo(rider)}
                         />
@@ -1291,12 +1301,12 @@ export default function BoardPage({
                         onCloseClick={() => setSelectedRiderMapInfo(null)}
                       >
                         <div className="p-1 min-w-32 text-center">
-                          <div className="font-bold text-sm text-slate-800 mb-1">
+                          <div className="font-bold text-base text-slate-800 mb-1">
                             {selectedRiderMapInfo.username}
                           </div>
                           {selectedRiderMapInfo.id !== "shop" && (
                             <div
-                              className={`text-xs font-bold px-2 py-0.5 rounded-full inline-block ${
+                              className={`text-sm font-bold px-2 py-0.5 rounded-full inline-block ${
                                 ((lastSeen) => {
                                   if (!lastSeen) return false;
                                   const diffMins =
@@ -1332,15 +1342,15 @@ export default function BoardPage({
               )}
             </div>
             <div className="p-4 bg-white shrink-0 border-t border-slate-100 flex gap-2 overflow-x-auto thin-scrollbar">
-              <div className="px-3 py-1.5 bg-red-50 text-red-700 text-xs font-bold rounded-lg border border-red-100 shrink-0 flex items-center gap-1.5">
+              <div className="px-3 py-1.5 bg-red-50 text-red-700 text-sm font-bold rounded-lg border border-red-100 shrink-0 flex items-center gap-1.5">
                 <div className="w-3 h-3 bg-red-500 rounded-full shadow-inner"></div>{" "}
                 ร้านของเรา
               </div>
-              <div className="px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg border border-blue-100 shrink-0 flex items-center gap-1.5">
+              <div className="px-3 py-1.5 bg-blue-50 text-blue-700 text-sm font-bold rounded-lg border border-blue-100 shrink-0 flex items-center gap-1.5">
                 <div className="w-3 h-3 bg-blue-500 rounded-full shadow-inner animate-pulse"></div>{" "}
                 ไรเดอร์
               </div>
-              <span className="text-xs text-slate-400 my-auto ml-auto pl-4 whitespace-nowrap">
+              <span className="text-sm text-slate-400 my-auto ml-auto pl-4 whitespace-nowrap">
                 *พิกัดอัปเดตทุก 30 วินาที*
               </span>
             </div>
@@ -1358,7 +1368,7 @@ export default function BoardPage({
             >
               <Sun size={56} />
             </div>
-            <h2 className="text-3xl font-black text-slate-800 mb-3 tracking-tight drop-shadow-sm">
+            <h2 className="text-4xl font-black text-slate-800 mb-3 tracking-tight drop-shadow-sm">
               เริ่มต้นวันใหม่! 🌤️
             </h2>
             <p className="text-slate-700 font-bold mb-10 text-center max-w-md leading-relaxed drop-shadow-sm">
@@ -1371,7 +1381,7 @@ export default function BoardPage({
             {(currentUserRole === "admin" || currentUserRole === "superadmin") && (
               <button
                 onClick={openCreateModal}
-                className="px-10 py-5 bg-blue-600 text-white font-black rounded-4xl hover:bg-blue-700 hover:-translate-y-1 transition-all duration-300 flex items-center cursor-pointer tracking-wider uppercase text-sm active:scale-95 shadow-lg shadow-blue-500/50"
+                className="px-10 py-5 bg-blue-600 text-white font-black rounded-4xl hover:bg-blue-700 hover:-translate-y-1 transition-all duration-300 flex items-center cursor-pointer tracking-wider uppercase text-base active:scale-95 shadow-lg shadow-blue-500/50"
               >
                 <ClipboardCheck size={22} className="mr-3" /> เปิดร้าน /
                 สร้างออเดอร์แรก
@@ -1383,9 +1393,27 @@ export default function BoardPage({
             <Droppable droppableId="all-orders" direction="horizontal">
               {(provided) => (
                 <div
-                  ref={provided.innerRef}
+                  ref={(el) => {
+                    provided.innerRef(el);
+                    scrollContainerRef.current = el;
+                  }}
                   {...provided.droppableProps}
-                  className="flex-1 overflow-x-auto overflow-y-hidden thin-scrollbar pb-6 pt-2 px-2 flex items-start gap-4 md:gap-5"
+                  className={`flex-1 overflow-x-auto overflow-y-hidden thin-scrollbar pb-6 pt-2 px-2 flex items-start gap-4 md:gap-5 ${isDraggingBoard ? "cursor-grabbing select-none" : "cursor-grab"}`}
+                  onMouseDown={(e) => {
+                    if (e.target !== scrollContainerRef.current) return;
+                    setIsDraggingBoard(true);
+                    setStartDragX(e.pageX - (scrollContainerRef.current?.offsetLeft || 0));
+                    setScrollDragLeft(scrollContainerRef.current?.scrollLeft || 0);
+                  }}
+                  onMouseLeave={() => setIsDraggingBoard(false)}
+                  onMouseUp={() => setIsDraggingBoard(false)}
+                  onMouseMove={(e) => {
+                    if (!isDraggingBoard || !scrollContainerRef.current) return;
+                    e.preventDefault();
+                    const x = e.pageX - (scrollContainerRef.current.offsetLeft || 0);
+                    const walk = (x - startDragX) * 1.5;
+                    scrollContainerRef.current.scrollLeft = scrollDragLeft - walk;
+                  }}
                 >
                   {filteredOrders.map((order, index) => (
                     <Draggable
@@ -1399,9 +1427,8 @@ export default function BoardPage({
                           ref={provided.innerRef}
                           {...provided.draggableProps}
                           className={`shrink-0 max-h-full flex flex-col transition-all duration-300 ${isCompact ? "w-48 md:w-56" : "w-72 md:w-80"} ${snapshot.isDragging ? "scale-[1.02] rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl" : ""} ${
-  ((order.status === "New" || order.status === "กำลังทำ") && Math.floor((new Date().getTime() - new Date(order.created_at).getTime()) / 60000) >= 5) || 
-  (order.status === "รับงาน" && Math.floor((new Date().getTime() - new Date(order.created_at).getTime()) / 60000) >= 35) 
-  ? "rounded-3xl animate-border-blink" 
+  ((order.status === "New" || order.status === "กำลังทำ") && Math.floor((new Date().getTime() - new Date(order.created_at).getTime()) / 60000) >= 5) ||
+  (currentUserRole !== "kitchen" && order.status === "รับงาน" && Math.floor((new Date().getTime() - new Date(order.created_at).getTime()) / 60000) >= 35)  ? "rounded-3xl animate-border-blink" 
   : ""
 }`}
                         >
@@ -1450,7 +1477,7 @@ export default function BoardPage({
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-slate-900 shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-800 thin-scrollbar rounded-4xl max-h-full pb-10 overflow-y-auto">
             <div className="flex justify-between items-center p-6 border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl sticky top-0 z-10">
-              <h3 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
+              <h3 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
                 <ClipboardCheck className="text-blue-500" />
                 {editingId ? "แก้ไขออเดอร์ 📝" : "สร้างออเดอร์ใหม่ ✨"}
               </h3>
@@ -1469,11 +1496,11 @@ export default function BoardPage({
             >
               <div className="grid grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-xs font-black text-slate-400 mb-2 tracking-wide uppercase">
+                  <label className="block text-sm font-black text-slate-400 mb-2 tracking-wide uppercase">
                     ออเดอร์ (ร้าน) *
                   </label>
                   <input
-                    className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-bold text-white placeholder-slate-500 shadow-sm"
+                    className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-lg outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-bold text-white placeholder-slate-500 shadow-sm"
                     value={formData.order_number}
                     onChange={(e) =>
                       setFormData({ ...formData, order_number: e.target.value })
@@ -1483,11 +1510,11 @@ export default function BoardPage({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-black text-slate-400 mb-2 tracking-wide uppercase">
+                  <label className="block text-sm font-black text-slate-400 mb-2 tracking-wide uppercase">
                     ประเภทงาน
                   </label>
                   <select
-                    className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer font-bold text-white shadow-sm"
+                    className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-base outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer font-bold text-white shadow-sm"
                     value={formData.job_type}
                     onChange={(e) => {
                       setFormData({ ...formData, job_type: e.target.value });
@@ -1507,7 +1534,7 @@ export default function BoardPage({
                         แหล่งที่มา (เพจ)
                       </label>
                       <select
-                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer font-bold text-white shadow-sm"
+                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-base outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer font-bold text-white shadow-sm"
                         value={formData.contact_source}
                         onChange={(e) => {
                           setFormData({
@@ -1534,7 +1561,7 @@ export default function BoardPage({
                       </label>
                       <input
                         type="text"
-                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-bold text-white placeholder-slate-500 shadow-sm"
+                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-base outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-bold text-white placeholder-slate-500 shadow-sm"
                         value={formData.contact_link}
                         onChange={(e) =>
                           setFormData({
@@ -1550,12 +1577,12 @@ export default function BoardPage({
               )}
 
               <div>
-                <label className="block text-xs font-black text-slate-400 mb-2 tracking-wide uppercase">
+                <label className="block text-sm font-black text-slate-400 mb-2 tracking-wide uppercase">
                   รายการอาหาร / เมนู
                 </label>
                 <textarea
                   rows={3}
-                  className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none font-bold leading-relaxed text-white placeholder-slate-500 shadow-sm"
+                  className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-base outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none font-bold leading-relaxed text-white placeholder-slate-500 shadow-sm"
                   value={formData.menu}
                   onChange={(e) => {
                     const newMenu = e.target.value;
@@ -1631,7 +1658,7 @@ export default function BoardPage({
                       <LayoutDashboard size={12} /> สรุปการคำนวณอัตโนมัติ
                     </div>
                     {calcBreakdown.map((item, idx) => (
-                      <div key={idx} className="flex justify-between items-center text-xs font-bold">
+                      <div key={idx} className="flex justify-between items-center text-sm font-bold">
                         {item.found ? (
                           <>
                             <span className="text-slate-300 flex items-center gap-2">
@@ -1658,12 +1685,12 @@ export default function BoardPage({
               {formData.job_type !== "shopee" && (
                 <>
                   <div>
-                    <label className="block text-xs font-black text-slate-400 mb-2 tracking-wide uppercase">
+                    <label className="block text-sm font-black text-slate-400 mb-2 tracking-wide uppercase">
                       รายละเอียดเพิ่มเติม (Note)
                     </label>
                     <textarea
                       rows={2}
-                      className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none font-medium leading-relaxed text-white placeholder-slate-500 shadow-sm"
+                      className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-base outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none font-medium leading-relaxed text-white placeholder-slate-500 shadow-sm"
                       value={formData.details}
                       onChange={(e) =>
                         setFormData({ ...formData, details: e.target.value })
@@ -1675,7 +1702,7 @@ export default function BoardPage({
               )}
 
               <div className="pt-2">
-                <label className="block text-xs font-black text-slate-400 mb-3 tracking-wide uppercase">
+                <label className="block text-sm font-black text-slate-400 mb-3 tracking-wide uppercase">
                   แนบรูปภาพ (หลายรูปได้)
                 </label>
                 {(existingImages.length > 0 || imagePreviews.length > 0) && (
@@ -1733,21 +1760,21 @@ export default function BoardPage({
                   onPaste={handlePasteImage}
                   className="border-2 border-dashed border-slate-600 rounded-3xl p-8 text-center hover:border-blue-500 hover:bg-slate-800/80 transition-all bg-slate-800 flex flex-col items-center justify-center cursor-pointer shadow-sm"
                 >
-                  <div className="text-slate-400 text-sm">
+                  <div className="text-slate-400 text-base">
                     <ImagePlus
                       className="mx-auto mb-3 text-slate-500"
                       size={36}
                       strokeWidth={1.5}
                     />
-                    <div className="font-bold text-slate-300 text-sm mb-1">
+                    <div className="font-bold text-slate-300 text-base mb-1">
                       ลากไฟล์มาวาง หรือ กด Ctrl+V
                     </div>
-                    <div className="my-2 text-xs font-black text-slate-500 uppercase tracking-widest">
+                    <div className="my-2 text-sm font-black text-slate-500 uppercase tracking-widest">
                       หรือ
                     </div>
                     <label
                       htmlFor="file-upload"
-                      className="inline-block bg-slate-700 border border-slate-600 text-slate-300 rounded-xl px-5 py-2 text-xs font-black tracking-wide cursor-pointer hover:bg-slate-600 hover:text-white transition-all mt-1"
+                      className="inline-block bg-slate-700 border border-slate-600 text-slate-300 rounded-xl px-5 py-2 text-sm font-black tracking-wide cursor-pointer hover:bg-slate-600 hover:text-white transition-all mt-1"
                     >
                       เลือกไฟล์จากอุปกรณ์
                     </label>
@@ -1773,7 +1800,7 @@ export default function BoardPage({
                       <input
                         type="text"
                         inputMode="numeric"
-                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-lg outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-black text-blue-400 shadow-sm"
+                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-2xl outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-black text-blue-400 shadow-sm"
                         value={formData.total_price}
                         onChange={(e) => setFormData({ ...formData, total_price: e.target.value.replace(/[^0-9]/g, "") })}
                         placeholder="0"
@@ -1786,7 +1813,7 @@ export default function BoardPage({
                       <input
                         type="text"
                         inputMode="numeric"
-                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-lg outline-none focus:ring-4 focus:ring-orange-500/20 focus:border-orange-500 transition-all font-black text-orange-400 shadow-sm"
+                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-2xl outline-none focus:ring-4 focus:ring-orange-500/20 focus:border-orange-500 transition-all font-black text-orange-400 shadow-sm"
                         value={formData.delivery_fee}
                         onChange={(e) => {
                           const newFeeStr = e.target.value.replace(/[^0-9]/g, "");
@@ -1810,7 +1837,7 @@ export default function BoardPage({
                         ช่องทางชำระเงิน
                       </label>
                       <select
-                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-xs outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer font-bold text-white shadow-sm"
+                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer font-bold text-white shadow-sm"
                         value={formData.payment_method}
                         onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
                       >
@@ -1822,12 +1849,12 @@ export default function BoardPage({
                   </div>
 
                   <div className="relative p-5 bg-slate-800 border border-slate-700 rounded-3xl shadow-sm">
-                    <label className="text-xs font-black text-blue-400 mb-3 tracking-wide flex items-center uppercase">
+                    <label className="text-sm font-black text-blue-400 mb-3 tracking-wide flex items-center uppercase">
                       <Search size={14} className="mr-1.5" /> สถานที่จัดส่ง / ลิงก์แผนที่ *
                     </label>
                     <input
                       type="text"
-                      className="w-full bg-slate-900 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 font-bold text-white transition-all placeholder-slate-500"
+                      className="w-full bg-slate-900 border border-slate-700 p-4 rounded-2xl text-base outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 font-bold text-white transition-all placeholder-slate-500"
                       value={formData.location_name}
                       onChange={(e) => handleLocationSearch(e.target.value)}
                       onFocus={() => {
@@ -1844,7 +1871,7 @@ export default function BoardPage({
                         {unifiedResults.map((item, idx) => (
                           <li
                             key={idx}
-                            className="p-4 hover:bg-slate-700 cursor-pointer text-sm flex justify-between items-center transition-colors group/item"
+                            className="p-4 hover:bg-slate-700 cursor-pointer text-base flex justify-between items-center transition-colors group/item"
                             onClick={() => selectUnifiedResult(item)}
                           >
                             <div className="flex flex-col pr-4">
@@ -1856,17 +1883,17 @@ export default function BoardPage({
                                 )}
                                 {item.name}
                               </div>
-                              <div className="text-xs text-slate-400 font-medium truncate mt-1">
+                              <div className="text-sm text-slate-400 font-medium truncate mt-1">
                                 {item.address}
                               </div>
                             </div>
                             <div className="shrink-0">
                               {item.type === "store" ? (
-                                <span className="text-xs font-black bg-blue-900/50 text-blue-300 px-2.5 py-1 rounded-lg border border-blue-800">
+                                <span className="text-sm font-black bg-blue-900/50 text-blue-300 px-2.5 py-1 rounded-lg border border-blue-800">
                                   หมุดร้าน ({item.distanceText})
                                 </span>
                               ) : (
-                                <span className="text-xs font-black bg-slate-900 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700">
+                                <span className="text-sm font-black bg-slate-900 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700">
                                   Google Maps
                                 </span>
                               )}
@@ -1893,7 +1920,7 @@ export default function BoardPage({
                 <button
                   type="submit"
                   disabled={isUploading}
-                  className="w-full bg-blue-600 text-white font-black py-4 rounded-4xl hover:bg-blue-500 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-500/20 transition-all duration-300 flex justify-center items-center cursor-pointer text-sm uppercase tracking-widest disabled:bg-slate-700 disabled:text-slate-400 disabled:hover:translate-y-0 disabled:hover:shadow-none active:scale-95"
+                  className="w-full bg-blue-600 text-white font-black py-4 rounded-4xl hover:bg-blue-500 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-500/20 transition-all duration-300 flex justify-center items-center cursor-pointer text-base uppercase tracking-widest disabled:bg-slate-700 disabled:text-slate-400 disabled:hover:translate-y-0 disabled:hover:shadow-none active:scale-95"
                 >
                   {isUploading
                     ? "กำลังจัดเก็บข้อมูล..."
@@ -1916,7 +1943,7 @@ export default function BoardPage({
                 <div className="w-12 h-12 bg-blue-100 text-blue-500 rounded-full flex items-center justify-center shadow-inner">
                   <ArrowRightLeft size={24} className="animate-wiggle" />
                 </div>
-                <h3 className="text-xl font-black text-slate-800 tracking-tight">
+                <h3 className="text-2xl font-black text-slate-800 tracking-tight">
                   เปลี่ยนสถานะ
                 </h3>
               </div>
@@ -1934,7 +1961,7 @@ export default function BoardPage({
                   key={st}
                   disabled={statusModal.order?.status === st}
                   onClick={() => executeStatusChange(st)}
-                  className={`w-full py-4 rounded-2xl text-sm font-black transition-all shadow-sm flex items-center justify-center active:scale-95 ${
+                  className={`w-full py-4 rounded-2xl text-base font-black transition-all shadow-sm flex items-center justify-center active:scale-95 ${
                     statusModal.order?.status === st
                       ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
                       : st === "New"
@@ -1961,7 +1988,7 @@ export default function BoardPage({
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-5 md:p-6 border-b border-slate-100 bg-white sticky top-0 z-10 shrink-0">
-              <h3 className="text-lg md:text-xl font-black text-slate-800 tracking-tight flex items-center">
+              <h3 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight flex items-center">
                 <ClipboardList size={20} className="mr-2 text-blue-600" />{" "}
                 รายละเอียดออเดอร์
               </h3>
@@ -1977,10 +2004,10 @@ export default function BoardPage({
             <div className="p-5 md:p-6 space-y-5 overflow-y-auto bg-slate-50/30 thin-scrollbar">
               <div className="flex justify-between items-end border-b border-slate-100 pb-4">
                 <div>
-                  <div className="text-xs font-black text-slate-400 mb-1 tracking-wider uppercase">
+                  <div className="text-sm font-black text-slate-400 mb-1 tracking-wider uppercase">
                     เลขที่ออเดอร์
                   </div>
-                  <div className="text-2xl md:text-3xl font-black text-slate-800 tracking-tighter">
+                  <div className="text-4xl md:text-5xl font-black text-slate-800 tracking-tighter">
                     {selectedViewOrder.order_number}
                   </div>
                 </div>
@@ -1992,7 +2019,7 @@ export default function BoardPage({
                         order: selectedViewOrder,
                       });
                     }}
-                    className={`flex items-center gap-1.5 text-xs font-black px-3 py-1.5 rounded-lg shadow-sm border cursor-pointer hover:scale-105 active:scale-95 transition-all ${
+                    className={`flex items-center gap-1.5 text-sm font-black px-3 py-1.5 rounded-lg shadow-sm border cursor-pointer hover:scale-105 active:scale-95 transition-all ${
                       selectedViewOrder.status === "New"
                         ? "bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200"
                         : selectedViewOrder.status === "กำลังทำ"
@@ -2016,7 +2043,7 @@ export default function BoardPage({
                     <div className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center">
                       <Store size={14} className="mr-1.5 text-blue-500" /> แหล่งที่มา / ร้าน
                     </div>
-                    <div className="p-3 bg-slate-100 rounded-xl border border-slate-200 text-sm font-black text-slate-800 shadow-sm flex items-center">
+                    <div className="p-3 bg-slate-100 rounded-xl border border-slate-200 text-base font-black text-slate-800 shadow-sm flex items-center">
                       {
                         (
                           selectedViewOrder as Order & {
@@ -2030,7 +2057,7 @@ export default function BoardPage({
 
               {(currentUserRole === 'admin' || currentUserRole === 'superadmin') && (selectedViewOrder as Order & { contact_link?: string }).contact_link && (
                 <div className="space-y-2">
-                  <div className="text-xs font-black text-indigo-500 uppercase tracking-wider flex items-center">
+                  <div className="text-sm font-black text-indigo-500 uppercase tracking-wider flex items-center">
                     <Lock size={14} className="mr-1.5" /> ช่องทางติดต่อลูกค้า (ลับ)
                   </div>
                   
@@ -2043,12 +2070,12 @@ export default function BoardPage({
                             href={(selectedViewOrder as Order & { contact_link?: string }).contact_link!.startsWith('http') ? (selectedViewOrder as Order & { contact_link?: string }).contact_link : `https://${(selectedViewOrder as Order & { contact_link?: string }).contact_link}`} 
                             target="_blank" 
                             rel="noreferrer"
-                            className="text-blue-600 font-bold text-xs underline break-all"
+                            className="text-blue-600 font-bold text-sm underline break-all"
                           >
                             {(selectedViewOrder as Order & { contact_link?: string }).contact_link}
                           </a>
                         ) : (
-                          <div className="text-xs text-indigo-300 blur-sm select-none font-black tracking-widest">
+                          <div className="text-sm text-indigo-300 blur-sm select-none font-black tracking-widest">
                             https://facebook.com/hidden-data...
                           </div>
                         )}
@@ -2073,10 +2100,10 @@ export default function BoardPage({
 
               {selectedViewOrder.menu && (
                 <div className="space-y-2">
-                  <div className="text-xs font-black text-slate-400 uppercase tracking-wider">
+                  <div className="text-sm font-black text-slate-400 uppercase tracking-wider">
                     รายการที่สั่ง
                   </div>
-                  <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50 text-sm text-slate-700 font-bold whitespace-pre-line leading-relaxed shadow-inner">
+                  <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50 text-base text-slate-700 font-bold whitespace-pre-line leading-relaxed shadow-inner">
                     {selectedViewOrder.menu}
                   </div>
                 </div>
@@ -2084,10 +2111,10 @@ export default function BoardPage({
 
               {selectedViewOrder.details && (
                 <div className="space-y-2">
-                  <div className="text-xs font-black text-slate-400 uppercase tracking-wider">
+                  <div className="text-sm font-black text-slate-400 uppercase tracking-wider">
                     หมายเหตุ (Note)
                   </div>
-                  <div className="p-4 bg-yellow-50/50 rounded-2xl border border-yellow-100/50 text-xs md:text-sm text-slate-600 font-medium whitespace-pre-line leading-relaxed">
+                  <div className="p-4 bg-yellow-50/50 rounded-2xl border border-yellow-100/50 text-sm md:text-base text-slate-600 font-medium whitespace-pre-line leading-relaxed">
                     {selectedViewOrder.details}
                   </div>
                 </div>
@@ -2095,7 +2122,7 @@ export default function BoardPage({
 
               {selectedViewOrder.image_url && (
                 <div className="space-y-2">
-                  <div className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center">
+                  <div className="text-sm font-black text-slate-400 uppercase tracking-wider flex items-center">
                     <ImageIcon size={14} className="mr-1.5" /> รูปภาพแนบ
                   </div>
                   <div className="flex flex-col gap-3">
@@ -2128,7 +2155,7 @@ export default function BoardPage({
                 </div>
               )}
 
-              <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-3 text-sm shadow-sm">
+              <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-3 text-base shadow-sm">
                 <div className="flex justify-between items-center">
                   <span className="text-slate-500 font-medium">ประเภทงาน:</span>
                   <span className="font-black text-slate-700 uppercase px-2.5 py-1 bg-slate-50 rounded-md border border-slate-200">
@@ -2139,13 +2166,13 @@ export default function BoardPage({
                   <span className="text-slate-500 font-medium">
                     ยอดเรียกเก็บ:
                   </span>
-                  <span className="font-black text-blue-600 text-lg">
+                  <span className="font-black text-blue-600 text-2xl">
                     ฿{selectedViewOrder.total_price || 0}
                   </span>
                 </div>
                 <div className="flex justify-between items-center pt-2 border-t border-slate-100">
                   <span className="text-slate-500 font-medium">ค่าส่ง:</span>
-                  <span className="font-black text-orange-500 text-lg">
+                  <span className="font-black text-orange-500 text-2xl">
                     ฿{selectedViewOrder.delivery_fee || 0}
                   </span>
                 </div>
@@ -2154,7 +2181,7 @@ export default function BoardPage({
                     การชำระเงิน:
                   </span>
                   <span
-                    className={`font-black text-xs uppercase px-2.5 py-1 rounded-md ${selectedViewOrder.payment_method === "โอน" ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"}`}
+                    className={`font-black text-sm uppercase px-2.5 py-1 rounded-md ${selectedViewOrder.payment_method === "โอน" ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"}`}
                   >
                     {selectedViewOrder.payment_method || "เงินสด"}
                   </span>
@@ -2163,10 +2190,10 @@ export default function BoardPage({
 
               {selectedViewOrder.address && (
                 <div className="space-y-2">
-                  <div className="text-xs font-black text-slate-400 uppercase tracking-wider">
+                  <div className="text-sm font-black text-slate-400 uppercase tracking-wider">
                     สถานที่จัดส่ง
                   </div>
-                  <div className="flex items-start text-xs md:text-sm text-slate-700 bg-red-50/50 p-4 rounded-2xl border border-red-100 font-bold">
+                  <div className="flex items-start text-sm md:text-base text-slate-700 bg-red-50/50 p-4 rounded-2xl border border-red-100 font-bold">
                     <MapIcon
                       size={16}
                       className="mr-2 mt-0.5 text-red-500 shrink-0"
@@ -2195,7 +2222,7 @@ export default function BoardPage({
                 selectedViewOrder.job_type !== "shopee" && (
                   <button
                     onClick={() => handleStartOrder(selectedViewOrder.id)}
-                    className="w-full py-3.5 md:py-4 bg-blue-600 text-white font-black rounded-4xl hover:bg-blue-700 transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2"
+                    className="w-full py-3.5 md:py-4 bg-blue-600 text-white font-black rounded-4xl hover:bg-blue-700 transition-all cursor-pointer shadow-lg active:scale-95 text-sm md:text-base uppercase tracking-wide flex items-center justify-center gap-2"
                   >
                     <PlayCircle size={18} /> ยืนยัน: ครัวเริ่มทำอาหาร
                   </button>
@@ -2204,14 +2231,14 @@ export default function BoardPage({
                 selectedViewOrder.job_type !== "shopee" && (
                   <button
                     onClick={() => handleFinishOrder(selectedViewOrder.id)}
-                    className={`w-full py-3.5 md:py-4 text-white font-black rounded-4xl transition-all cursor-pointer shadow-lg active:scale-95 text-xs md:text-sm uppercase tracking-wide flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600`}
+                    className={`w-full py-3.5 md:py-4 text-white font-black rounded-4xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm md:text-base uppercase tracking-wide flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600`}
                   >
                     <ChefHat size={18} /> ยืนยัน: ครัวทำเสร็จแล้ว
                   </button>
                 )}
               <button
                 onClick={() => setSelectedViewOrder(null)}
-                className="w-full py-3 md:py-3.5 bg-slate-100 text-slate-600 font-bold rounded-4xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-xs uppercase tracking-widest"
+                className="w-full py-3 md:py-3.5 bg-slate-100 text-slate-600 font-bold rounded-4xl hover:bg-slate-200 transition-all cursor-pointer active:scale-95 text-sm uppercase tracking-widest"
               >
                 ปิดหน้าต่าง
               </button>
@@ -2270,7 +2297,7 @@ export default function BoardPage({
           }}
         >
           <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-[210] text-white pointer-events-none">
-            <span className="font-bold text-xs bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm">
+            <span className="font-bold text-sm bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm">
               คลิก 2 ครั้งเพื่อซูม / ใช้ปุ่มลูกศรเลื่อน
             </span>
             <button
@@ -2346,7 +2373,7 @@ export default function BoardPage({
             >
               <ZoomOut size={24} />
             </button>
-            <span className="text-white font-black text-sm w-12 text-center">
+            <span className="text-white font-black text-base w-12 text-center">
               {Math.round(imgScale * 100)}%
             </span>
             <button
@@ -2368,7 +2395,7 @@ export default function BoardPage({
           >
             <Volume2 size={18} />
           </div>
-          <span className="text-xs font-black text-slate-500 pr-3 tracking-widest uppercase">
+          <span className="text-sm font-black text-slate-500 pr-3 tracking-widest uppercase">
             เสียงแจ้งเตือนเปิดแล้ว
           </span>
         </div>

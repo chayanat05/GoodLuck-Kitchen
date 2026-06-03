@@ -100,18 +100,18 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
   }, [order.created_at]);
 
   const isKitchenLate = (order.status === "New" || order.status === "กำลังทำ") && elapsedMinutes >= 5;
-  const isRiderLate = (order.status === "รับงาน") && elapsedMinutes >= 35;
+  const isRiderLate = userRole !== "kitchen" && (order.status === "รับงาน") && elapsedMinutes >= 35;
   
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className={`${isCompact ? 'p-3' : 'p-4'} rounded-3xl shadow-xl border-b-8 relative transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:-translate-y-1 flex flex-col max-h-full w-full min-h-56 ${theme.bg}`}
+      className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-3xl shadow-xl border-b-8 relative transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:-translate-y-1 flex flex-col max-h-full w-full min-h-56 ${theme.bg}`}
     >
-      <div {...dragHandleProps} className={`shrink-0 flex justify-between items-start ${isCompact ? 'mb-3' : 'mb-4'} gap-2 border-b border-white/10 pb-3 ${dragHandleProps ? 'cursor-grab active:cursor-grabbing' : ''}`}>
+      <div {...dragHandleProps} className={`shrink-0 flex justify-between items-start ${isCompact ? 'mb-2' : 'mb-3'} gap-2 border-b border-white/10 pb-2 ${dragHandleProps ? 'cursor-grab active:cursor-grabbing' : ''}`}>
         <div className="flex flex-wrap gap-2 items-center pointer-events-none">
-          <span className={`${isCompact ? 'text-xs px-2 py-1' : 'text-sm px-2.5 py-1'} font-black rounded-lg bg-white/90 text-slate-800 tracking-wider shadow-sm`}>
+          <span className={`${isCompact ? 'text-base px-2 py-1' : 'text-lg px-2.5 py-1'} font-black rounded-lg bg-white/90 text-slate-800 tracking-wider shadow-sm`}>
             {isShopee ? (order.order_number.startsWith('#') ? order.order_number : `#${order.order_number}`) : order.order_number}
           </span>
           
@@ -129,10 +129,10 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
             </div>
           )}
 
-          <span className={`text-xs font-black ${isCompact ? 'px-1.5 py-0.5' : 'px-2.5 py-1'} rounded-md uppercase tracking-wider border ${theme.badgeBg}`}>
+          <span className={`text-sm font-black ${isCompact ? 'px-1.5 py-0.5' : 'px-2.5 py-1'} rounded-md uppercase tracking-wider border ${theme.badgeBg}`}>
             {order.job_type}
           </span>
-          <span className={`text-xs font-black ${isCompact ? 'px-1.5 py-0.5' : 'px-2.5 py-1'} rounded-md uppercase tracking-wider border ${theme.badgeBg}`}>
+          <span className={`text-sm font-black ${isCompact ? 'px-1.5 py-0.5' : 'px-2.5 py-1'} rounded-md uppercase tracking-wider border ${theme.badgeBg}`}>
             {order.status === 'รับงาน' ? 'ทำอาหารเสร็จแล้ว' : order.status}
           </span>
         </div>
@@ -159,23 +159,23 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
                       setIsMenuOpen(false); 
                       onVerifySlip(order); 
                     }}
-                className="w-full text-left px-4 py-3 text-sm font-black text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 border-b border-slate-50 transition-colors cursor-pointer"
+                className="w-full text-left px-4 py-3 text-base font-black text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 border-b border-slate-50 transition-colors cursor-pointer"
                     >
                     <ScanSearch size={16} className="animate-pulse" /> ตรวจสลิปด้วย AI
                     </button>
                   )}
                   {onChangeStatusRequest && (
-                    <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onChangeStatusRequest(order); }} className="w-full text-left px-4 py-3 text-sm font-bold text-blue-600 hover:bg-blue-50 flex items-center gap-2 transition-colors border-b border-slate-50">
+                    <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onChangeStatusRequest(order); }} className="w-full text-left px-4 py-3 text-base font-bold text-blue-600 hover:bg-blue-50 flex items-center gap-2 transition-colors border-b border-slate-50">
                       <ArrowRightLeft size={16} /> เปลี่ยนสถานะออเดอร์
                     </button>
                   )}
                   {onEdit && (
-                    <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onEdit(order); }} className="w-full text-left px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors border-b border-slate-50">
+                    <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onEdit(order); }} className="w-full text-left px-4 py-3 text-base font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors border-b border-slate-50">
                       <Edit2 size={16} /> แก้ไขข้อมูลออเดอร์
                     </button>
                   )}
                   {onDelete && (
-                    <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onDelete(order.id); }} className="w-full text-left px-4 py-3 text-sm font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-2 transition-colors">
+                    <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onDelete(order.id); }} className="w-full text-left px-4 py-3 text-base font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-2 transition-colors">
                       <Trash2 size={16} /> ลบออเดอร์นี้
                     </button>
                   )}
@@ -188,7 +188,7 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
 
       <div className="flex-1 overflow-y-auto thin-scrollbar pr-1 flex flex-col mb-3">
         {order.menu && (
-          <div className={`${isCompact ? 'mb-2 text-sm' : 'mb-3 text-base md:text-lg'} font-black whitespace-pre-line leading-relaxed shrink-0 ${theme.text}`}>
+          <div className={`${isCompact ? 'mb-2 text-base' : 'mb-3 text-lg md:text-xl'} font-black whitespace-pre-line leading-relaxed shrink-0 ${theme.text}`}>
             {order.menu}
           </div>
         )}
@@ -203,10 +203,10 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
           </div>
         )}
 
-        {order.details && <p className={`text-xs font-medium shrink-0 leading-relaxed p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${isCompact ? 'mb-2' : 'mb-4'} ${theme.subText}`}>{order.details}</p>}
+        {order.details && <p className={`text-sm font-medium shrink-0 leading-relaxed p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${isCompact ? 'mb-2' : 'mb-4'} ${theme.subText}`}>{order.details}</p>}
 
         {order.address && (
-          <div className={`flex items-start shrink-0 text-[10px] md:text-xs ${isCompact ? 'mb-1' : 'mb-1'} p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${theme.text}`}>
+          <div className={`flex items-start shrink-0 text-[10px] md:text-sm ${isCompact ? 'mb-1' : 'mb-1'} p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${theme.text}`}>
             <MapPin size={14} className="mr-1.5 mt-0.5 shrink-0" />
             <span className="leading-relaxed font-medium">{order.address}</span>
           </div>
@@ -214,7 +214,7 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
       </div>
 
       <div className={`shrink-0 flex flex-wrap items-center justify-between mb-3 border-t border-white/10 pt-3 gap-2 ${theme.subText}`}>
-        <div className="flex items-center text-xs font-bold tracking-wide shrink-0">
+        <div className="flex items-center text-sm font-bold tracking-wide shrink-0">
           <Clock size={12} className="mr-1.5" />
           {new Date(order.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
         </div>
@@ -224,26 +224,26 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
               slipStatus === 'ผ่าน' ? (
                 <span className="flex items-center text-emerald-600 bg-white/95 px-1.5 py-0.5 rounded shadow-sm" title="ตรวจสลิปผ่านแล้ว">
                   <CheckCircle2 size={12} className="mr-1" />
-                  <span className="text-xs font-black uppercase tracking-wider">ผ่าน</span>
+                  <span className="text-sm font-black uppercase tracking-wider">ผ่าน</span>
                 </span>
               ) : slipStatus === 'ไม่ผ่าน' ? (
                 <span className="flex items-center text-rose-600 bg-white/95 px-1.5 py-0.5 rounded shadow-sm" title="สลิปมีปัญหา/ยอดไม่ตรง">
                   <XCircle size={12} className="mr-1" />
-                  <span className="text-xs font-black uppercase tracking-wider">ไม่ผ่าน</span>
+                  <span className="text-sm font-black uppercase tracking-wider">ไม่ผ่าน</span>
                 </span>
               ) : (
                 <span className="flex items-center text-amber-500 bg-white/95 px-1.5 py-0.5 rounded shadow-sm animate-pulse" title="รอการตรวจสอบสลิป">
                   <AlertCircle size={12} className="mr-1" />
-                  <span className="text-xs font-black uppercase tracking-wider">รอตรวจ</span>
+                  <span className="text-sm font-black uppercase tracking-wider">รอตรวจ</span>
                 </span>
               )
             )}
-            <span className={`font-black text-sm flex items-baseline ${theme.text}`}>
+            <span className={`font-black text-lg flex items-baseline ${theme.text}`}>
               ฿{order.total_price}
-              {order.delivery_fee ? <span className="text-[10px] ml-1 opacity-80">(รวมค่าส่งแล้ว ฿{order.delivery_fee})</span> : null}
+              {order.delivery_fee ? <span className="text-sm ml-1 opacity-80">(รวมค่าส่งแล้ว ฿{order.delivery_fee})</span> : null}
             </span>
             {order.payment_method && !isCompact && (
-              <span className={`text-xs font-black uppercase px-2 py-0.5 rounded shadow-sm border ${theme.badgeBg}`}>
+              <span className={`text-sm font-black uppercase px-2 py-0.5 rounded shadow-sm border ${theme.badgeBg}`}>
                 {order.payment_method}
               </span>
             )}
@@ -253,21 +253,21 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
 
       <div className="flex flex-col gap-2 shrink-0">
         {order.status === 'New' && onStart && (
-          <button onClick={() => onStart(order.id)} className={`w-full ${isCompact ? 'py-2.5 text-xs' : 'py-3 text-xs'} rounded-xl font-black transition-all duration-300 flex justify-center items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 uppercase tracking-wide border-b-4 border-transparent active:border-none ${theme.btnBg}`}>
+          <button onClick={() => onStart(order.id)} className={`w-full ${isCompact ? 'py-2.5 text-sm' : 'py-3 text-sm'} rounded-xl font-black transition-all duration-300 flex justify-center items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 uppercase tracking-wide border-b-4 border-transparent active:border-none ${theme.btnBg}`}>
             <PlayCircle size={16} className="shrink-0" />
             <span className="truncate">{isShopee ? 'รับงาน / เตรียมของ' : 'คลิกเพื่อเริ่มทำอาหาร'}</span>
           </button>
         )}
 
         {order.status === 'กำลังทำ' && onFinish && (
-          <button onClick={() => onFinish(order.id)} className={`w-full ${isCompact ? 'py-2.5 text-xs' : 'py-3 text-xs'} rounded-xl font-black transition-all duration-300 flex justify-center items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 uppercase tracking-wide border-b-4 border-transparent active:border-none ${theme.btnBg}`}>
+          <button onClick={() => onFinish(order.id)} className={`w-full ${isCompact ? 'py-2.5 text-sm' : 'py-3 text-sm'} rounded-xl font-black transition-all duration-300 flex justify-center items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 uppercase tracking-wide border-b-4 border-transparent active:border-none ${theme.btnBg}`}>
             {isShopee ? <PackageCheck size={16} className="shrink-0"/> : <ChefHat size={16} className="shrink-0" />}
             <span className="truncate">{isShopee ? 'ส่งมอบให้ขนส่งแล้ว' : 'คลิกเมื่อทำอาหารเสร็จ'}</span>
           </button>
         )}
 
         {isLocked && (
-          <div className={`flex items-center justify-center py-2.5 rounded-xl text-xs font-black shadow-inner tracking-wide bg-black/10 border border-white/10 ${theme.text}`}>
+          <div className={`flex items-center justify-center py-2.5 rounded-xl text-sm font-black shadow-inner tracking-wide bg-black/10 border border-white/10 ${theme.text}`}>
             <Lock size={12} className="mr-1.5 shrink-0" /> <span className="truncate">จองโดย: {order.rider_name || "ไรเดอร์"}</span>
           </div>
         )}
@@ -280,7 +280,7 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
           )}
 
         {isShopee && order.status === 'รับงาน' && (
-          <div className={`text-center py-2.5 text-xs font-black rounded-xl shadow-inner tracking-wide bg-black/10 border border-white/10 ${theme.text}`}>
+          <div className={`text-center py-2.5 text-sm font-black rounded-xl shadow-inner tracking-wide bg-black/10 border border-white/10 ${theme.text}`}>
             📦 ออเดอร์ Shopee (รอมารับ)
           </div>
         )}
