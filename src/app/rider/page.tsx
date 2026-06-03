@@ -674,14 +674,6 @@ export default function RiderPage() {
                   )}
                 </span>
               </div>
-              {!isAddressUrl && (
-                <button 
-                  onClick={() => handleViewDormImage(order.address!)} 
-                  className="shrink-0 ml-2 px-3 py-2 bg-white/20 hover:bg-white/30 text-xs sm:text-sm uppercase tracking-widest font-black rounded flex items-center gap-1.5 transition-colors active:scale-90"
-                >
-                  <ImageIcon size={16} /> ดูรูปหอ
-                </button>
-              )}
             </div>
           )}
 
@@ -742,15 +734,15 @@ export default function RiderPage() {
           ) : (
             <>
               <div className="flex flex-1 gap-1.5 w-full">
-                <button onClick={() => calculateRoute(order)} className={`flex-1 py-2 bg-black/30 text-white hover:bg-black/50 font-black text-[10px] sm:text-xs rounded-lg active:scale-95 border border-white/20 transition-colors flex justify-center items-center`}>
-                  <MapIcon size={14} className="mr-1" /> นำทาง
+                <button onClick={() => calculateRoute(order)} className={`flex-1 py-4 bg-black/30 text-white hover:bg-black/50 font-black text-lg sm:text-xl rounded-lg active:scale-95 border border-white/20 transition-colors flex justify-center items-center`}>
+                  <MapIcon size={24} className="mr-2" /> นำทาง
                 </button>
-                <button onClick={() => handleDropJob(order.id)} className={`flex-1 py-2 bg-white/10 text-white hover:bg-rose-500 hover:border-rose-500 font-black text-[10px] sm:text-xs rounded-lg active:scale-95 border border-white/20 transition-colors flex justify-center items-center`}>
-                  <X size={14} className="mr-1" /> คืนงาน
+                <button onClick={() => handleDropJob(order.id)} className={`flex-1 py-4 bg-white/10 text-white hover:bg-rose-500 hover:border-rose-500 font-black text-lg sm:text-xl rounded-lg active:scale-95 border border-white/20 transition-colors flex justify-center items-center`}>
+                  <X size={24} className="mr-2" /> คืนงาน
                 </button>
               </div>
-              <button onClick={() => handleRiderAction(order)} disabled={!canAction(order)} className={`w-full py-2 text-[10px] sm:text-xs font-black rounded-lg transition-all cursor-pointer uppercase tracking-wider flex justify-center items-center ${canAction(order) ? "bg-white hover:bg-slate-100 text-slate-800 shadow-md active:scale-95" : "bg-black/20 text-white/50 border border-white/10 cursor-not-allowed"}`}>
-                {canAction(order) && <CheckCircle2 size={14} className="mr-1 text-emerald-500" />}
+              <button onClick={() => handleRiderAction(order)} disabled={!canAction(order)} className={`w-full py-5 mt-2 text-xl sm:text-2xl font-black rounded-lg transition-all cursor-pointer uppercase tracking-wider flex justify-center items-center ${canAction(order) ? "bg-white hover:bg-slate-100 text-slate-800 shadow-md active:scale-95" : "bg-black/20 text-white/50 border border-white/10 cursor-not-allowed"}`}>
+                {canAction(order) && <CheckCircle2 size={28} className="mr-2 text-emerald-500" />}
                 {getActionBtnLabel(order)}
               </button>
             </>
@@ -1187,14 +1179,6 @@ export default function RiderPage() {
                       )}
                     </span>
                   </div>
-                  {selectedViewOrder.address && !selectedViewOrder.address.startsWith("http") && (
-                    <button 
-                      onClick={() => handleViewDormImage(selectedViewOrder.address!)} 
-                      className="w-full py-2 bg-indigo-50 text-indigo-600 border border-indigo-100 hover:bg-indigo-100 hover:text-indigo-700 text-xs font-black uppercase tracking-widest rounded-xl transition-colors active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
-                    >
-                      <ImageIcon size={14} /> ตรวจสอบรูปภาพหน้าหอพัก
-                    </button>
-                  )}
                 </div>
               )}
 
