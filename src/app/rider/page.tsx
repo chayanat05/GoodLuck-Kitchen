@@ -26,7 +26,8 @@ import {
   Store,
   Lock, 
   Link as LinkIcon,
-  Calendar
+  Calendar,
+  RefreshCw
 } from "lucide-react";
 import { Order } from "../../components/OrderCard";
 import { User as SupabaseUser } from "@supabase/supabase-js";
@@ -292,18 +293,21 @@ export default function RiderPage() {
         }
       ).subscribe();
 
-    const riderChannel = supabase
-      .channel("public:orders:rider")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
-        if (currentUserId) fetchOrdersAndBranches(currentUserId);
-      })
-      .subscribe();
-
     return () => { 
-      supabase.removeChannel(riderChannel); 
       supabase.removeChannel(settingsChannel);
     };
   }, [fetchOrdersAndBranches]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const riderChannel = supabase
+      .channel("public:orders:rider_realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
+        fetchOrdersAndBranches(currentUser.id);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(riderChannel); };
+  }, [currentUser, fetchOrdersAndBranches]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -622,48 +626,48 @@ export default function RiderPage() {
         <div className="flex-1 overflow-y-auto hide-scrollbar p-2.5 sm:p-3 relative border-b border-white/10 flex flex-col">
           <div className="flex justify-between items-start mb-2 shrink-0 gap-1">
             <div className="flex flex-wrap items-center gap-1">
-              <span className={`${isCompact ? "text-[14px]" : "text-lg"} font-black text-white tracking-tight leading-none drop-shadow-sm mr-1`}>
+              <span className={`${isCompact ? "text-base" : "text-xl"} font-black text-white tracking-tight leading-none drop-shadow-sm mr-1`}>
                 {order.order_number}
               </span>
-              <span className="text-[8px] sm:text-[9px] px-1.5 py-0.5 font-black rounded uppercase shadow-sm bg-black/30 text-white truncate max-w-20">
+              <span className="text-[10px] sm:text-[11px] px-1.5 py-0.5 font-black rounded uppercase shadow-sm bg-black/30 text-white truncate max-w-20">
                 {branch?.name || "ไม่ระบุ"}
               </span>
-              <span className="text-[8px] sm:text-[9px] px-1.5 py-0.5 font-black rounded uppercase shadow-sm bg-white/20 text-white">
+              <span className="text-[10px] sm:text-[11px] px-1.5 py-0.5 font-black rounded uppercase shadow-sm bg-white/20 text-white">
                 {order.job_type}
               </span>
             </div>
             <div className="shrink-0 flex items-center gap-1">
               {order.status !== "ส่งแล้ว/เสร็จ" && (
-                <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black uppercase shadow-sm transition-all ${
+                <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] sm:text-[11px] font-black uppercase shadow-sm transition-all ${
                   isLate 
                     ? "bg-white text-rose-600 animate-pulse border border-rose-100 scale-105 shadow-[0_0_10px_rgba(255,255,255,0.5)]" 
                     : isNearLate 
                       ? "bg-amber-400 text-amber-900 border border-amber-300" 
                       : "bg-black/40 text-white"
                 }`}>
-                  {isLate ? <AlertTriangle size={10} className="animate-wiggle" /> : <Clock size={10} />}
+                  {isLate ? <AlertTriangle size={12} className="animate-wiggle" /> : <Clock size={12} />}
                   {elapsedMinutes} นาที {isLate ? "ด่วน!" : ""}
                 </div>
               )}
               {!isCompact && (
-                <button onClick={(e) => { e.stopPropagation(); setSelectedViewOrder(order); setShowContactInfo(false); }} className="bg-white/20 text-white px-1.5 py-0.5 rounded text-[8px] uppercase font-black flex items-center hover:bg-white/30 active:scale-95 transition-colors">
-                  <Eye size={10} className="mr-0.5" /> ข้อมูล
+                <button onClick={(e) => { e.stopPropagation(); setSelectedViewOrder(order); setShowContactInfo(false); }} className="bg-white/20 text-white px-1.5 py-0.5 rounded text-[10px] uppercase font-black flex items-center hover:bg-white/30 active:scale-95 transition-colors">
+                  <Eye size={12} className="mr-0.5" /> ข้อมูล
                 </button>
               )}
-              <span className="text-[8px] sm:text-[9px] px-1.5 py-0.5 font-black rounded uppercase shadow-sm bg-white/20 text-white">
+              <span className="text-[10px] sm:text-[11px] px-1.5 py-0.5 font-black rounded uppercase shadow-sm bg-white/20 text-white">
                 {order.status === "รับงาน" ? "ไปส่งเลย!" : order.status}
               </span>
             </div>
           </div>
 
           {order.address && (
-            <div className={`mb-2 shrink-0 flex items-center justify-between text-[10px] sm:text-xs p-2 text-white bg-black/20 border border-white/10 rounded-lg font-bold shadow-inner`}>
+            <div className={`mb-2 shrink-0 flex items-center justify-between text-lg sm:text-xl p-3 text-white bg-black/30 border border-white/20 rounded-xl font-black shadow-inner`}>
               <div className="flex items-start flex-1 overflow-hidden">
-                <MapPin size={isCompact ? 12 : 14} className="mr-1.5 mt-0.5 shrink-0 text-white/80" />
+                <MapPin size={22} className="mr-2 mt-0.5 shrink-0 text-white" />
                 <span className={`leading-relaxed ${isCompact ? "line-clamp-2" : "line-clamp-3"}`}>
                   {isAddressUrl ? (
                     <span className="text-blue-300 underline italic flex items-center">
-                      <LinkIcon size={10} className="mr-1 inline" /> ลิงก์แผนที่ลูกค้า
+                      <LinkIcon size={18} className="mr-1 inline" /> ลิงก์แผนที่ลูกค้า
                     </span>
                   ) : (
                     order.address
@@ -673,16 +677,16 @@ export default function RiderPage() {
               {!isAddressUrl && (
                 <button 
                   onClick={() => handleViewDormImage(order.address!)} 
-                  className="shrink-0 ml-2 px-2 py-1 bg-white/10 hover:bg-white/20 text-[9px] uppercase tracking-widest font-black rounded flex items-center gap-1 transition-colors active:scale-90"
+                  className="shrink-0 ml-2 px-3 py-2 bg-white/20 hover:bg-white/30 text-xs sm:text-sm uppercase tracking-widest font-black rounded flex items-center gap-1.5 transition-colors active:scale-90"
                 >
-                  <ImageIcon size={10} /> ดูรูปหอ
+                  <ImageIcon size={16} /> ดูรูปหอ
                 </button>
               )}
             </div>
           )}
 
           {order.menu && (
-            <div className={`mb-2 p-2 text-[10px] sm:text-xs bg-black/10 rounded-lg text-white font-bold whitespace-pre-line leading-snug shrink-0 shadow-sm`}>
+            <div className={`mb-2 p-2.5 text-sm sm:text-base bg-black/10 rounded-lg text-white font-bold whitespace-pre-line leading-snug shrink-0 shadow-sm`}>
               {order.menu}
             </div>
           )}
@@ -698,49 +702,55 @@ export default function RiderPage() {
           )}
 
           {order.details && (
-            <div className={`${isCompact ? "text-[9px]" : "text-[10px]"} text-white/90 font-medium mb-2 flex items-start gap-1.5 shrink-0 bg-white/5 p-1.5 rounded-lg`}>
-              <div className={`mt-1 w-1 h-2.5 rounded-full shrink-0 bg-white`}></div>
+            <div className={`${isCompact ? "text-xs" : "text-sm"} text-white/90 font-medium mb-2 flex items-start gap-1.5 shrink-0 bg-white/5 p-2 rounded-lg`}>
+              <div className={`mt-1.5 w-1.5 h-3 rounded-full shrink-0 bg-white`}></div>
               <span className="leading-relaxed line-clamp-2">{order.details}</span>
             </div>
           )}
 
           <div className="mt-auto shrink-0 space-y-2.5">
-            <div className={`flex justify-between items-center ${isCompact ? "text-[9px] px-2.5 py-2" : "text-[10px] px-3 py-2.5"} bg-black/20 border border-white/10 rounded-xl shadow-inner`}>
-              <div className="flex items-center font-bold text-white/90">
-                <Clock size={10} className="mr-1 opacity-70" /> 
+            <div className={`flex justify-between items-center ${isCompact ? "px-3 py-2.5" : "px-4 py-3"} bg-black/30 border border-white/20 rounded-xl shadow-inner`}>
+              <div className="flex items-center font-black text-white/90 text-sm">
+                <Clock size={16} className="mr-1.5 opacity-80" /> 
                 {order.start_time ? new Date(order.start_time).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "-"}
               </div>
-              {order.total_price > 0 && (
-                <div className={`${isCompact ? "text-[11px]" : "text-xs"} font-black text-white flex items-center`}>
-                  ฿{order.total_price}{" "}
-                  {!isCompact && order.payment_method && (
-                    <span className={`ml-1.5 px-1 py-0.5 rounded text-[7px] uppercase font-black bg-white/20 text-white`}>
-                      {order.payment_method}
-                    </span>
-                  )}
-                </div>
-              )}
+              <div className={`text-xl sm:text-2xl font-black text-white flex items-center`}>
+                {order.payment_method && order.payment_method.includes("โอน") ? (
+                  <span className={`px-3 py-1.5 rounded-lg text-lg sm:text-xl uppercase font-black bg-blue-500/80 text-white shadow-md`}>โอนแล้ว</span>
+                ) : (
+                  order.total_price > 0 && (
+                    <>
+                      ฿{order.total_price}{" "}
+                      {order.payment_method && (
+                        <span className={`ml-2 px-2 py-1 rounded-lg text-sm sm:text-base uppercase font-black bg-white/30 text-white shadow-sm`}>
+                          {order.payment_method}
+                        </span>
+                      )}
+                    </>
+                  )
+                )}
+              </div>
             </div>
           </div>
         </div>
 
         <div className={`p-2 bg-black/20 flex shrink-0 ${isCompact ? "flex-col gap-1.5" : "flex-col sm:flex-row gap-1.5"}`}>
           {activeTab === 'available' ? (
-            <button onClick={() => handleTakeJob(order)} className={`w-full py-2.5 text-[10px] sm:text-xs bg-white hover:bg-slate-100 text-slate-800 font-black uppercase tracking-widest transition-colors cursor-pointer flex items-center justify-center shrink-0 rounded-lg shadow-md active:scale-95`}>
-              <Zap size={14} className="mr-1.5 fill-blue-500 text-blue-500 animate-pulse" /> {isCompact ? "รับงาน" : "กดรับงานนี้"}
+            <button onClick={() => handleTakeJob(order)} className={`w-full py-2.5 text-xs sm:text-sm bg-white hover:bg-slate-100 text-slate-800 font-black uppercase tracking-widest transition-colors cursor-pointer flex items-center justify-center shrink-0 rounded-lg shadow-md active:scale-95`}>
+              <Zap size={16} className="mr-1.5 fill-blue-500 text-blue-500 animate-pulse" /> {isCompact ? "รับงาน" : "กดรับงานนี้"}
             </button>
           ) : (
             <>
               <div className="flex flex-1 gap-1.5 w-full">
-                <button onClick={() => calculateRoute(order)} className={`flex-1 py-2 bg-black/30 text-white hover:bg-black/50 font-black text-[9px] sm:text-[10px] rounded-lg active:scale-95 border border-white/20 transition-colors flex justify-center items-center`}>
-                  <MapIcon size={12} className="mr-1" /> นำทาง
+                <button onClick={() => calculateRoute(order)} className={`flex-1 py-2 bg-black/30 text-white hover:bg-black/50 font-black text-[10px] sm:text-xs rounded-lg active:scale-95 border border-white/20 transition-colors flex justify-center items-center`}>
+                  <MapIcon size={14} className="mr-1" /> นำทาง
                 </button>
-                <button onClick={() => handleDropJob(order.id)} className={`flex-1 py-2 bg-white/10 text-white hover:bg-rose-500 hover:border-rose-500 font-black text-[9px] sm:text-[10px] rounded-lg active:scale-95 border border-white/20 transition-colors flex justify-center items-center`}>
-                  <X size={12} className="mr-1" /> คืนงาน
+                <button onClick={() => handleDropJob(order.id)} className={`flex-1 py-2 bg-white/10 text-white hover:bg-rose-500 hover:border-rose-500 font-black text-[10px] sm:text-xs rounded-lg active:scale-95 border border-white/20 transition-colors flex justify-center items-center`}>
+                  <X size={14} className="mr-1" /> คืนงาน
                 </button>
               </div>
-              <button onClick={() => handleRiderAction(order)} disabled={!canAction(order)} className={`w-full py-2 text-[9px] sm:text-[10px] font-black rounded-lg transition-all cursor-pointer uppercase tracking-wider flex justify-center items-center ${canAction(order) ? "bg-white hover:bg-slate-100 text-slate-800 shadow-md active:scale-95" : "bg-black/20 text-white/50 border border-white/10 cursor-not-allowed"}`}>
-                {canAction(order) && <CheckCircle2 size={12} className="mr-1 text-emerald-500" />}
+              <button onClick={() => handleRiderAction(order)} disabled={!canAction(order)} className={`w-full py-2 text-[10px] sm:text-xs font-black rounded-lg transition-all cursor-pointer uppercase tracking-wider flex justify-center items-center ${canAction(order) ? "bg-white hover:bg-slate-100 text-slate-800 shadow-md active:scale-95" : "bg-black/20 text-white/50 border border-white/10 cursor-not-allowed"}`}>
+                {canAction(order) && <CheckCircle2 size={14} className="mr-1 text-emerald-500" />}
                 {getActionBtnLabel(order)}
               </button>
             </>
@@ -1005,11 +1015,14 @@ export default function RiderPage() {
       <div className="fixed bottom-2 left-1/2 transform -translate-x-1/2 w-[92%] max-w-sm z-40">
         <div className="bg-white/95 backdrop-blur-xl border border-slate-200 shadow-2xl rounded-2xl p-1 flex items-center justify-between">
           <button
-            onClick={() => setActiveTab("available")}
+            onClick={() => { 
+              setActiveTab("available"); 
+              if (currentUser?.id) fetchOrdersAndBranches(currentUser.id); 
+            }}
             className={`relative flex-1 flex flex-col items-center py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === "available" ? "bg-blue-50 text-blue-600 shadow-inner border border-blue-100" : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"}`}
           >
             <Zap size={20} className={`mb-1 transition-all ${activeTab === "available" ? "fill-blue-600" : ""}`} />
-            <span className="text-[9px] font-black uppercase tracking-widest">งานว่าง</span>
+            <span className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1">งานว่าง <RefreshCw size={10} /></span>
             {availableOrders.length > 0 && (
               <span className="absolute top-1.5 right-1/4 translate-x-2 bg-red-500 text-white text-[9px] font-black rounded-full h-4 min-w-4 px-1 flex items-center justify-center animate-bounce shadow-md">
                 {availableOrders.length}
@@ -1223,10 +1236,12 @@ export default function RiderPage() {
                   <span className="text-slate-500 font-medium">ประเภทงาน:</span>
                   <span className="font-black text-slate-700 uppercase px-2.5 py-1 bg-slate-100 rounded-md shadow-sm border border-slate-200">{selectedViewOrder.job_type}</span>
                 </div>
-                <div className="flex justify-between items-center pt-2.5 border-t border-slate-100">
-                  <span className="text-slate-500 font-medium">ยอดเรียกเก็บ:</span>
-                  <span className="font-black text-blue-600 text-lg">฿{selectedViewOrder.total_price}</span>
-                </div>
+                {selectedViewOrder.payment_method !== "โอน" && (
+                  <div className="flex justify-between items-center pt-2.5 border-t border-slate-100">
+                    <span className="text-slate-500 font-medium">ยอดเรียกเก็บ:</span>
+                    <span className="font-black text-blue-600 text-lg">฿{selectedViewOrder.total_price}</span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center">
                   <span className="text-slate-500 font-medium">การชำระเงิน:</span>
                   <span className={`font-black text-[9px] uppercase px-2 py-1 rounded border ${selectedViewOrder.payment_method === "โอน" ? "bg-blue-50 border-blue-200 text-blue-600" : "bg-emerald-50 border-emerald-200 text-emerald-600"}`}>
