@@ -46,6 +46,7 @@ import {
   Calendar,
   Calculator,
   History,
+  Trash2,
 } from "lucide-react";
 
 import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from '@react-google-maps/api';
@@ -209,12 +210,13 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const fetchOrdersAndLocations = useCallback(async () => {
     if (!currentBranchId) return;
 
-    // Fetch Orders - แม่ครัวมองเห็นทั้งหมด
+    // Fetch Orders - แม่ครัวมองเห็นทั้งหมด แต่กรองอันที่โดนย้ายลงถังขยะออก
     const { data: orderData, error: orderError } = await supabase
       .from("orders")
       .select("*")
       .eq("branch_id", currentBranchId,)
       .or("is_archived.is.null,is_archived.eq.false")
+      .or("is_deleted.is.null,is_deleted.eq.false")
       .order("sort_index", { ascending: true })
       .order("created_at", { ascending: false });
 
@@ -730,6 +732,14 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       if (data) {
         setOrders(orders.map((o) => (o.id === editingId ? (data[0] as Order) : o)));
         showToast("อัปเดตข้อมูลสำเร็จ! 📝");
+
+        // 🌟 1. เพิ่ม Log การแก้ไขออเดอร์
+        await supabase.from("activity_logs").insert([{
+          branch_id: currentBranchId,
+          user_name: adminName,
+          action: "EDIT_ORDER",
+          details: `แก้ไขข้อมูลออเดอร์ #${finalOrderNumber}`
+        }]);
       }
     } else {
       const { data } = await supabase.from("orders").insert([{ ...orderData, branch_id: currentBranchId, status: "New" }]).select();
@@ -738,6 +748,14 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
         setOrders([data[0] as Order, ...orders]);
         showToast("สร้างออเดอร์สำเร็จ! 🚀");
         
+        // 🌟 2. เพิ่ม Log การสร้างออเดอร์
+        await supabase.from("activity_logs").insert([{
+          branch_id: currentBranchId,
+          user_name: adminName,
+          action: "CREATE_ORDER",
+          details: `สร้างออเดอร์ใหม่ #${finalOrderNumber}`
+        }]);
+
         notifyRoles(
           ['kitchen', 'rider', 'admin', 'superadmin'], 
           "✨ มีออเดอร์ใหม่เข้า!", 
@@ -787,6 +805,14 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       setOrders(orders.map((o) => (o.id === targetOrder.id ? { ...o, ...data[0] } : o)));
       showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`);
       
+      // 🌟 3. เพิ่ม Log การปรับสถานะด้วยมือ
+      await supabase.from("activity_logs").insert([{
+        branch_id: currentBranchId,
+        user_name: adminName,
+        action: "CHANGE_STATUS",
+        details: `ปรับสถานะออเดอร์ #${targetOrder.order_number} เป็น "${newStatus}"`
+      }]);
+
       notifyRoles(
         ['rider', 'admin', 'superadmin', 'kitchen'], 
         `🔄 อัปเดตสถานะออเดอร์`, 
@@ -806,6 +832,15 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       showToast("ครัวเริ่มทำอาหารแล้ว! 🍳");
       
       const orderNum = orders.find(o => o.id === orderId)?.order_number || "ล่าสุด";
+      
+      // 🌟 4. เพิ่ม Log การเริ่มทำอาหาร
+      await supabase.from("activity_logs").insert([{
+        branch_id: currentBranchId,
+        user_name: adminName,
+        action: "CHANGE_STATUS",
+        details: `เริ่มทำอาหารออเดอร์ #${orderNum} (สถานะ: กำลังทำ)`
+      }]);
+
       notifyRoles(
         ['rider', 'admin', 'superadmin'], 
         "🍳 ครัวกำลังทำอาหาร", 
@@ -830,6 +865,15 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       showToast(isShopee ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦" : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵");
 
       const orderNum = orders.find(o => o.id === orderId)?.order_number || "ล่าสุด";
+      
+      // 🌟 5. เพิ่ม Log การทำอาหารเสร็จ
+      await supabase.from("activity_logs").insert([{
+        branch_id: currentBranchId,
+        user_name: adminName,
+        action: "CHANGE_STATUS",
+        details: `ทำอาหารออเดอร์ #${orderNum} เสร็จแล้ว (สถานะ: ${nextStatus})`
+      }]);
+
       notifyRoles(
         ['rider', 'admin', 'superadmin'], 
         "📦 อาหารพร้อมส่ง!", 
@@ -1216,6 +1260,29 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                     </div>
                     ตั้งค่าระบบ
                   </Link>
+                  <div className="h-px bg-slate-100 my-2"></div>
+                  <Link
+                    href={`/board/${branchSlug}/logs`}
+                    prefetch={false}
+                    className="w-full flex items-center p-4 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-2xl transition-all font-bold border border-transparent hover:border-indigo-100 group"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                      <ClipboardList size={20} className="text-indigo-600" />
+                    </div>
+                    ประวัติการทำงาน (Logs)
+                  </Link>
+
+                  <div className="h-px bg-slate-100 my-2"></div>
+                  <Link
+                    href={`/board/${branchSlug}/trash`}
+                    prefetch={false}
+                    className="w-full flex items-center p-4 text-slate-600 hover:bg-rose-50 hover:text-rose-700 rounded-2xl transition-all font-bold border border-transparent hover:border-rose-100 group"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                      <Trash2 size={20} className="text-rose-600" />
+                    </div>
+                    ถังขยะ (Recycle Bin)
+                  </Link>
                 </>
               )}
             </div>
@@ -1473,7 +1540,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                                 initialImageUrls: orderInfo.slip_image ? orderInfo.slip_image.split(',').filter(Boolean) : undefined,
                               })
                             }
-                            onDelete={requestDeleteOrder}
+                            onDelete={(id) => requestDeleteOrder(id, order.order_number)}
                             onChangeStatusRequest={(orderInfo) =>
                               setStatusModal({ isOpen: true, order: orderInfo })
                             }

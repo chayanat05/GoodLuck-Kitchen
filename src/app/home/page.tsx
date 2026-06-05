@@ -546,8 +546,9 @@ export default function BranchSelectorPage() {
                 </div>
                 ตั้งค่าระบบรวม
               </Link>
+              
             </div>
-
+            
             <div className="p-6 border-t border-slate-100 bg-slate-50">
               <button
                 onClick={handleLogout}

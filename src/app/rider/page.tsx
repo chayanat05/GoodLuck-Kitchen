@@ -1038,6 +1038,18 @@ export default function RiderPage() {
               </p>
             </div>
             <div className="flex-1 p-4 space-y-2 overflow-y-auto bg-slate-50">
+              {(currentUserRole === "admin" || currentUserRole === "superadmin") && (
+                              <Link
+                                href="/home"
+                                prefetch={false}
+                                className="w-full flex items-center p-4 text-slate-600 hover:bg-rose-50 hover:text-rose-700 rounded-2xl transition-all font-bold border border-transparent hover:border-rose-100 group"
+                              >
+                                <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                                  <Store size={20} className="text-rose-600" />
+                                </div>
+                                กลับหน้าเลือกสาขา
+                              </Link>
+                            )}
               <button onClick={() => { setIsMenuOpen(false); setShowDashboard(true); }} className="w-full flex items-center p-3 text-slate-700 bg-white hover:bg-blue-50 hover:text-blue-700 rounded-xl transition-all text-sm font-bold cursor-pointer border border-slate-200 shadow-sm group">
                 <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center mr-3 group-hover:bg-blue-100 transition-colors">
                   <LayoutDashboard size={16} className="text-blue-600" />

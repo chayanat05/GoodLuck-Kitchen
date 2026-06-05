@@ -134,6 +134,7 @@ export default function SchedulePage() {
 
       const savedShifts = localStorage.getItem('ai_shifts');
       if (savedShifts) setShiftPresets(JSON.parse(savedShifts));
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (e) {
       console.error("Failed to parse AI settings from local storage");
     }
@@ -550,7 +551,7 @@ export default function SchedulePage() {
                 {isCopying ? <Loader2 className="animate-spin" size={16}/> : <Copy size={16} />} ใช้ข้อมูลเดือนที่แล้ว
               </button>
             )}
-            <button onClick={() => setIsAutoModalOpen(true)} className="flex-1 md:flex-none bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-700 hover:to-fuchsia-700 text-white px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 font-bold transition-all shadow-md active:scale-95 text-xs cursor-pointer">
+            <button onClick={() => setIsAutoModalOpen(true)} className="flex-1 md:flex-none bg-linear-to-r from-violet-600 to-fuchsia-600 hover:from-violet-700 hover:to-fuchsia-700 text-white px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 font-bold transition-all shadow-md active:scale-95 text-xs cursor-pointer">
               <Wand2 size={16} /> เทรน AI อัตโนมัติ
             </button>
           </div>
@@ -593,7 +594,7 @@ export default function SchedulePage() {
                   </button>
                 </div>
                 
-                <div className="flex flex-col gap-1.5 overflow-y-auto max-h-[70px] md:max-h-[100px] scrollbar-hide">
+                <div className="flex flex-col gap-1.5 overflow-y-auto max-h-17.5 md:max-h-25 scrollbar-hide">
                   {daySchedules.map(s => {
                     const sName = detectShiftName(s.start_time, s.end_time);
                     const bgClass = sName === 'กะเช้า' ? 'bg-blue-50 text-blue-700 border-blue-100' : 
