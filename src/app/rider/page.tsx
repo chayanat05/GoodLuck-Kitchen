@@ -99,8 +99,6 @@ export default function RiderPage() {
 
   const [currentUserRole, setCurrentUserRole] = useState<string>("rider");
   const [isEmergencyMode, setIsEmergencyMode] = useState<boolean>(false);
-
-  const [dormImageModal, setDormImageModal] = useState<{ isOpen: boolean; url: string | null; isLoading: boolean }>({ isOpen: false, url: null, isLoading: false });
   
   const [mapLibraries] = useState<"places"[]>(["places"]);
   const { isLoaded } = useJsApiLoader({
@@ -154,26 +152,6 @@ export default function RiderPage() {
     }
   };
 
-  const handleViewDormImage = async (addressName: string) => {
-    setDormImageModal({ isOpen: true, url: null, isLoading: true });
-    
-    if (addressName.startsWith("http")) {
-      setDormImageModal({ isOpen: true, url: null, isLoading: false });
-      return;
-    }
-
-    const { data } = await supabase
-      .from("saved_locations")
-      .select("image_url")
-      .eq("name", addressName)
-      .single();
-
-    if (data?.image_url) {
-      setDormImageModal({ isOpen: true, url: data.image_url, isLoading: false });
-    } else {
-      setDormImageModal({ isOpen: true, url: null, isLoading: false });
-    }
-  };
 
   const fetchOrdersAndBranches = useCallback(async (userId: string) => {
     if (!userId) return;
@@ -1060,8 +1038,8 @@ export default function RiderPage() {
               </p>
             </div>
             <div className="flex-1 p-4 space-y-2 overflow-y-auto bg-slate-50">
-              <button onClick={() => { setIsMenuOpen(false); setShowDashboard(true); }} className="w-full flex items-center p-3 text-slate-700 bg-white hover:bg-blue-50 hover:text-blue-700 rounded-xl transition-all text-sm font-bold cursor-pointer border border-slate-200 shadow-sm">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center mr-3">
+              <button onClick={() => { setIsMenuOpen(false); setShowDashboard(true); }} className="w-full flex items-center p-3 text-slate-700 bg-white hover:bg-blue-50 hover:text-blue-700 rounded-xl transition-all text-sm font-bold cursor-pointer border border-slate-200 shadow-sm group">
+                <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center mr-3 group-hover:bg-blue-100 transition-colors">
                   <LayoutDashboard size={16} className="text-blue-600" />
                 </div>
                 Dashboard ของฉัน
@@ -1070,16 +1048,16 @@ export default function RiderPage() {
               <Link
                 href="/schedule"
                 prefetch={false}
-                className="w-full flex items-center p-3 text-slate-600 bg-white hover:bg-teal-50 hover:text-teal-700 rounded-xl transition-all text-sm font-bold border border-transparent hover:border-teal-100 group"
+                className="w-full flex items-center p-3 text-slate-700 bg-white hover:bg-teal-50 hover:text-teal-700 rounded-xl transition-all text-sm font-bold cursor-pointer border border-slate-200 shadow-sm group"
               >
-                <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
-                  <Calendar size={20} className="text-teal-600" />
+                <div className="w-8 h-8 rounded-lg bg-teal-50 flex items-center justify-center mr-3 group-hover:bg-teal-100 transition-colors">
+                  <Calendar size={16} className="text-teal-600" />
                 </div>
                 ตารางงาน (Schedule)
               </Link>
 
               <button onClick={() => { setIsMenuOpen(false); setShowRiderMap(true); }} 
-                className="w-full flex items-center p-3 text-slate-700 bg-white hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-all text-sm font-bold cursor-pointer border border-slate-200 shadow-sm">
+                className="w-full flex items-center p-3 text-slate-700 bg-white hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-all text-sm font-bold cursor-pointer border border-slate-200 shadow-sm group">
                 <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center mr-3 group-hover:bg-emerald-100 transition-colors">
                   <MapPinned size={16} className="text-emerald-600" />
                 </div>
@@ -1244,42 +1222,6 @@ export default function RiderPage() {
         </div>
       )}
 
-      {/* 🌟 Modal โชว์รูปหอพัก */}
-      {dormImageModal.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-350 flex items-center justify-center p-4 animate-in fade-in" onClick={() => setDormImageModal({ isOpen: false, url: null, isLoading: false })}>
-          <button className="absolute top-6 right-6 text-white hover:bg-white/20 p-2 rounded-full transition-colors cursor-pointer">
-            <X size={32} />
-          </button>
-          
-          {dormImageModal.isLoading ? (
-            <div className="flex flex-col items-center text-white">
-              <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
-              <span className="font-black tracking-widest uppercase animate-pulse">กำลังค้นหารูปภาพ...</span>
-            </div>
-          ) : dormImageModal.url ? (
-            <div className="relative w-full max-w-lg aspect-square sm:h-[70vh] animate-in zoom-in-95 duration-300">
-              <Image src={dormImageModal.url} alt="Dorm" fill sizes="(max-width: 768px) 100vw, 800px" className="object-contain rounded-2xl" />
-            </div>
-          ) : (
-            <div className="bg-white p-8 rounded-4xl flex flex-col items-center max-w-xs text-center animate-in zoom-in-95 duration-300 border border-slate-100 shadow-2xl" onClick={e => e.stopPropagation()}>
-              <div className="w-20 h-20 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mb-5 shadow-inner border border-slate-100">
-                <ImageIcon size={40} strokeWidth={1.5} />
-              </div>
-              <h3 className="text-lg font-black text-slate-800 mb-2">ไม่พบรูปภาพ</h3>
-              <p className="text-xs text-slate-500 font-medium leading-relaxed">
-                อาจจะเป็นเพราะยังไม่มีใครอัปโหลดรูปของหอพักนี้ หรือพิมพ์ชื่อไม่ตรงกับในคลังครับ
-              </p>
-              <button 
-                onClick={() => setDormImageModal({ isOpen: false, url: null, isLoading: false })}
-                className="mt-6 w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black rounded-xl transition-all cursor-pointer active:scale-95 text-xs uppercase tracking-widest"
-              >
-                รับทราบ
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
       {showRiderMap && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col h-5/6">
@@ -1300,8 +1242,9 @@ export default function RiderPage() {
               {isLoaded ? (
                 <GoogleMap
                   mapContainerStyle={{ width: "100%", height: "100%" }}
-                  center={{ lat: shopLocation.lat, lng: shopLocation.lng }} 
+                  center={shopLocation} 
                   zoom={14}
+                  mapTypeId="satellite"
                   options={{ disableDefaultUI: true, zoomControl: true }}
                 >
                   <MarkerF

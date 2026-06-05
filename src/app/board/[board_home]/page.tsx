@@ -3,18 +3,19 @@ import { useState, useEffect, useRef, useMemo, useCallback, use } from "react";
 import Link from "next/link";
 import OrderCard, { Order } from "@/components/OrderCard";
 import SlipScanner from "@/components/SlipScanner";
+import SharedGallery from "@/components/SharedGallery";
 import {
   DragDropContext,
   Droppable,
   Draggable,
   DropResult,
 } from "@hello-pangea/dnd";
+import { User as SupabaseUser } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import {
   X,
   ClipboardCheck,
   ImagePlus,
-  Trash2,
   MapPin as MapIcon,
   LogOut,
   Menu,
@@ -43,135 +44,91 @@ import {
   AlertTriangle,
   Utensils,
   Calendar,
+  Calculator,
+  History,
 } from "lucide-react";
-import {
-  useJsApiLoader,
-  GoogleMap,
-  MarkerF,
-  InfoWindowF,
-} from "@react-google-maps/api";
-import { User as SupabaseUser } from "@supabase/supabase-js";
-import Image from "next/image";
-import SharedGallery from "@/components/SharedGallery";
-import Swal from "sweetalert2";
-import { toast } from "sonner";
-import { useFCM } from "@/hooks/useFCM";
 
-export interface SavedLocation {
-  id?: string;
-  name: string;
-  address?: string | null;
-  lat: number;
-  lng: number;
-}
+import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from '@react-google-maps/api';
+import { toast } from 'sonner';
+import Image from 'next/image';
+import Swal from 'sweetalert2';
 
-interface UnifiedSearchResult {
-  type: "store" | "google";
-  place_id?: string;
-  name: string;
-  address: string;
-  lat?: number;
-  lng?: number;
-  distanceText?: string;
-}
-
-interface RiderLocation {
-  id: string;
-  username: string;
-  last_lat: number | null;
-  last_lng: number | null;
-  last_seen: string | null;
-}
-
-interface BranchMenu {
-  id: string;
-  branch_id: string;
-  menu_name: string;
-  price: number;
-}
-
-interface ContactSource {
-  id: string;
-  branch_id: string;
-  name: string;
-}
-
-interface CalcItem {
-  name: string;
-  qty: number;
-  unitPrice: number;
-  total: number;
-  found: boolean;
-}
-
-const calculateDistance = (
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-): number => {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * (Math.PI / 180)) *
-      Math.cos(lat2 * (Math.PI / 180)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-};
-
-export default function BoardPage({
-  params,
-}: {
-  params: Promise<{ board_home: string }>;
-}) {
+export default function BranchBoardPage({ params }: { params: Promise<{ board_home: string }> }) {
   const resolvedParams = use(params);
   const branchSlug = resolvedParams.board_home;
-  useFCM();
-  const NOTIFICATION_SOUND_URL = "/audio-shop.mp3";
+
   const SHOP_LAT = 16.24813;
   const SHOP_LNG = 103.242206;
+  const NOTIFICATION_SOUND_URL = "/audio-shop.mp3";
 
-  // ---------------------------------------------------------------------------
-  // 1. STATES & REFS (ประกาศตัวแปรก่อนเพื่อน)
-  // ---------------------------------------------------------------------------
-  const [currentBranchId, setCurrentBranchId] = useState<string>("");
-  const [isMounted, setIsMounted] = useState<boolean>(false);
+  // --- Type Interfaces ---
+  interface RiderLocation {
+    id: string;
+    username: string;
+    last_lat: number | null;
+    last_lng: number | null;
+    last_seen: string | null;
+  }
+  interface SavedLocation { id: string; name: string; lat: number; lng: number; address?: string; }
+  interface BranchMenu { id: string; menu_name: string; price: number; branch_id: string; }
+  interface ContactSource { id: string; name: string; branch_id: string; }
+  interface CalcItem { name: string; qty: number; unitPrice: number; total: number; found: boolean; }
+  interface UnifiedSearchResult { type: string; name: string; address?: string; lat?: number; lng?: number; distanceText?: string; menu_name?: string; price?: number; place_id?: string; }
+
+
+  // 🌟 กำจัด Any ทั้งหมดและแทนที่ด้วย Interface ที่ถูกต้อง 100% 🌟
   const [orders, setOrders] = useState<Order[]>([]);
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [bgColor, setBgColor] = useState<string>("#f8fafc");
-  const [bgImage, setBgImage] = useState<string | null>(null);
-  const [bgOption, setBgOption] = useState<"cover" | "contain" | "repeat">("cover");
-  const [isCompact, setIsCompact] = useState<boolean>(false);
-  const [scannerConfig, setScannerConfig] = useState<{ isOpen: boolean; orderId: string; amount: number; initialImageUrls?: string[]; } | null>(null);
-  const [statusModal, setStatusModal] = useState<{ isOpen: boolean; order: Order | null; }>({ isOpen: false, order: null });
-  const [isEmergencyMode, setIsEmergencyMode] = useState<boolean>(false);
-  const [showContactInfo, setShowContactInfo] = useState(false);
-  const [currentUserRole, setCurrentUserRole] = useState<string>("admin");
+  const [currentBranchId, setCurrentBranchId] = useState<string | null>(null);
+  const [isMounted, setIsMounted] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
   const [adminName, setAdminName] = useState<string>("กำลังโหลด...");
-  const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
-  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [currentUserRole, setCurrentUserRole] = useState<string>("kitchen");
+  const [setSavedLocations] = useState<SavedLocation[]>([]);
   const [allBranchMenus, setAllBranchMenus] = useState<BranchMenu[]>([]);
   const [contactSources, setContactSources] = useState<ContactSource[]>([]);
+  const [isEmergencyMode, setIsEmergencyMode] = useState<boolean>(false);
+  const [bgColor, setBgColor] = useState<string>("#1e293b");
+  const [bgImage, setBgImage] = useState<string>("");
+  const [bgOption, setBgOption] = useState<"cover" | "contain" | "repeat">("cover");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [isCompact, setIsCompact] = useState<boolean>(false);
+  const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedViewOrder, setSelectedViewOrder] = useState<Order | null>(null);
-  const [imageGallery, setImageGallery] = useState<{ urls: string[]; startIndex: number; } | null>(null);
-  const [imgScale, setImgScale] = useState(1);
-  const [savedLocations, setSavedLocations] = useState<SavedLocation[]>([]);
+  const [statusModal, setStatusModal] = useState<{ isOpen: boolean; order: Order | null }>({ isOpen: false, order: null });
+  const [debouncedQuery, setDebouncedQuery] = useState<string>("");
+  const [scannerConfig, setScannerConfig] = useState<{ isOpen: boolean; orderId: string | null; amount: number; initialImageUrls?: string[] }>({ isOpen: false, orderId: null, amount: 0 });
+  const [showContactInfo, setShowContactInfo] = useState<boolean>(false);
+  const [imageGallery, setImageGallery] = useState<{ urls: string[]; startIndex: number } | null>(null);
+  const [imgScale, setImgScale] = useState<number>(1);
   const [unifiedResults, setUnifiedResults] = useState<UnifiedSearchResult[]>([]);
+  const [isGalleryOpen, setIsGalleryOpen] = useState<boolean>(false);
+  
+  // 🌟 จัดการ State ที่เขียนไว้แปลกๆ ให้เป็นมาตรฐาน
+  const [ridersLoc, setRidersLoc] = useState<RiderLocation[]>([]);
+
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [existingImages, setExistingImages] = useState<string[]>([]);
   const [showRiderMap, setShowRiderMap] = useState<boolean>(false);
-  const [ridersLoc, setRidersLoc] = useState<RiderLocation[]>([]);
   const [selectedRiderMapInfo, setSelectedRiderMapInfo] = useState<RiderLocation | null>(null);
+  const [menuModalSearchQuery, setMenuModalSearchQuery] = useState("");
+  const [calcInput, setCalcInput] = useState("");
+  
+  const calcResult = useMemo(() => {
+    try {
+      const s = (calcInput || "").toString().replace(/[^0-9+\-*/().]/g, '');
+      if (!s) return "-";
+      const r = Function('"use strict";return (' + s + ')')();
+      return isNaN(r) ? "ERR" : String(r);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (e) {
+      return "ERR";
+    }
+  }, [calcInput]);
   
   const [formData, setFormData] = useState({
     order_number: "",
@@ -189,6 +146,11 @@ export default function BoardPage({
     contact_source: "", 
   });
 
+  const orderLineItems = useMemo(
+    () => formData.menu.split("\n").filter((line) => line.trim() !== ""),
+    [formData.menu]
+  );
+
   const galleryRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [isDraggingBoard, setIsDraggingBoard] = useState(false);
@@ -197,7 +159,7 @@ export default function BoardPage({
 
   const dbTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const googleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const notificationAudio = useRef<HTMLAudioElement | null>(null);
+  const notificationAudio = useRef<HTMLAudioElement | null>(typeof window !== 'undefined' ? new Audio(NOTIFICATION_SOUND_URL) : null);
 
   const defaultMapCenter = useMemo(() => ({ lat: SHOP_LAT, lng: SHOP_LNG }), []);
   const [mapLibraries] = useState<"places"[]>(["places"]);
@@ -212,6 +174,15 @@ export default function BoardPage({
   // ---------------------------------------------------------------------------
   // 2. CORE FUNCTIONS
   // ---------------------------------------------------------------------------
+  
+  const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLng = ((lng2 - lng1) * Math.PI) / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
   
   const showToast = useCallback((msg: string) => {
     if (msg.includes('❌') || msg.includes('เกิดข้อผิดพลาด')) {
@@ -242,20 +213,15 @@ export default function BoardPage({
     const { data: orderData, error: orderError } = await supabase
       .from("orders")
       .select("*")
-      .eq("branch_id", currentBranchId)
+      .eq("branch_id", currentBranchId,)
       .or("is_archived.is.null,is_archived.eq.false")
       .order("sort_index", { ascending: true })
       .order("created_at", { ascending: false });
 
     if (orderError) console.error("Error fetching orders:", orderError);
     if (orderData) {
-      // ยกเลิกการฟิลเตอร์เฉพาะร้าน ให้แม่ครัวเห็นหมด
       setOrders(orderData as Order[]);
     }
-
-    // Fetch Locations
-    const { data: locData } = await supabase.from("saved_locations").select("*").order("name", { ascending: true });
-    if (locData) setSavedLocations(locData as SavedLocation[]);
 
     const { data: menuData } = await supabase
       .from("branch_menus")
@@ -286,23 +252,28 @@ export default function BoardPage({
   }, [currentBranchId]);
 
   // 🌟 Smart Menu Matching
-  const getExtractedQty = (cleanLine: string, menuName: string): number => {
+  const normalizeText = (text: string) => text.replace(/[\s\+\-\*\/_.,]/g, '').toLowerCase();
+
+  const getExtractedQty = useCallback((cleanLine: string, menuName: string): number => {
     let qty = 1;
-    const idx = cleanLine.toLowerCase().indexOf(menuName.toLowerCase()) + menuName.length;
-    const afterStr = cleanLine.substring(idx);
+    const normalizedLine = normalizeText(cleanLine);
+    const normalizedMenu = normalizeText(menuName);
+    const idx = normalizedLine.indexOf(normalizedMenu);
     
-    // ดึงตัวเลขแรกที่เจอหลังจากชื่อเมนู (อนุญาตให้มีคำต่อท้ายเช่น "ค่ะ", "เยอะๆ")
-    const nextNumMatch = afterStr.match(/\D*?(\d+)/);
-    if (nextNumMatch && nextNumMatch[1]) {
-        qty = parseInt(nextNumMatch[1], 10);
-    } else {
-        const numbers = cleanLine.match(/\d+/g);
-        if (numbers && numbers.length > 0) {
-            qty = parseInt(numbers[numbers.length - 1], 10);
+    if (idx !== -1) {
+        const afterStr = normalizedLine.substring(idx + normalizedMenu.length);
+        const nextNumMatch = afterStr.match(/(\d+)/);
+        if (nextNumMatch && nextNumMatch[1]) {
+            qty = parseInt(nextNumMatch[1], 10);
+        } else {
+            const numbers = normalizedLine.match(/\d+/g);
+            if (numbers && numbers.length > 0) {
+                qty = parseInt(numbers[numbers.length - 1], 10);
+            }
         }
     }
     return qty;
-  }
+  }, []);
 
   const calculateAutoPrice = useCallback((menuText: string): string | null => {
     if (!menuText.trim()) return null;
@@ -313,8 +284,9 @@ export default function BoardPage({
     lines.forEach(line => {
       const cleanLine = line.trim();
       if (!cleanLine) return;
+      const normalizedLine = normalizeText(cleanLine);
       for (const item of sortedMenus) {
-        if (cleanLine.toLowerCase().includes(item.menu_name.toLowerCase())) {
+        if (normalizedLine.includes(normalizeText(item.menu_name))) {
           const qty = getExtractedQty(cleanLine, item.menu_name);
           total += (item.price * qty);
           break;
@@ -322,7 +294,7 @@ export default function BoardPage({
       }
     });
     return total > 0 ? total.toString() : null;
-  }, [allBranchMenus]);
+  }, [allBranchMenus, getExtractedQty]);
 
   const calcBreakdown = useMemo<CalcItem[]>(() => {
     if (!formData.menu.trim()) return [];
@@ -333,10 +305,11 @@ export default function BoardPage({
     lines.forEach(line => {
       const cleanLine = line.trim();
       if (!cleanLine) return;
+      const normalizedLine = normalizeText(cleanLine);
 
       let matched = false;
       for (const item of sortedMenus) {
-        if (cleanLine.toLowerCase().includes(item.menu_name.toLowerCase())) {
+        if (normalizedLine.includes(normalizeText(item.menu_name))) {
           const qty = getExtractedQty(cleanLine, item.menu_name);
           breakdown.push({
             name: item.menu_name,
@@ -350,16 +323,38 @@ export default function BoardPage({
         }
       }
       if (!matched) {
-         breakdown.push({ name: cleanLine, qty: 0, unitPrice: 0, total: 0, found: false });
+        breakdown.push({ name: cleanLine, qty: 0, unitPrice: 0, total: 0, found: false });
       }
     });
     return breakdown;
-  }, [formData.menu, allBranchMenus]);
+  }, [formData.menu, allBranchMenus, getExtractedQty]);
 
 
   // ---------------------------------------------------------------------------
   // 3. EFFECTS
   // ---------------------------------------------------------------------------
+
+  // Unlock audio on first user interaction for iOS Safari
+  useEffect(() => {
+    const unlockAudio = () => {
+      if (notificationAudio.current) {
+        notificationAudio.current.play().then(() => {
+          notificationAudio.current?.pause();
+          if (notificationAudio.current) {
+            notificationAudio.current.currentTime = 0;
+          }
+        }).catch(() => {});
+        document.removeEventListener("touchstart", unlockAudio);
+        document.removeEventListener("click", unlockAudio);
+      }
+    };
+    document.addEventListener("touchstart", unlockAudio, { once: true });
+    document.addEventListener("click", unlockAudio, { once: true });
+    return () => {
+      document.removeEventListener("touchstart", unlockAudio);
+      document.removeEventListener("click", unlockAudio);
+    };
+  }, []);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -404,8 +399,6 @@ export default function BoardPage({
 
   useEffect(() => {
     if (!currentBranchId) return;
-
-    notificationAudio.current = new Audio(NOTIFICATION_SOUND_URL);
 
     const checkAuthAndInit = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -571,7 +564,7 @@ export default function BoardPage({
       setFormData({
         ...formData,
         location_name: item.name,
-        address: item.address,
+        address: item.address || "",
         lat: item.lat,
         lng: item.lng,
       });
@@ -584,7 +577,7 @@ export default function BoardPage({
           setFormData({
             ...formData,
             location_name: item.name,
-            address: results[0].formatted_address || item.address,
+            address: results[0].formatted_address || item.address || "",
             lat: loc.lat(),
             lng: loc.lng(),
           });
@@ -594,7 +587,6 @@ export default function BoardPage({
     }
   };
 
-  // 🌟 รันเลขออเดอร์แบบรวมศูนย์
   const openCreateModal = () => {
     const numberedOrders = orders.map(o => {
         const match = String(o.order_number).match(/\d+/);
@@ -866,27 +858,40 @@ export default function BoardPage({
     });
   };
 
-  const requestDeleteOrder = (id: string) => {
+  const requestDeleteOrder = (id: string, orderNumber: string) => {
     Swal.fire({
-      title: "ยืนยันการลบ?",
-      text: "คุณกำลังจะลบออเดอร์นี้ทิ้งแบบถาวร แน่ใจแล้วใช่ไหมครับ?",
+      title: "ย้ายลงถังขยะ?",
+      text: "ออเดอร์นี้จะถูกซ่อนจากหน้าบอร์ด คุณสามารถกู้คืนได้ที่หน้าถังขยะ",
       icon: "warning",
       showCancelButton: true,
-      confirmButtonColor: "#f43f5e",
+      confirmButtonColor: "#f59e0b",
       cancelButtonColor: "#cbd5e1",
-      confirmButtonText: "ลบทิ้งเลย",
+      confirmButtonText: "ย้ายลงถังขยะ",
       cancelButtonText: "ยกเลิก",
       reverseButtons: true,
     }).then(async (result) => {
       if (result.isConfirmed) {
-        const { error } = await supabase.from("orders").delete().eq("branch_id", currentBranchId).eq("id", id);
+        // 🌟 1. ทำ Soft Delete (ซ่อนออเดอร์)
+        const { error } = await supabase
+          .from("orders")
+          .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+          .eq("id", id);
+          
         if (error) {
-          console.error(error);
-          showToast("เกิดข้อผิดพลาดในการลบออเดอร์ ❌");
+          showToast("เกิดข้อผิดพลาดในการลบ ❌");
           return;
         }
+
+        // 🌟 2. บันทึก Log การกระทำ
+        await supabase.from("activity_logs").insert([{
+          branch_id: currentBranchId,
+          user_name: adminName,
+          action: "DELETE_ORDER",
+          details: `ย้ายออเดอร์ #${orderNumber} ลงถังขยะ`
+        }]);
+
         setOrders((prev) => prev.filter((order) => order.id !== id));
-        showToast("ลบออเดอร์เรียบร้อยแล้ว 🗑️");
+        showToast("ย้ายออเดอร์ลงถังขยะแล้ว 🗑️");
       }
     });
   };
@@ -938,7 +943,7 @@ export default function BoardPage({
             className="loader mb-4"
             style={{ "--loader-color": "#fff" } as React.CSSProperties}
           ></div>
-          <p className="text-white text-base font-bold tracking-widest mt-2 animate-pulse">
+          <p className="text-white text-sm font-bold tracking-widest mt-2 animate-pulse">
             กำลังเตรียมบอร์ด...
           </p>
         </div>
@@ -1066,7 +1071,7 @@ export default function BoardPage({
             onClick={() => setIsMenuOpen(false)}
           ></div>
           <div className="relative w-80 bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-300 z-10 rounded-r-4xl overflow-hidden">
-            <div className="bg-linear-to-br from-blue-600 to-indigo-800 p-8 text-white relative">
+            <div className="bg-gradient-to-br from-blue-600 to-indigo-800 p-8 text-white relative">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-bl-full pointer-events-none"></div>
               <button
                 onClick={() => setIsMenuOpen(false)}
@@ -1074,10 +1079,10 @@ export default function BoardPage({
               >
                 <X size={18} />
               </button>
-              <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-5 text-3xl font-black uppercase shadow-inner border border-white/30">
+              <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-5 text-2xl font-black uppercase shadow-inner border border-white/30">
                 {adminName.charAt(0)}
               </div>
-              <h2 className="font-black text-3xl mb-1 tracking-tight">
+              <h2 className="font-black text-2xl mb-1 tracking-tight">
                 {adminName}
               </h2>
               <p className="text-blue-200 text-sm font-bold tracking-wide flex items-center">
@@ -1115,6 +1120,19 @@ export default function BoardPage({
               </Link>
 
               <div className="h-px bg-slate-100 my-2"></div>
+
+              <Link
+                href="/history"
+                prefetch={false}
+                className="w-full flex items-center p-4 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-2xl transition-all font-bold border border-transparent hover:border-indigo-100 group"
+              >
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                  <History size={20} className="text-indigo-600" />
+                </div>
+                ประวัติงาน (History)
+              </Link>
+
+              <div className="h-px bg-slate-100 my-2"></div>
               <button
                 onClick={() => {
                   setIsMenuOpen(false);
@@ -1129,7 +1147,7 @@ export default function BoardPage({
                   />
                 </div>
                 <div>
-                  <div className="text-lg font-black">คลังรูปภาพสาขา</div>
+                  <div className="text-l font-black">คลังรูปภาพสาขา</div>
                   <div className="text-[15px] text-slate-400 font-bold uppercase tracking-widest">
                     Branch Gallery
                   </div>
@@ -1148,7 +1166,7 @@ export default function BoardPage({
                   />
                 </div>
                 <div>
-                  <div className="text-lg font-black">ที่ปักหมุด</div>
+                  <div className="text-l font-black">ที่ปักหมุด</div>
                   <div className="text-[15px] text-slate-400 font-bold uppercase tracking-widest">
                     ฐานข้อมูลหอพัก
                   </div>
@@ -1223,7 +1241,7 @@ export default function BoardPage({
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 flex flex-col h-5/6 relative">
             <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-white sticky top-0 z-10 shrink-0">
-              <h3 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+              <h3 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
                 <MapViewIcon className="text-indigo-600" size={24} />{" "}
                 ติดตามพิกัดไรเดอร์ (Live)
               </h3>
@@ -1253,7 +1271,7 @@ export default function BoardPage({
                       text: "ร้านของเรา",
                       color: "#b91c1c",
                       className:
-                        "bg-white/90 px-2 py-0.5 rounded-full shadow-sm text-sm font-black mt-8 border border-red-200",
+                        "bg-white/90 px-2 py-0.5 rounded-full shadow-sm text-xs font-black mt-8 border border-red-200",
                     }}
                     onClick={() =>
                       setSelectedRiderMapInfo({
@@ -1283,7 +1301,7 @@ export default function BoardPage({
                             text: rider.username,
                             color: "#1e293b",
                             className:
-                              "bg-white/80 px-2 py-0.5 rounded-full shadow-sm text-sm font-bold mt-8 border border-slate-200 backdrop-blur-sm",
+                              "bg-white/80 px-2 py-0.5 rounded-full shadow-sm text-xs font-bold mt-8 border border-slate-200 backdrop-blur-sm",
                           }}
                           onClick={() => setSelectedRiderMapInfo(rider)}
                         />
@@ -1472,11 +1490,146 @@ export default function BoardPage({
         )}
       </div>
 
-      {/* 🌟 Create / Edit Order Modal (Dark Theme) */}
+      {/* 🌟 Create / Edit Order Modal (Dark Theme & Calculator) */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
-          <div className="bg-slate-900 shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-800 thin-scrollbar rounded-4xl max-h-full pb-10 overflow-y-auto">
-            <div className="flex justify-between items-center p-6 border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl sticky top-0 z-10">
+          <div className="w-full max-w-7xl flex gap-4 h-[90vh]">
+            
+            {/* 🌟 Left Pane: Menu Search + Full Calculator */}
+            <div className="hidden lg:flex flex-col w-[28%] bg-slate-900 shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-800 rounded-4xl h-full">
+              <div className="p-6 border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl shrink-0 space-y-4">
+                <div>
+                  <h3 className="text-xl font-black text-white tracking-tight flex items-center gap-2 mb-2">
+                    <Search className="text-rose-500" size={24} />
+                    ค้นหาเมนู
+                  </h3>
+                  <div className="relative">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                    <input
+                      type="text"
+                      placeholder="พิมพ์ชื่อเมนู..."
+                      className="w-full bg-slate-800 border border-slate-700 p-3 pl-11 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-rose-500/50 focus:border-rose-500 transition-all font-bold text-white placeholder-slate-500"
+                      value={menuModalSearchQuery}
+                      onChange={(e) => setMenuModalSearchQuery(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto thin-scrollbar p-4 space-y-3">
+                {allBranchMenus
+                  .filter(m => m.menu_name.toLowerCase().includes(menuModalSearchQuery.toLowerCase()))
+                  .slice(0, 30)
+                  .map(menu => (
+                    <div
+                      key={menu.id}
+                      className="bg-slate-800/50 border border-slate-700/50 p-3 rounded-2xl flex justify-between items-center hover:bg-slate-800 transition-colors cursor-pointer group"
+                      onClick={() => {
+                        const currentMenuText = formData.menu.trim();
+                        const newMenuText = currentMenuText ? `${currentMenuText}\n- ${menu.menu_name} 1` : `- ${menu.menu_name} 1`;
+                        const autoFoodPrice = calculateAutoPrice(newMenuText);
+                        let newTotalPrice = formData.total_price;
+
+                        if (autoFoodPrice !== null) {
+                          const currentDeliveryFee = parseInt(formData.delivery_fee || "0", 10);
+                          newTotalPrice = (parseInt(autoFoodPrice, 10) + currentDeliveryFee).toString();
+                        }
+                        
+                        setFormData({
+                          ...formData,
+                          menu: newMenuText,
+                          total_price: newTotalPrice
+                        });
+                        toast.success(`เพิ่ม ${menu.menu_name} ลงในออเดอร์`);
+                      }}
+                    >
+                      <span className="font-bold text-slate-200 text-sm group-hover:text-rose-400 transition-colors">{menu.menu_name}</span>
+                      <span className="font-black text-rose-400">฿{menu.price}</span>
+                    </div>
+                  ))}
+                {allBranchMenus.filter(m => m.menu_name.toLowerCase().includes(menuModalSearchQuery.toLowerCase())).length === 0 && (
+                  <div className="text-center text-slate-500 font-bold py-10 text-sm">ไม่พบเมนู</div>
+                )}
+              </div>
+
+              {/* 🌟 Full calculator area (Sticky Bottom) */}
+              <div className="p-4 border-t border-slate-800 bg-slate-900 shrink-0">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-2 text-slate-300 font-black uppercase tracking-wide text-xs">
+                    <Calculator size={16} className="text-blue-400" />
+                    เครื่องคิดเลข
+                  </div>
+                </div>
+                <div className="bg-slate-800 border border-slate-700 p-3 rounded-2xl">
+                  <input
+                    type="text"
+                    placeholder="พิมพ์สูตรหรือใช้ปุ่ม"
+                    className="w-full bg-slate-900 border border-slate-700 p-3 rounded-2xl text-sm outline-none text-white font-black placeholder-slate-500"
+                    value={calcInput}
+                    onChange={(e) => setCalcInput(e.target.value)}
+                  />
+                  <div className="text-slate-400 text-xs mt-2 flex justify-between">
+                    <span>ผลลัพธ์:</span>
+                    <span className="font-black text-white text-sm">{calcResult}</span>
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-2 mt-3">
+                    {['7','8','9','/','4','5','6','*','1','2','3','-','0','.','(',')'].map((k) => (
+                      <button key={k} type="button" className="py-2 bg-slate-700/50 hover:bg-slate-600 rounded-lg font-bold text-white transition-colors" onClick={() => setCalcInput(prev => prev + k)}>{k}</button>
+                    ))}
+                    <button type="button" className="col-span-2 py-2 bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 rounded-lg font-black transition-colors" onClick={() => setCalcInput('')}>C</button>
+                    <button type="button" className="col-span-2 py-2 bg-amber-500/20 hover:bg-amber-500/40 text-amber-400 rounded-lg font-black transition-colors" onClick={() => setCalcInput(prev => prev.slice(0, -1))}>⌫</button>
+                    <button
+                      type="button"
+                      className="col-span-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-black text-white transition-colors mt-1"
+                      onClick={() => {
+                        try {
+                          const sanitized = calcInput.replace(/[^0-9+\-*/().]/g, '');
+                          if (!sanitized) return;
+                          const result = Function('"use strict";return (' + sanitized + ')')();
+                          setCalcInput(String(result));
+                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                        } catch (err) { toast.error('รูปแบบการคำนวณไม่ถูกต้อง'); }
+                      }}
+                    >=</button>
+
+                    <button
+                      type="button"
+                      className="col-span-2 py-2 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 rounded-lg font-black transition-colors mt-1 text-xs"
+                      onClick={() => {
+                        try {
+                          const sanitized = calcInput.replace(/[^0-9+\-*/().]/g, '');
+                          if (!sanitized) return;
+                          const result = Number(Function('"use strict";return (' + sanitized + ')')());
+                          const currentPrice = Number(formData.total_price) || 0;
+                          setFormData({ ...formData, total_price: String(currentPrice + result) });
+                          toast.success(`เพิ่ม฿${result.toLocaleString()} เข้าเป็นยอดรวม`);
+                          setCalcInput('');
+                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                        } catch (e) { toast.error('ไม่สามารถเพิ่มยอดได้'); }
+                      }}
+                    >+ เป็นยอดรวม</button>
+
+                    <button
+                      type="button"
+                      className="col-span-2 py-2 bg-fuchsia-600/20 hover:bg-fuchsia-600/40 text-fuchsia-400 rounded-lg font-black transition-colors mt-1 text-xs"
+                      onClick={() => {
+                        const val = calcInput.replace(/[^0-9.]/g, '');
+                        if (!val) { toast.error('ไม่มีตัวเลขให้เพิ่มเป็นเมนู'); return; }
+                        const newMenuText = formData.menu.trim() ? `${formData.menu}\n- ${val}` : `- ${val}`;
+                        setFormData({ ...formData, menu: newMenuText });
+                        toast.success(`เพิ่ม ${val} เป็นรายการชั่วคราว`);
+                        setCalcInput('');
+                      }}
+                    >+ เป็นเมนู</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 🌟 Center Pane: Order Form */}
+            <div className="flex-1 lg:w-[42%] bg-slate-900 shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-800 thin-scrollbar rounded-4xl h-full pb-10 overflow-y-auto">
+              <div className="flex justify-between items-center p-6 border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl sticky top-0 z-10">
               <h3 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
                 <ClipboardCheck className="text-blue-500" />
                 {editingId ? "แก้ไขออเดอร์ 📝" : "สร้างออเดอร์ใหม่ ✨"}
@@ -1534,7 +1687,7 @@ export default function BoardPage({
                         แหล่งที่มา (เพจ)
                       </label>
                       <select
-                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-base outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer font-bold text-white shadow-sm"
+                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer font-bold text-white shadow-sm"
                         value={formData.contact_source}
                         onChange={(e) => {
                           setFormData({
@@ -1555,7 +1708,7 @@ export default function BoardPage({
                       </select>
                     </div>
                     <div className="col-span-2">
-                      <label className="block text-[10px] font-black text-slate-400 mb-2 tracking-wide uppercase flex items-center">
+                      <label className="flex text-[10px] font-black text-slate-400 mb-2 tracking-wide uppercase items-center">
                         <Lock size={12} className="mr-1" /> ลิ้งค์ติดต่อ
                         (ซ่อนเป็นความลับ)
                       </label>
@@ -1577,9 +1730,19 @@ export default function BoardPage({
               )}
 
               <div>
-                <label className="block text-sm font-black text-slate-400 mb-2 tracking-wide uppercase">
-                  รายการอาหาร / เมนู
-                </label>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm font-black text-slate-400 tracking-wide uppercase">
+                    รายการอาหาร / เมนู
+                  </label>
+                  <Link
+                    href="/menus"
+                    target="_blank"
+                    className="flex items-center gap-1 px-3 py-1.5 bg-blue-600/20 border border-blue-500/50 text-blue-400 rounded-lg text-xs font-black shadow-md hover:bg-blue-600/30 transition-all cursor-pointer active:scale-95"
+                  >
+                    <Plus size={14} />
+                    เพิ่มเมนูใหม่
+                  </Link>
+                </div>
                 <textarea
                   rows={3}
                   className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-base outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none font-bold leading-relaxed text-white placeholder-slate-500 shadow-sm"
@@ -1930,6 +2093,70 @@ export default function BoardPage({
                 </button>
               </div>
             </form>
+            </div>
+
+            {/* 🌟 Right Pane: Order Summary */}
+            <div className="hidden lg:flex flex-col w-[28%] bg-slate-900 shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-800 rounded-4xl h-full">
+              <div className="p-6 border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl shrink-0">
+                <h3 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
+                  <ClipboardList className="text-rose-500" size={24} />
+                  สรุปออเดอร์
+                </h3>
+                <p className="text-slate-400 text-sm mt-2">ดูยอด รวม และรายการที่เลือกแบบเรียลไทม์</p>
+              </div>
+              <div className="flex-1 overflow-y-auto thin-scrollbar p-6 space-y-5">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-slate-400 uppercase tracking-widest text-[10px] font-black">
+                    <span>เมนูที่เพิ่ม</span>
+                    <span>{orderLineItems.length} รายการ</span>
+                  </div>
+                  <div className="space-y-2">
+                    {orderLineItems.length > 0 ? orderLineItems.map((line, idx) => (
+                      <div key={idx} className="rounded-3xl bg-slate-800 border border-slate-700 p-3 text-sm text-slate-200">
+                        {line}
+                      </div>
+                    )) : (
+                      <div className="text-slate-500 text-sm font-medium">ยังไม่มีเมนู</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-800 border border-slate-700 rounded-3xl">
+                  <div className="text-slate-400 uppercase tracking-wide text-[10px] font-black mb-4">สรุปราคา</div>
+                  <div className="space-y-3 text-sm text-slate-300">
+                    <div className="flex justify-between">
+                      <span>ค่าอาหาร</span>
+                      <span>฿{Number(formData.total_price || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>ค่าส่ง</span>
+                      <span>฿{Number(formData.delivery_fee || 0).toLocaleString()}</span>
+                    </div>
+                  </div>
+                  <div className="border-t border-slate-700 pt-4 mt-4 flex justify-between items-center text-white font-black text-lg">
+                    <span>รวมทั้งหมด</span>
+                    <span>฿{(Number(formData.total_price || 0) + Number(formData.delivery_fee || 0)).toLocaleString()}</span>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-800 border border-slate-700 rounded-3xl space-y-3">
+                  <div className="text-slate-400 uppercase tracking-wide text-[10px] font-black">รายละเอียดด่วน</div>
+                  <div className="text-sm text-slate-200 space-y-2">
+                    <div className="flex justify-between"><span>ประเภทงาน</span><span>{formData.job_type}</span></div>
+                    <div className="flex justify-between"><span>ช่องทางชำระ</span><span>{formData.payment_method}</span></div>
+                    <div className="flex justify-between"><span>ชื่อที่อยู่</span><span>{formData.location_name || '-'}</span></div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, menu: '', total_price: '0', delivery_fee: '0' })}
+                  className="w-full bg-rose-500 hover:bg-rose-400 text-white py-3 rounded-3xl font-black transition-all active:scale-95"
+                >
+                  ล้างรายการทันที
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -2129,7 +2356,7 @@ export default function BoardPage({
                     {selectedViewOrder.image_url
                       .split(",")
                       .filter(Boolean)
-                      .map((imgUrl, i) => (
+                      .map((imgUrl: string, i: number) => (
                         <div
                           key={i}
                           onClick={() =>
@@ -2250,12 +2477,12 @@ export default function BoardPage({
       {/* 🌟 SlipScanner */}
       {scannerConfig?.isOpen && (
         <SlipScanner
-          orderId={scannerConfig.orderId}
+          orderId={scannerConfig.orderId!}
           expectedAmount={scannerConfig.amount}
           initialImageUrls={scannerConfig.initialImageUrls}
-          onClose={() => setScannerConfig(null)}
+          onClose={() => setScannerConfig({ isOpen: false, orderId: null, amount: 0 })}
           onSuccess={(newImageUrl, statusText) => {
-            setScannerConfig(null);
+            setScannerConfig({ isOpen: false, orderId: null, amount: 0 });
 
             setOrders(
               orders.map((o) => {
@@ -2290,14 +2517,14 @@ export default function BoardPage({
       {/* 🌟 Image Gallery (ปรับพื้นหลังโปร่งใส) */}
       {imageGallery && (
         <div
-          className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex flex-col animate-in fade-in duration-200 z-[200]"
+          className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex flex-col animate-in fade-in duration-200 z-200"
           onClick={() => {
             setImageGallery(null);
             setImgScale(1);
           }}
         >
-          <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-[210] text-white pointer-events-none">
-            <span className="font-bold text-sm bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm">
+          <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-210 text-white pointer-events-none">
+            <span className="font-bold text-xs bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm">
               คลิก 2 ครั้งเพื่อซูม / ใช้ปุ่มลูกศรเลื่อน
             </span>
             <button
@@ -2318,7 +2545,7 @@ export default function BoardPage({
                   e.stopPropagation();
                   scrollGallery("left");
                 }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-[210] transition-all cursor-pointer hidden md:block"
+                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-210 transition-all cursor-pointer hidden md:block"
               >
                 <ChevronLeft size={24} />
               </button>
@@ -2327,7 +2554,7 @@ export default function BoardPage({
                   e.stopPropagation();
                   scrollGallery("right");
                 }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-[210] transition-all cursor-pointer hidden md:block"
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-210 transition-all cursor-pointer hidden md:block"
               >
                 <ChevronRight size={24} />
               </button>
@@ -2335,7 +2562,7 @@ export default function BoardPage({
           )}
           <div
             ref={galleryRef}
-            className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory thin-scrollbar z-[200]"
+            className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory thin-scrollbar z-200"
           >
             {imageGallery.urls.map((url, i) => (
               <div
@@ -2363,7 +2590,7 @@ export default function BoardPage({
             ))}
           </div>
           <div
-            className="absolute bottom-10 left-1/2 transform -translate-x-1/2 flex items-center gap-6 bg-gray-800/80 px-6 py-3 rounded-full backdrop-blur-md shadow-2xl z-[210]"
+            className="absolute bottom-10 left-1/2 transform -translate-x-1/2 flex items-center gap-6 bg-gray-800/80 px-6 py-3 rounded-full backdrop-blur-md shadow-2xl z-210"
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -2373,7 +2600,7 @@ export default function BoardPage({
             >
               <ZoomOut size={24} />
             </button>
-            <span className="text-white font-black text-base w-12 text-center">
+            <span className="text-white font-black text-sm w-12 text-center">
               {Math.round(imgScale * 100)}%
             </span>
             <button
@@ -2395,7 +2622,7 @@ export default function BoardPage({
           >
             <Volume2 size={18} />
           </div>
-          <span className="text-sm font-black text-slate-500 pr-3 tracking-widest uppercase">
+          <span className="text-xs font-black text-slate-500 pr-3 tracking-widest uppercase">
             เสียงแจ้งเตือนเปิดแล้ว
           </span>
         </div>

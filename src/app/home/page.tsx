@@ -11,7 +11,8 @@ import {
   ImagePlus,
   Utensils,
   Calendar,
-  UserSquare2
+  UserSquare2,
+  History
 } from "lucide-react";
 import SharedGallery from "@/components/SharedGallery";
 
@@ -518,6 +519,19 @@ export default function BranchSelectorPage() {
                   <ScanSearch size={20} className="text-teal-600" />
                 </div>
                 ประวัติการโอนเงิน (สลิป)
+              </Link>
+
+              <div className="h-px bg-slate-100 my-2"></div>
+
+              <Link
+                href="/history"
+                prefetch={false}
+                className="w-full flex items-center p-4 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-2xl transition-all font-bold border border-transparent hover:border-indigo-100 group"
+              >
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                  <History size={20} className="text-indigo-600" />
+                </div>
+                ประวัติงาน (ออเดอร์ย้อนหลัง)
               </Link>
 
               <div className="h-px bg-slate-100 my-2"></div>

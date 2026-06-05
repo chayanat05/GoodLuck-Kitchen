@@ -9,13 +9,18 @@ export const viewport: Viewport = {
 
 // 🌟 ข้อมูล PWA และ SEO
 export const metadata: Metadata = {
-  title: 'GoodLuck Kitchen',
-  description: 'ระบบจัดการร้านและไรเดอร์',
+  title: 'GoodLuck Kitchen | ระบบจัดการออเดอร์ร้านอาหาร',
+  description: 'ระบบจัดการร้านและไรเดอร์ GoodLuck Kitchen - ติดตามออเดอร์แบบเรียลไทม์, จัดการเมนู, และดูประวัติการสั่งซื้อได้ง่ายๆ',
+  keywords: 'GoodLuck Kitchen, ระบบจัดการร้านอาหาร, ระบบจัดการออเดอร์',
   manifest: '/manifest.json', // ชี้ไปที่ไฟล์ PWA ตัวเดียวที่เรารวมไว้
+  authors: [{ name: 'GoodLuck Kitchen' }],
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
     title: 'GoodLuck',
+  },
+  icons: {
+    icon: '/favicon.ico', // ถ้ามีโลโก้ร้าน เอาไปใส่ในโฟลเดอร์ public แล้วอ้างอิงชื่อไฟล์ตรงนี้ได้เลย
   },
 }
 
