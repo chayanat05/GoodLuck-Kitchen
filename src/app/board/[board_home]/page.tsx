@@ -140,7 +140,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     address: "",
     total_price: "10",
     delivery_fee: "10",
-    payment_method: "โอน",
+    payment_method: "",
     lat: null as number | null,
     lng: null as number | null,
     contact_link: "",
@@ -160,7 +160,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
   const dbTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const googleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const notificationAudio = useRef<HTMLAudioElement | null>(typeof window !== 'undefined' ? new Audio(NOTIFICATION_SOUND_URL) : null);
+  const notificationAudio = useRef<HTMLAudioElement | null>(null);
 
   const defaultMapCenter = useMemo(() => ({ lat: SHOP_LAT, lng: SHOP_LNG }), []);
   const [mapLibraries] = useState<"places"[]>(["places"]);
@@ -256,81 +256,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   // 🌟 Smart Menu Matching
   const normalizeText = (text: string) => text.replace(/[\s\+\-\*\/_.,]/g, '').toLowerCase();
 
-  const getExtractedQty = useCallback((cleanLine: string, menuName: string): number => {
-    let qty = 1;
-    const normalizedLine = normalizeText(cleanLine);
-    const normalizedMenu = normalizeText(menuName);
-    const idx = normalizedLine.indexOf(normalizedMenu);
-    
-    if (idx !== -1) {
-        const afterStr = normalizedLine.substring(idx + normalizedMenu.length);
-        const nextNumMatch = afterStr.match(/(\d+)/);
-        if (nextNumMatch && nextNumMatch[1]) {
-            qty = parseInt(nextNumMatch[1], 10);
-        } else {
-            const numbers = normalizedLine.match(/\d+/g);
-            if (numbers && numbers.length > 0) {
-                qty = parseInt(numbers[numbers.length - 1], 10);
-            }
-        }
-    }
-    return qty;
-  }, []);
-
-  const calculateAutoPrice = useCallback((menuText: string): string | null => {
-    if (!menuText.trim()) return null;
-    const lines = menuText.split('\n');
-    let total = 0;
-    const sortedMenus = [...allBranchMenus].sort((a, b) => b.menu_name.length - a.menu_name.length);
-
-    lines.forEach(line => {
-      const cleanLine = line.trim();
-      if (!cleanLine) return;
-      const normalizedLine = normalizeText(cleanLine);
-      for (const item of sortedMenus) {
-        if (normalizedLine.includes(normalizeText(item.menu_name))) {
-          const qty = getExtractedQty(cleanLine, item.menu_name);
-          total += (item.price * qty);
-          break;
-        }
-      }
-    });
-    return total > 0 ? total.toString() : null;
-  }, [allBranchMenus, getExtractedQty]);
-
-  const calcBreakdown = useMemo<CalcItem[]>(() => {
-    if (!formData.menu.trim()) return [];
-    const lines = formData.menu.split('\n');
-    const breakdown: CalcItem[] = [];
-    const sortedMenus = [...allBranchMenus].sort((a, b) => b.menu_name.length - a.menu_name.length);
-
-    lines.forEach(line => {
-      const cleanLine = line.trim();
-      if (!cleanLine) return;
-      const normalizedLine = normalizeText(cleanLine);
-
-      let matched = false;
-      for (const item of sortedMenus) {
-        if (normalizedLine.includes(normalizeText(item.menu_name))) {
-          const qty = getExtractedQty(cleanLine, item.menu_name);
-          breakdown.push({
-            name: item.menu_name,
-            qty,
-            unitPrice: item.price,
-            total: item.price * qty,
-            found: true
-          });
-          matched = true;
-          break;
-        }
-      }
-      if (!matched) {
-        breakdown.push({ name: cleanLine, qty: 0, unitPrice: 0, total: 0, found: false });
-      }
-    });
-    return breakdown;
-  }, [formData.menu, allBranchMenus, getExtractedQty]);
-
 
   // ---------------------------------------------------------------------------
   // 3. EFFECTS
@@ -338,20 +263,43 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
   // Unlock audio on first user interaction for iOS Safari
   useEffect(() => {
+    // Initialize audio object if it hasn't been already
+    if (!notificationAudio.current) {
+      notificationAudio.current = new Audio(NOTIFICATION_SOUND_URL);
+      // Preload the audio to make it ready for playback
+      notificationAudio.current.preload = "auto";
+    }
+
     const unlockAudio = () => {
       if (notificationAudio.current) {
-        notificationAudio.current.play().then(() => {
-          notificationAudio.current?.pause();
-          if (notificationAudio.current) {
-            notificationAudio.current.currentTime = 0;
-          }
-        }).catch(() => {});
+        // Unlocking process for iOS: play with volume 0, then pause immediately.
+        // DO NOT use muted = true, as iOS Safari will only unlock for muted playback if you do.
+        notificationAudio.current.volume = 0;
+        
+        const playPromise = notificationAudio.current.play();
+        if (playPromise !== undefined) {
+          playPromise.then(() => {
+            if (notificationAudio.current) {
+              notificationAudio.current.pause();
+              notificationAudio.current.currentTime = 0;
+              notificationAudio.current.volume = 1; // Restore volume for actual notifications
+            }
+          }).catch((error) => {
+            console.warn("Audio unlock failed:", error);
+            if (notificationAudio.current) {
+              notificationAudio.current.volume = 1; // Restore volume anyway
+            }
+          });
+        }
+        
         document.removeEventListener("touchstart", unlockAudio);
         document.removeEventListener("click", unlockAudio);
       }
     };
+
     document.addEventListener("touchstart", unlockAudio, { once: true });
     document.addEventListener("click", unlockAudio, { once: true });
+    
     return () => {
       document.removeEventListener("touchstart", unlockAudio);
       document.removeEventListener("click", unlockAudio);
@@ -429,7 +377,10 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       .channel("public:orders")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
           if (!payload.new.is_archived) {
-            notificationAudio.current?.play().catch(() => {});
+            if (notificationAudio.current) {
+              notificationAudio.current.currentTime = 0;
+              notificationAudio.current.play().catch(() => {});
+            }
             showToast(`🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`);
           }
           fetchOrdersAndLocations();
@@ -1115,7 +1066,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
             onClick={() => setIsMenuOpen(false)}
           ></div>
           <div className="relative w-80 bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-300 z-10 rounded-r-4xl overflow-hidden">
-            <div className="bg-gradient-to-br from-blue-600 to-indigo-800 p-8 text-white relative">
+            <div className="bg-linear-to-br from-blue-600 to-indigo-800 p-8 text-white relative">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-bl-full pointer-events-none"></div>
               <button
                 onClick={() => setIsMenuOpen(false)}
@@ -1594,18 +1545,9 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                       onClick={() => {
                         const currentMenuText = formData.menu.trim();
                         const newMenuText = currentMenuText ? `${currentMenuText}\n- ${menu.menu_name} 1` : `- ${menu.menu_name} 1`;
-                        const autoFoodPrice = calculateAutoPrice(newMenuText);
-                        let newTotalPrice = formData.total_price;
-
-                        if (autoFoodPrice !== null) {
-                          const currentDeliveryFee = parseInt(formData.delivery_fee || "0", 10);
-                          newTotalPrice = (parseInt(autoFoodPrice, 10) + currentDeliveryFee).toString();
-                        }
-                        
                         setFormData({
                           ...formData,
-                          menu: newMenuText,
-                          total_price: newTotalPrice
+                          menu: newMenuText
                         });
                         toast.success(`เพิ่ม ${menu.menu_name} ลงในออเดอร์`);
                       }}
@@ -1641,54 +1583,33 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                   </div>
 
                   <div className="grid grid-cols-4 gap-2 mt-3">
-                    {['7','8','9','/','4','5','6','*','1','2','3','-','0','.','(',')'].map((k) => (
-                      <button key={k} type="button" className="py-2 bg-slate-700/50 hover:bg-slate-600 rounded-lg font-bold text-white transition-colors" onClick={() => setCalcInput(prev => prev + k)}>{k}</button>
-                    ))}
                     <button type="button" className="col-span-2 py-2 bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 rounded-lg font-black transition-colors" onClick={() => setCalcInput('')}>C</button>
                     <button type="button" className="col-span-2 py-2 bg-amber-500/20 hover:bg-amber-500/40 text-amber-400 rounded-lg font-black transition-colors" onClick={() => setCalcInput(prev => prev.slice(0, -1))}>⌫</button>
-                    <button
-                      type="button"
-                      className="col-span-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-black text-white transition-colors mt-1"
-                      onClick={() => {
-                        try {
-                          const sanitized = calcInput.replace(/[^0-9+\-*/().]/g, '');
-                          if (!sanitized) return;
-                          const result = Function('"use strict";return (' + sanitized + ')')();
-                          setCalcInput(String(result));
-                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                        } catch (err) { toast.error('รูปแบบการคำนวณไม่ถูกต้อง'); }
-                      }}
-                    >=</button>
-
-                    <button
-                      type="button"
-                      className="col-span-2 py-2 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 rounded-lg font-black transition-colors mt-1 text-xs"
-                      onClick={() => {
-                        try {
-                          const sanitized = calcInput.replace(/[^0-9+\-*/().]/g, '');
-                          if (!sanitized) return;
-                          const result = Number(Function('"use strict";return (' + sanitized + ')')());
-                          const currentPrice = Number(formData.total_price) || 0;
-                          setFormData({ ...formData, total_price: String(currentPrice + result) });
-                          toast.success(`เพิ่ม฿${result.toLocaleString()} เข้าเป็นยอดรวม`);
-                          setCalcInput('');
-                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                        } catch (e) { toast.error('ไม่สามารถเพิ่มยอดได้'); }
-                      }}
-                    >+ เป็นยอดรวม</button>
-
-                    <button
-                      type="button"
-                      className="col-span-2 py-2 bg-fuchsia-600/20 hover:bg-fuchsia-600/40 text-fuchsia-400 rounded-lg font-black transition-colors mt-1 text-xs"
-                      onClick={() => {
-                        const val = calcInput.replace(/[^0-9.]/g, '');
-                        if (!val) { toast.error('ไม่มีตัวเลขให้เพิ่มเป็นเมนู'); return; }
-                        const newMenuText = formData.menu.trim() ? `${formData.menu}\n- ${val}` : `- ${val}`;
-                        setFormData({ ...formData, menu: newMenuText });
-                        toast.success(`เพิ่ม ${val} เป็นรายการชั่วคราว`);
-                        setCalcInput('');
-                      }}
-                    >+ เป็นเมนู</button>
+                    
+                    {['7','8','9','/'].map((k) => (
+                      <button key={k} type="button" className={`py-2 rounded-lg font-black transition-colors ${['/'].includes(k) ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/40' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`} onClick={() => setCalcInput(prev => prev + k)}>{k}</button>
+                    ))}
+                    {['4','5','6','*'].map((k) => (
+                      <button key={k} type="button" className={`py-2 rounded-lg font-black transition-colors ${['*'].includes(k) ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/40' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`} onClick={() => setCalcInput(prev => prev + k)}>{k}</button>
+                    ))}
+                    {['1','2','3','-'].map((k) => (
+                      <button key={k} type="button" className={`py-2 rounded-lg font-black transition-colors ${['-'].includes(k) ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/40' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`} onClick={() => setCalcInput(prev => prev + k)}>{k}</button>
+                    ))}
+                    {['0','.','+','='].map((k) => (
+                      <button key={k} type="button" className={`py-2 rounded-lg font-black transition-colors ${['+'].includes(k) ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/40' : k === '=' ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`} onClick={() => {
+                        if (k === '=') {
+                          try {
+                            const sanitized = calcInput.replace(/[^0-9+\-*/().]/g, '');
+                            if (!sanitized) return;
+                            const result = Function('"use strict";return (' + sanitized + ')')();
+                            setCalcInput(String(result));
+                          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                          } catch (err) { toast.error('รูปแบบการคำนวณไม่ถูกต้อง'); }
+                        } else {
+                          setCalcInput(prev => prev + k);
+                        }
+                      }}>{k}</button>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -1711,6 +1632,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
             </div>
 
             <form
+              id="orderForm"
               onSubmit={handleSubmitOrder}
               className="p-6 space-y-6 bg-slate-900"
             >
@@ -1815,16 +1737,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                   className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-base outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none font-bold leading-relaxed text-white placeholder-slate-500 shadow-sm"
                   value={formData.menu}
                   onChange={(e) => {
-                    const newMenu = e.target.value;
-                    const autoFoodPrice = calculateAutoPrice(newMenu);
-                    let newTotalPrice = formData.total_price;
-                    
-                    if (autoFoodPrice !== null) {
-                      const currentDeliveryFee = parseInt(formData.delivery_fee || "0", 10);
-                      newTotalPrice = (parseInt(autoFoodPrice, 10) + currentDeliveryFee).toString();
-                    }
-                    
-                    setFormData({ ...formData, menu: newMenu, total_price: newTotalPrice });
+                    setFormData({ ...formData, menu: e.target.value });
                   }}
                   placeholder={"พิมพ์คีย์เวิร์ด เช่น\n- กะเพราหมูกรอบ 2\n- ชาเขียว 1\nแล้วจะมีเมนูด้านล่างมาให้เลือก"}
                 />
@@ -1859,15 +1772,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                           }
                           
                           const newMenuText = newLines.join('\n');
-                          const autoFoodPrice = calculateAutoPrice(newMenuText);
-                          let newTotalPrice = formData.total_price;
-
-                          if (autoFoodPrice !== null) {
-                            const currentDeliveryFee = parseInt(formData.delivery_fee || "0", 10);
-                            newTotalPrice = (parseInt(autoFoodPrice, 10) + currentDeliveryFee).toString();
-                          }
-                          
-                          setFormData({ ...formData, menu: newMenuText, total_price: newTotalPrice });
+                          setFormData({ ...formData, menu: newMenuText });
                         }}
                         className={`shrink-0 snap-start text-[10px] font-black px-3 py-1.5 border rounded-lg transition-all active:scale-95 shadow-sm cursor-pointer whitespace-nowrap ${
                           searchKeyword && item.menu_name.toLowerCase().includes(searchKeyword)
@@ -1882,54 +1787,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                   })()}
                 </div>
 
-                {calcBreakdown.length > 0 && formData.job_type !== "shopee" && (
-                  <div className="mt-4 p-4 bg-slate-800 border border-slate-700 rounded-2xl space-y-2 shadow-inner">
-                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
-                      <LayoutDashboard size={12} /> สรุปการคำนวณอัตโนมัติ
-                    </div>
-                    {calcBreakdown.map((item, idx) => (
-                      <div key={idx} className="flex justify-between items-center text-sm font-bold">
-                        {item.found ? (
-                          <>
-                            <span className="text-slate-300 flex items-center gap-2">
-                              <CheckCircle2 size={14} className="text-emerald-400" />
-                              {item.name} <span className="text-slate-500 font-medium">x{item.qty}</span>
-                            </span>
-                            <span className="text-emerald-400 bg-emerald-900/30 px-2 py-0.5 rounded-md border border-emerald-800/50">{item.total}.-</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-slate-500 flex items-center gap-2 line-through decoration-slate-600">
-                              <AlertTriangle size={14} className="text-amber-500/50" />
-                              {item.name}
-                            </span>
-                            <span className="text-amber-500/70 text-[10px] bg-amber-900/20 px-2 py-0.5 rounded-md border border-amber-800/30">ไม่พบในฐานข้อมูลสาขา</span>
-                          </>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
-
-              {formData.job_type !== "shopee" && (
-                <>
-                  <div>
-                    <label className="block text-sm font-black text-slate-400 mb-2 tracking-wide uppercase">
-                      รายละเอียดเพิ่มเติม (Note)
-                    </label>
-                    <textarea
-                      rows={2}
-                      className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-base outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none font-medium leading-relaxed text-white placeholder-slate-500 shadow-sm"
-                      value={formData.details}
-                      onChange={(e) =>
-                        setFormData({ ...formData, details: e.target.value })
-                      }
-                      placeholder="ระบุข้อความถึงไรเดอร์..."
-                    />
-                  </div>
-                </>
-              )}
 
               <div className="pt-2">
                 <label className="block text-sm font-black text-slate-400 mb-3 tracking-wide uppercase">
@@ -2133,7 +1991,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                       </ul>
                     )}
 
-                    <div className="flex justify-end pt-4">
+                    <div className="flex justify-end pt-4 pb-4">
                       <Link
                         href="/dorms"
                         target="_blank"
@@ -2142,23 +2000,24 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                         <Plus size={12} strokeWidth={3} /> ไปหน้าเพิ่มที่อยู่ใหม่หากยังไม่มีข้อมูลในระบบร้าน
                       </Link>
                     </div>
+
+                    <div className="border-t border-slate-700 pt-4">
+                      <label className="block text-sm font-black text-slate-400 mb-2 tracking-wide uppercase">
+                        รายละเอียดเพิ่มเติม (Note)
+                      </label>
+                      <textarea
+                        rows={2}
+                        className="w-full bg-slate-900 border border-slate-700 p-4 rounded-2xl text-base outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none font-medium leading-relaxed text-white placeholder-slate-500 shadow-sm"
+                        value={formData.details}
+                        onChange={(e) =>
+                          setFormData({ ...formData, details: e.target.value })
+                        }
+                        placeholder="ระบุข้อความถึงไรเดอร์..."
+                      />
+                    </div>
                   </div>
                 </div>
               )}
-
-              <div className="pt-5 flex gap-4 mt-2 border-t border-slate-800">
-                <button
-                  type="submit"
-                  disabled={isUploading}
-                  className="w-full bg-blue-600 text-white font-black py-4 rounded-4xl hover:bg-blue-500 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-500/20 transition-all duration-300 flex justify-center items-center cursor-pointer text-base uppercase tracking-widest disabled:bg-slate-700 disabled:text-slate-400 disabled:hover:translate-y-0 disabled:hover:shadow-none active:scale-95"
-                >
-                  {isUploading
-                    ? "กำลังจัดเก็บข้อมูล..."
-                    : editingId
-                      ? "บันทึกการแก้ไข"
-                      : "สร้างออเดอร์"}
-                </button>
-              </div>
             </form>
             </div>
 
@@ -2216,11 +2075,16 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                 </div>
 
                 <button
-                  type="button"
-                  onClick={() => setFormData({ ...formData, menu: '', total_price: '0', delivery_fee: '0' })}
-                  className="w-full bg-rose-500 hover:bg-rose-400 text-white py-3 rounded-3xl font-black transition-all active:scale-95"
+                  type="submit"
+                  form="orderForm"
+                  disabled={isUploading}
+                  className="w-full bg-blue-600 text-white font-black py-4 rounded-4xl hover:bg-blue-500 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-500/20 transition-all duration-300 flex justify-center items-center cursor-pointer text-base uppercase tracking-widest disabled:bg-slate-700 disabled:text-slate-400 disabled:hover:translate-y-0 disabled:hover:shadow-none active:scale-95 shadow-lg shadow-blue-500/20"
                 >
-                  ล้างรายการทันที
+                  {isUploading
+                    ? "กำลังจัดเก็บข้อมูล..."
+                    : editingId
+                      ? "บันทึกการแก้ไข"
+                      : "สร้างออเดอร์"}
                 </button>
               </div>
             </div>
