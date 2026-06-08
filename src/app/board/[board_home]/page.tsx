@@ -1,3 +1,4 @@
+// board/[board_home]/page.tsx
 "use client";
 import { useState, useEffect, useRef, useMemo, useCallback, use } from "react";
 import Link from "next/link";
@@ -558,7 +559,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       address: "",
       total_price: "10",
       delivery_fee: "10",
-      payment_method: "โอน",
+      payment_method: "",
       lat: null,
       lng: null,
       contact_link: "",
@@ -609,6 +610,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   };
 
   const handlePasteImage = (event: React.ClipboardEvent) => {
+    event.preventDefault();
     const items = event.clipboardData.items;
     if (!items) return;
     const files: File[] = [];
@@ -1583,33 +1585,37 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                   </div>
 
                   <div className="grid grid-cols-4 gap-2 mt-3">
-                    <button type="button" className="col-span-2 py-2 bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 rounded-lg font-black transition-colors" onClick={() => setCalcInput('')}>C</button>
-                    <button type="button" className="col-span-2 py-2 bg-amber-500/20 hover:bg-amber-500/40 text-amber-400 rounded-lg font-black transition-colors" onClick={() => setCalcInput(prev => prev.slice(0, -1))}>⌫</button>
-                    
-                    {['7','8','9','/'].map((k) => (
-                      <button key={k} type="button" className={`py-2 rounded-lg font-black transition-colors ${['/'].includes(k) ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/40' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`} onClick={() => setCalcInput(prev => prev + k)}>{k}</button>
-                    ))}
-                    {['4','5','6','*'].map((k) => (
-                      <button key={k} type="button" className={`py-2 rounded-lg font-black transition-colors ${['*'].includes(k) ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/40' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`} onClick={() => setCalcInput(prev => prev + k)}>{k}</button>
-                    ))}
-                    {['1','2','3','-'].map((k) => (
-                      <button key={k} type="button" className={`py-2 rounded-lg font-black transition-colors ${['-'].includes(k) ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/40' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`} onClick={() => setCalcInput(prev => prev + k)}>{k}</button>
-                    ))}
-                    {['0','.','+','='].map((k) => (
-                      <button key={k} type="button" className={`py-2 rounded-lg font-black transition-colors ${['+'].includes(k) ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/40' : k === '=' ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-slate-700/50 hover:bg-slate-600 text-white'}`} onClick={() => {
-                        if (k === '=') {
-                          try {
-                            const sanitized = calcInput.replace(/[^0-9+\-*/().]/g, '');
-                            if (!sanitized) return;
-                            const result = Function('"use strict";return (' + sanitized + ')')();
-                            setCalcInput(String(result));
-                          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                          } catch (err) { toast.error('รูปแบบการคำนวณไม่ถูกต้อง'); }
-                        } else {
-                          setCalcInput(prev => prev + k);
-                        }
-                      }}>{k}</button>
-                    ))}
+                    <button type="button" className="py-2 bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 rounded-lg font-black transition-colors" onClick={() => setCalcInput('')}>C</button>
+                    <button type="button" className="py-2 bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/40 rounded-lg font-black" onClick={() => setCalcInput(prev => prev + '/')}>/</button>
+                    <button type="button" className="py-2 bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/40 rounded-lg font-black" onClick={() => setCalcInput(prev => prev + '*')}>*</button>
+                    <button type="button" className="py-2 bg-amber-500/20 hover:bg-amber-500/40 text-amber-400 rounded-lg font-black transition-colors" onClick={() => setCalcInput(prev => prev.slice(0, -1))}>⌫</button>
+
+                    <button type="button" className="py-2 bg-slate-700/50 hover:bg-slate-600 text-white rounded-lg font-black" onClick={() => setCalcInput(prev => prev + '7')}>7</button>
+                    <button type="button" className="py-2 bg-slate-700/50 hover:bg-slate-600 text-white rounded-lg font-black" onClick={() => setCalcInput(prev => prev + '8')}>8</button>
+                    <button type="button" className="py-2 bg-slate-700/50 hover:bg-slate-600 text-white rounded-lg font-black" onClick={() => setCalcInput(prev => prev + '9')}>9</button>
+                    <button type="button" className="py-2 bg-indigo-500/40 text-indigo-200 hover:bg-indigo-500/60 rounded-lg font-black text-2xl row-span-3 flex justify-center items-center shadow-inner" onClick={() => setCalcInput(prev => prev + '+')}>+</button>
+
+                    <button type="button" className="py-2 bg-slate-700/50 hover:bg-slate-600 text-white rounded-lg font-black" onClick={() => setCalcInput(prev => prev + '4')}>4</button>
+                    <button type="button" className="py-2 bg-slate-700/50 hover:bg-slate-600 text-white rounded-lg font-black" onClick={() => setCalcInput(prev => prev + '5')}>5</button>
+                    <button type="button" className="py-2 bg-slate-700/50 hover:bg-slate-600 text-white rounded-lg font-black" onClick={() => setCalcInput(prev => prev + '6')}>6</button>
+
+                    <button type="button" className="py-2 bg-slate-700/50 hover:bg-slate-600 text-white rounded-lg font-black" onClick={() => setCalcInput(prev => prev + '1')}>1</button>
+                    <button type="button" className="py-2 bg-slate-700/50 hover:bg-slate-600 text-white rounded-lg font-black" onClick={() => setCalcInput(prev => prev + '2')}>2</button>
+                    <button type="button" className="py-2 bg-slate-700/50 hover:bg-slate-600 text-white rounded-lg font-black" onClick={() => setCalcInput(prev => prev + '3')}>3</button>
+
+                    <button type="button" className="col-span-2 py-2 bg-slate-700/50 hover:bg-slate-600 text-white rounded-lg font-black" onClick={() => setCalcInput(prev => prev + '0')}>0</button>
+                    <button type="button" className="py-2 bg-slate-700/50 hover:bg-slate-600 text-white rounded-lg font-black" onClick={() => setCalcInput(prev => prev + '.')}>.</button>
+                    <button type="button" className="py-2 bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/40 rounded-lg font-black" onClick={() => setCalcInput(prev => prev + '-')}>-</button>
+
+                    <button type="button" className="col-span-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black shadow-md mt-1" onClick={() => {
+                        try {
+                          const sanitized = calcInput.replace(/[^0-9+\-*/().]/g, '');
+                          if (!sanitized) return;
+                          const result = Function('"use strict";return (' + sanitized + ')')();
+                          setCalcInput(String(result));
+                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                        } catch (err) { toast.error('รูปแบบการคำนวณไม่ถูกต้อง'); }
+                      }}>=</button>
                   </div>
                 </div>
               </div>
@@ -1634,15 +1640,15 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
             <form
               id="orderForm"
               onSubmit={handleSubmitOrder}
-              className="p-6 space-y-6 bg-slate-900"
+              className="p-4 space-y-2 bg-slate-900"
             >
-              <div className="grid grid-cols-2 gap-5">
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-sm font-black text-slate-400 mb-2 tracking-wide uppercase">
+                  <label className="block text-[10px] font-black text-slate-400 mb-1 tracking-wide uppercase">
                     ออเดอร์ (ร้าน) *
                   </label>
                   <input
-                    className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-lg outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-bold text-white placeholder-slate-500 shadow-sm"
+                    className="w-full bg-blue-900 border border-blue-700 p-2.5 rounded-xl text-base outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-500 transition-all font-bold text-white placeholder-blue-300 shadow-sm"
                     value={formData.order_number}
                     onChange={(e) =>
                       setFormData({ ...formData, order_number: e.target.value })
@@ -1652,11 +1658,11 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-black text-slate-400 mb-2 tracking-wide uppercase">
+                  <label className="block text-[10px] font-black text-slate-400 mb-1 tracking-wide uppercase">
                     ประเภทงาน
                   </label>
                   <select
-                    className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-base outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer font-bold text-white shadow-sm"
+                    className="w-full bg-purple-900 border border-purple-700 p-2.5 rounded-xl text-base outline-none focus:ring-2 focus:ring-purple-600 focus:border-purple-500 transition-all cursor-pointer font-bold text-white shadow-sm"
                     value={formData.job_type}
                     onChange={(e) => {
                       setFormData({ ...formData, job_type: e.target.value });
@@ -1670,13 +1676,14 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
               {formData.job_type !== "shopee" && (
                 <>
-                  <div className="grid grid-cols-3 gap-5">
+                  <div className="grid grid-cols-3 gap-2">
                     <div className="col-span-1">
-                      <label className="block text-[10px] font-black text-slate-400 mb-2 tracking-wide uppercase">
+                      <label className="block text-[10px] font-black text-slate-400 mb-1 tracking-wide uppercase">
                         แหล่งที่มา (เพจ)
                       </label>
                       <select
-                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer font-bold text-white shadow-sm"
+                        required
+                        className="w-full bg-amber-900 border border-amber-700 p-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-amber-600 focus:border-amber-500 transition-all cursor-pointer font-bold text-white shadow-sm"
                         value={formData.contact_source}
                         onChange={(e) => {
                           setFormData({
@@ -1685,6 +1692,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                           });
                         }}
                       >
+                        <option value="" disabled>เลือกแหล่งที่มา...</option>
                         {contactSources.length > 0 ? (
                           contactSources.map((s) => (
                             <option key={s.id} value={s.name}>
@@ -1697,13 +1705,14 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                       </select>
                     </div>
                     <div className="col-span-2">
-                      <label className="flex text-[10px] font-black text-slate-400 mb-2 tracking-wide uppercase items-center">
+                      <label className="flex text-[10px] font-black text-slate-400 mb-1 tracking-wide uppercase items-center">
                         <Lock size={12} className="mr-1" /> ลิ้งค์ติดต่อ
                         (ซ่อนเป็นความลับ)
                       </label>
                       <input
                         type="text"
-                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-base outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-bold text-white placeholder-slate-500 shadow-sm"
+                        required
+                        className="w-full bg-emerald-900 border border-emerald-700 p-2.5 rounded-xl text-base outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-500 transition-all font-bold text-white placeholder-emerald-300 shadow-sm"
                         value={formData.contact_link}
                         onChange={(e) =>
                           setFormData({
@@ -1719,7 +1728,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
               )}
 
               <div>
-                <div className="flex justify-between items-center mb-2">
+                <div className="flex justify-between items-center mb-1.5">
                   <label className="block text-sm font-black text-slate-400 tracking-wide uppercase">
                     รายการอาหาร / เมนู
                   </label>
@@ -1733,8 +1742,9 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                   </Link>
                 </div>
                 <textarea
-                  rows={3}
-                  className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-base outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none font-bold leading-relaxed text-white placeholder-slate-500 shadow-sm"
+                  rows={2}
+                  required
+                  className="w-full bg-rose-900 border border-rose-700 p-2.5 rounded-xl text-base outline-none focus:ring-2 focus:ring-rose-600 focus:border-rose-500 transition-all resize-none font-bold leading-relaxed text-white placeholder-rose-300 shadow-sm"
                   value={formData.menu}
                   onChange={(e) => {
                     setFormData({ ...formData, menu: e.target.value });
@@ -1742,7 +1752,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                   placeholder={"พิมพ์คีย์เวิร์ด เช่น\n- กะเพราหมูกรอบ 2\n- ชาเขียว 1\nแล้วจะมีเมนูด้านล่างมาให้เลือก"}
                 />
                 
-                <div className="flex overflow-x-auto gap-2 mt-3 pb-2 thin-scrollbar snap-x">
+                <div className="flex overflow-x-auto gap-2 mt-2 pb-2 thin-scrollbar snap-x">
                   {(() => {
                     const lines = formData.menu.split('\n');
                     const currentLine = lines[lines.length - 1] || "";
@@ -1789,119 +1799,101 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
               </div>
 
-              <div className="pt-2">
-                <label className="block text-sm font-black text-slate-400 mb-3 tracking-wide uppercase">
+              <div className="pt-1">
+                <label className="block text-[10px] font-black text-slate-400 mb-1 tracking-wide uppercase">
                   แนบรูปภาพ (หลายรูปได้)
                 </label>
                 {(existingImages.length > 0 || imagePreviews.length > 0) && (
-                  <div className="flex flex-wrap gap-3 mb-4">
+                  <div className="flex flex-wrap gap-2 mb-2">
                     {existingImages.map((url, i) => (
                       <div
                         key={`exist-${i}`}
-                        className="relative w-20 h-20 rounded-xl overflow-hidden shadow-sm border border-slate-700 group"
+                        className="relative w-12 h-12 rounded-lg overflow-hidden shadow-sm border border-slate-700 group"
                       >
                         <Image
                           src={url}
                           fill
-                          sizes="80px"
+                          sizes="48px"
                           className="object-cover"
                           alt="Existing"
                         />
                         <button
                           type="button"
                           onClick={() => removeExistingImage(i)}
-                          className="absolute top-1 right-1 bg-rose-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="absolute top-1 right-1 bg-rose-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                         >
-                          <X size={12} strokeWidth={3} />
+                          <X size={10} strokeWidth={3} />
                         </button>
                       </div>
                     ))}
                     {imagePreviews.map((url, i) => (
                       <div
                         key={`new-${i}`}
-                        className="relative w-20 h-20 rounded-xl overflow-hidden shadow-sm border-2 border-blue-500 border-dashed group"
+                        className="relative w-12 h-12 rounded-lg overflow-hidden shadow-sm border-2 border-blue-500 border-dashed group"
                       >
                         <Image
                           src={url}
                           fill
-                          sizes="80px"
+                          sizes="48px"
                           className="object-cover opacity-80"
                           alt="New"
                         />
                         <button
                           type="button"
                           onClick={() => removeNewImage(i)}
-                          className="absolute top-1 right-1 bg-rose-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="absolute top-1 right-1 bg-rose-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                         >
-                          <X size={12} strokeWidth={3} />
+                          <X size={10} strokeWidth={3} />
                         </button>
                       </div>
                     ))}
                   </div>
                 )}
                 <div
+                  tabIndex={0}
                   onDrop={handleDropImage}
                   onDragOver={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
                   }}
                   onPaste={handlePasteImage}
-                  className="border-2 border-dashed border-slate-600 rounded-3xl p-8 text-center hover:border-blue-500 hover:bg-slate-800/80 transition-all bg-slate-800 flex flex-col items-center justify-center cursor-pointer shadow-sm"
+                  className="border border-dashed border-slate-600 rounded-xl p-2.5 hover:border-blue-500 hover:bg-slate-800/80 transition-all bg-slate-800 flex flex-row items-center justify-center gap-2 cursor-pointer shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <div className="text-slate-400 text-base">
-                    <ImagePlus
-                      className="mx-auto mb-3 text-slate-500"
-                      size={36}
-                      strokeWidth={1.5}
-                    />
-                    <div className="font-bold text-slate-300 text-base mb-1">
-                      ลากไฟล์มาวาง หรือ กด Ctrl+V
-                    </div>
-                    <div className="my-2 text-sm font-black text-slate-500 uppercase tracking-widest">
-                      หรือ
-                    </div>
-                    <label
-                      htmlFor="file-upload"
-                      className="inline-block bg-slate-700 border border-slate-600 text-slate-300 rounded-xl px-5 py-2 text-sm font-black tracking-wide cursor-pointer hover:bg-slate-600 hover:text-white transition-all mt-1"
-                    >
-                      เลือกไฟล์จากอุปกรณ์
-                    </label>
-                    <input
-                      id="file-upload"
-                      type="file"
-                      multiple
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleFileInput}
-                    />
+                  <ImagePlus className="text-slate-400 shrink-0" size={18} strokeWidth={2} />
+                  <div className="text-left flex-1 flex items-center gap-2">
+                    <div className="font-bold text-slate-300 text-xs">ลากไฟล์ลงตรงนี้ หรือ</div>
+                    <label htmlFor="file-upload" className="text-xs font-black text-blue-400 hover:text-blue-300 cursor-pointer underline tracking-wide">คลิกเลือกไฟล์</label>
+                    <input id="file-upload" type="file" multiple accept="image/*" className="hidden" onChange={handleFileInput} />
                   </div>
                 </div>
               </div>
 
               {formData.job_type !== "shopee" && (
-                <div className="space-y-6 pt-3 border-t border-slate-800 mt-6">
-                  <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2 pt-2 border-t border-slate-800 mt-2">
+                  <div className="grid grid-cols-3 gap-2">
                     <div>
-                      <label className="block text-[10px] font-black text-slate-400 mb-2 tracking-wide uppercase">
+                      <label className="block text-[10px] font-black text-slate-400 mb-1 tracking-wide uppercase">
                         ค่าอาหาร (บาท)
                       </label>
                       <input
                         type="text"
+                        required
                         inputMode="numeric"
-                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-2xl outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-black text-blue-400 shadow-sm"
+                        className="w-full bg-indigo-900 border border-indigo-700 p-2.5 rounded-xl text-lg outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-500 transition-all font-black text-white placeholder-indigo-300 shadow-sm"
                         value={formData.total_price}
                         onChange={(e) => setFormData({ ...formData, total_price: e.target.value.replace(/[^0-9]/g, "") })}
                         placeholder="0"
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-400 mb-2 tracking-wide uppercase">
+                      <label className="block text-[10px] font-black text-slate-400 mb-1 tracking-wide uppercase">
                         ค่าส่ง (บาท)
                       </label>
                       <input
                         type="text"
+                        required
                         inputMode="numeric"
-                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-2xl outline-none focus:ring-4 focus:ring-orange-500/20 focus:border-orange-500 transition-all font-black text-orange-400 shadow-sm"
+                        className="w-full bg-orange-900 border border-orange-700 p-2.5 rounded-xl text-lg outline-none focus:ring-2 focus:ring-orange-600 focus:border-orange-500 transition-all font-black text-white placeholder-orange-300 shadow-sm"
                         value={formData.delivery_fee}
                         onChange={(e) => {
                           const newFeeStr = e.target.value.replace(/[^0-9]/g, "");
@@ -1921,14 +1913,16 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-400 mb-2 tracking-wide uppercase">
+                      <label className="block text-[10px] font-black text-slate-400 mb-1 tracking-wide uppercase">
                         ช่องทางชำระเงิน
                       </label>
                       <select
-                        className="w-full bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer font-bold text-white shadow-sm"
+                        required
+                        className="w-full bg-cyan-900 border border-cyan-700 p-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-cyan-600 focus:border-cyan-500 transition-all cursor-pointer font-bold text-white shadow-sm"
                         value={formData.payment_method}
                         onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
                       >
+                        <option value="" disabled>เลือกช่องทาง...</option>
                         <option value="โอน">📱 โอน</option>
                         <option value="เงินสด">💵 เงินสด</option>
                         <option value="คนละครึ่ง">🔵 ครึ่งๆ</option>
@@ -1936,13 +1930,14 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                     </div>
                   </div>
 
-                  <div className="relative p-5 bg-slate-800 border border-slate-700 rounded-3xl shadow-sm">
-                    <label className="text-sm font-black text-blue-400 mb-3 tracking-wide flex items-center uppercase">
+                  <div className="relative p-3 bg-slate-800/50 border border-slate-700 rounded-2xl shadow-sm">
+                    <label className="text-[10px] font-black text-slate-400 mb-1.5 tracking-wide flex items-center uppercase">
                       <Search size={14} className="mr-1.5" /> สถานที่จัดส่ง / ลิงก์แผนที่ *
                     </label>
                     <input
                       type="text"
-                      className="w-full bg-slate-900 border border-slate-700 p-4 rounded-2xl text-base outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 font-bold text-white transition-all placeholder-slate-500"
+                      required
+                      className="w-full bg-slate-900 border border-slate-600 p-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-400 font-bold text-white transition-all placeholder-slate-400 shadow-sm"
                       value={formData.location_name}
                       onChange={(e) => handleLocationSearch(e.target.value)}
                       onFocus={() => {
@@ -2638,3 +2633,4 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     </div>
   );
 }
+
