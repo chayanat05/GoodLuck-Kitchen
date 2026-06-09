@@ -91,7 +91,8 @@ export default function KitchenDashboardPage() {
         .from("orders")
         .select("id, created_at, status")
         .eq("branch_id", profile.branch_id)
-        .eq("job_type", "ร้าน"); // สนใจแค่งานร้าน
+        .eq("job_type", "ร้าน") // สนใจแค่งานร้าน
+        .or("is_deleted.is.null,is_deleted.eq.false");
       if (orderData) setOrders(orderData as OrderRecord[]);
     }
     

@@ -73,6 +73,7 @@ export default function HistoryPage() {
         .from("orders")
         .select("*")
         .eq("is_archived", true)
+        .or("is_deleted.is.null,is_deleted.eq.false")
         .order("created_at", { ascending: false });
 
       if (error) {

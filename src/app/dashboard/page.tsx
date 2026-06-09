@@ -87,11 +87,13 @@ export default function GlobalDashboardPage() {
 
     const { data: orderData } = await supabase
       .from("orders")
-      .select("id, order_number, total_price, payment_method, status, job_type, branch_id, rider_name, menu, created_at, start_time, end_time");
-      
-    if (orderData) setOrders(orderData as OrderData[]);
-    setLoading(false);
+      .select("id, order_number, total_price, payment_method, status, job_type, branch_id, rider_name, menu, created_at, start_time, end_time, is_deleted");
 
+    if (orderData) {
+      const activeOrders = orderData.filter((o) => o.is_deleted !== true);
+      setOrders(activeOrders as OrderData[]);
+    }
+    setLoading(false);
     if (isManualRefresh) {
       toast.success("อัปเดตข้อมูลสถิติล่าสุดเรียบร้อยแล้ว");
     }

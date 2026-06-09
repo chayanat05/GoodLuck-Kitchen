@@ -183,7 +183,8 @@ export default function RiderPage() {
 
     const combined = [...jobs1, ...jobs2];
     const uniqueOrders = Array.from(new Map(combined.map((item) => [item.id, item])).values());
-    setOrders(uniqueOrders as RiderOrder[]);
+    const activeOrders = uniqueOrders.filter((order) => order.is_deleted !== true);
+    setOrders(activeOrders as RiderOrder[]);
   }, []);
 
   const fetchRidersLocation = useCallback(async () => {

@@ -217,13 +217,14 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       .select("*")
       .eq("branch_id", currentBranchId,)
       .or("is_archived.is.null,is_archived.eq.false")
-      .or("is_deleted.is.null,is_deleted.eq.false")
       .order("sort_index", { ascending: true })
       .order("created_at", { ascending: false });
 
     if (orderError) console.error("Error fetching orders:", orderError);
     if (orderData) {
-      setOrders(orderData as Order[]);
+      // 🌟 กรองอันที่โดนย้ายลงถังขยะออกในฝั่ง Client เพื่อแก้ปัญหา Supabase multiple .or() overwrite
+      const activeOrders = orderData.filter((order) => order.is_deleted !== true);
+      setOrders(activeOrders as Order[]);
     }
 
     const { data: menuData } = await supabase
@@ -869,13 +870,15 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     }).then(async (result) => {
       if (result.isConfirmed) {
         // 🌟 1. ทำ Soft Delete (ซ่อนออเดอร์)
-        const { error } = await supabase
+        const { error, data } = await supabase
           .from("orders")
           .update({ is_deleted: true, deleted_at: new Date().toISOString() })
-          .eq("id", id);
+          .eq("branch_id", currentBranchId)
+          .eq("id", id)
+          .select();
           
-        if (error) {
-          showToast("เกิดข้อผิดพลาดในการลบ ❌");
+        if (error || !data || data.length === 0) {
+          showToast("เกิดข้อผิดพลาดในการลบ (ไม่พบข้อมูลหรือสิทธิ์ไม่เพียงพอ) ❌");
           return;
         }
 

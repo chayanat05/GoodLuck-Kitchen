@@ -1,4 +1,3 @@
-// orderCard.tsx
 'use client'
 import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, MoreVertical, ScanSearch, CheckCircle2, AlertCircle, XCircle, Trash2, ArrowRightLeft,Store } from "lucide-react";
 import React, { useMemo, useState, useRef, useEffect } from 'react';
@@ -30,6 +29,8 @@ export interface Order {
   contact_link?: string;
   contact_source?: string; 
   delivery_fee?: number | null;
+  is_deleted?: boolean;
+  is_archived?: boolean;
 }
 
 interface OrderProps {
@@ -153,18 +154,6 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
 
               {isMenuOpen && (
                 <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200 origin-top-right flex flex-col">
-                  {onVerifySlip && order.payment_method === 'โอน' && order.status !== 'ส่งแล้ว/เสร็จ' && !isShopee && (
-                    <button 
-                      onClick={(e) => { 
-                      e.stopPropagation(); 
-                      setIsMenuOpen(false); 
-                      onVerifySlip(order); 
-                    }}
-                className="w-full text-left px-4 py-3 text-base font-black text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 border-b border-slate-50 transition-colors cursor-pointer"
-                    >
-                    <ScanSearch size={16} className="animate-pulse" /> ตรวจสลิปด้วย AI
-                    </button>
-                  )}
                   {onChangeStatusRequest && (
                     <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onChangeStatusRequest(order); }} className="w-full text-left px-4 py-3 text-base font-bold text-blue-600 hover:bg-blue-50 flex items-center gap-2 transition-colors border-b border-slate-50">
                       <ArrowRightLeft size={16} /> เปลี่ยนสถานะออเดอร์
@@ -221,24 +210,6 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
         </div>
         {!isShopee && (
           <div className="flex items-center gap-2">
-            {order.payment_method === 'โอน' && userRole !== 'kitchen' && (
-              slipStatus === 'ผ่าน' ? (
-                <span className="flex items-center text-emerald-600 bg-white/95 px-1.5 py-0.5 rounded shadow-sm" title="ตรวจสลิปผ่านแล้ว">
-                  <CheckCircle2 size={12} className="mr-1" />
-                  <span className="text-sm font-black uppercase tracking-wider">ผ่าน</span>
-                </span>
-              ) : slipStatus === 'ไม่ผ่าน' ? (
-                <span className="flex items-center text-rose-600 bg-white/95 px-1.5 py-0.5 rounded shadow-sm" title="สลิปมีปัญหา/ยอดไม่ตรง">
-                  <XCircle size={12} className="mr-1" />
-                  <span className="text-sm font-black uppercase tracking-wider">ไม่ผ่าน</span>
-                </span>
-              ) : (
-                <span className="flex items-center text-amber-500 bg-white/95 px-1.5 py-0.5 rounded shadow-sm animate-pulse" title="รอการตรวจสอบสลิป">
-                  <AlertCircle size={12} className="mr-1" />
-                  <span className="text-sm font-black uppercase tracking-wider">รอตรวจ</span>
-                </span>
-              )
-            )}
             <span className={`font-black text-lg flex items-baseline ${theme.text}`}>
               ฿{order.total_price}
               {order.delivery_fee ? <span className="text-sm ml-1 opacity-80">(รวมค่าส่งแล้ว ฿{order.delivery_fee})</span> : null}
@@ -253,6 +224,48 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
       </div>
 
       <div className="flex flex-col gap-2 shrink-0">
+        
+        {/* 🌟 NEW: กล่องตรวจสลิปใหญ่ (แสดงเฉพาะ แอดมิน/ซุปเปอร์แอดมิน และเป็นงานโอนเท่านั้น) 🌟 */}
+        {order.payment_method === 'โอน' && !isShopee && userRole !== 'kitchen' && (
+          <div className={`flex flex-col gap-2.5 p-3 rounded-2xl border bg-black/20 backdrop-blur-sm ${theme.text} border-white/20 shadow-inner mt-1 mb-1`}>
+            <div className="flex items-center justify-between px-1">
+              <span className="text-sm font-black uppercase tracking-wider flex items-center gap-1.5 opacity-90">
+                <ScanSearch size={16} /> สถานะสลิป:
+              </span>
+              {slipStatus === 'ผ่าน' ? (
+                <span className="flex items-center text-emerald-400 font-black text-sm uppercase tracking-wider bg-emerald-900/40 px-2 py-0.5 rounded-md border border-emerald-500/30 shadow-sm">
+                  <CheckCircle2 size={14} className="mr-1" /> ผ่าน
+                </span>
+              ) : slipStatus === 'ไม่ผ่าน' ? (
+                <span className="flex items-center text-rose-400 font-black text-sm uppercase tracking-wider bg-rose-900/40 px-2 py-0.5 rounded-md border border-rose-500/30 shadow-sm">
+                  <XCircle size={14} className="mr-1" /> ไม่ผ่าน
+                </span>
+              ) : (
+                <span className="flex items-center text-amber-400 font-black text-sm uppercase tracking-wider animate-pulse bg-amber-900/40 px-2 py-0.5 rounded-md border border-amber-500/30 shadow-sm">
+                  <AlertCircle size={14} className="mr-1" /> รอตรวจ
+                </span>
+              )}
+            </div>
+            
+            {/* แสดงปุ่มสแกนเสมอถ้ายังไม่ส่งงาน */}
+            {onVerifySlip && order.status !== 'ส่งแล้ว/เสร็จ' && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onVerifySlip(order);
+                }}
+                className={`w-full py-3 rounded-xl font-black transition-all duration-300 flex justify-center items-center gap-1.5 cursor-pointer active:scale-95 text-sm uppercase tracking-wide border shadow-md
+                  ${slipStatus === 'ผ่าน' 
+                    ? 'bg-white/10 hover:bg-white/20 text-white border-white/20' 
+                    : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/30 border-blue-500'}`}
+              >
+                <ScanSearch size={16} className={slipStatus !== 'ผ่าน' ? "animate-pulse" : ""} /> 
+                {slipStatus === 'ผ่าน' ? 'ตรวจสลิปอีกครั้ง' : 'คลิกเพื่อตรวจสลิปด้วย AI'}
+              </button>
+            )}
+          </div>
+        )}
+
         {order.status === 'New' && onStart && (
           <button onClick={() => onStart(order.id)} className={`w-full ${isCompact ? 'py-2.5 text-sm' : 'py-3 text-sm'} rounded-xl font-black transition-all duration-300 flex justify-center items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 uppercase tracking-wide border-b-4 border-transparent active:border-none ${theme.btnBg}`}>
             <PlayCircle size={16} className="shrink-0" />

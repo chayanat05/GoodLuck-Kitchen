@@ -1,15 +1,11 @@
-import { createClient } from '@supabase/supabase-js';
-import { readFileSync } from 'fs';
+const { createClient } = require('@supabase/supabase-js');
+const supabase = createClient('https://xyzcompany.supabase.co', 'public-anon-key');
 
-const envFile = readFileSync('.env.local', 'utf8');
-const supabaseUrl = envFile.match(/NEXT_PUBLIC_SUPABASE_URL=(.*)/)[1].trim();
-const supabaseKey = envFile.match(/NEXT_PUBLIC_SUPABASE_ANON_KEY=(.*)/)[1].trim();
+const query = supabase
+  .from('orders')
+  .select('*')
+  .eq('branch_id', '123')
+  .or('is_archived.is.null,is_archived.eq.false')
+  .or('is_deleted.is.null,is_deleted.eq.false');
 
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-async function test() {
-  const { data, error } = await supabase.from('profiles').select('*').limit(5);
-  console.log("Profiles:", data ? data.length : "null");
-  console.log("Error:", error);
-}
-test();
+console.log(query.url.toString());

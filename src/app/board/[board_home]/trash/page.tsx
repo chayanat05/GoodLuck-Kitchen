@@ -71,13 +71,15 @@ export default function TrashPage({ params }: { params: Promise<{ board_home: st
   }, [branchSlug, router]);
 
   const handleRestore = async (id: string, orderNum: string) => {
-    const { error } = await supabase.from("orders").update({ is_deleted: false, deleted_at: null }).eq("id", id);
+    const { error } = await supabase.from("orders").update({ is_deleted: false, deleted_at: null }).eq("branch_id", currentBranchId).eq("id", id);
     if (!error) {
       await supabase.from("activity_logs").insert([{
         branch_id: currentBranchId, user_name: adminName, action: "RESTORE_ORDER", details: `กู้คืนออเดอร์ #${orderNum} จากถังขยะ`
       }]);
       toast.success(`กู้คืนออเดอร์ #${orderNum} สำเร็จ!`);
       setDeletedOrders(prev => prev.filter(o => o.id !== id));
+    } else {
+      toast.error(`เกิดข้อผิดพลาดในการกู้คืน: ${error.message}`);
     }
   };
 
@@ -87,13 +89,15 @@ export default function TrashPage({ params }: { params: Promise<{ board_home: st
       showCancelButton: true, confirmButtonColor: "#ef4444", cancelButtonColor: "#cbd5e1", confirmButtonText: "ลบถาวร", cancelButtonText: "ยกเลิก"
     }).then(async (result) => {
       if (result.isConfirmed) {
-        const { error } = await supabase.from("orders").delete().eq("id", id);
+        const { error } = await supabase.from("orders").delete().eq("branch_id", currentBranchId).eq("id", id);
         if (!error) {
           await supabase.from("activity_logs").insert([{
             branch_id: currentBranchId, user_name: adminName, action: "FORCE_DELETE", details: `ลบออเดอร์ #${orderNum} ทิ้งแบบถาวร`
           }]);
           toast.success("ลบข้อมูลถาวรเรียบร้อย");
           setDeletedOrders(prev => prev.filter(o => o.id !== id));
+        } else {
+          toast.error(`เกิดข้อผิดพลาดในการลบถาวร: ${error.message}`);
         }
       }
     });

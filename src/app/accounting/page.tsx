@@ -103,6 +103,7 @@ export default function AccountingPage() {
         .from("orders")
         .select("total_price, payment_method, status")
         .in("status", ["รับงาน", "ส่งแล้ว/เสร็จ"])
+        .or("is_deleted.is.null,is_deleted.eq.false")
         .gte("created_at", startDate.toISOString())
         .lt("created_at", endDate.toISOString());
 
