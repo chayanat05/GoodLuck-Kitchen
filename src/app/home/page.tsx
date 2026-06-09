@@ -473,7 +473,7 @@ export default function BranchSelectorPage() {
   <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
     <UserSquare2 size={20} className="text-violet-600" />
   </div>
-  ดูใบสมัครไรเดอร์ใหม่
+  ดูใบสมัครพนักงาน 
 </Link>
 
             <Link
