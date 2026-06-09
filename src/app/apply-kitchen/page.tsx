@@ -199,7 +199,7 @@ export default function ApplyKitchenPage() {
               <ChefHat size={32} className="text-white" />
             </div>
             <h1 className="text-3xl sm:text-4xl font-black mb-3 tracking-tight">
-              แบบฟอร์มสมัครแม่ครัว
+              แบบฟอร์มสมัครผู้ช่วยแม่ครัว
             </h1>
             <p className="text-rose-100 font-medium text-sm sm:text-base leading-relaxed max-w-xl">
               ร้านเราจ่ายเงินรายวันตรงเวลาตามชั่วโมงงานครบถ้วนยุติธรรมมากๆ{" "}
