@@ -140,7 +140,18 @@ export default function ApplicationsDashboard() {
               <div className="animate-in fade-in">
                 <div className="flex justify-between items-start mb-6">
                   <div className="flex items-center gap-4">
-                    <Image src={selectedApp.fb_profile_image} width={80} height={80} alt="p" className="rounded-2xl object-cover" />
+                    <div className="relative group cursor-pointer" onClick={() => setSelectedFullImage(selectedApp.fb_profile_image)}>
+                      <Image 
+                        src={selectedApp.fb_profile_image} 
+                        width={80} 
+                        height={80} 
+                        alt="Profile" 
+                        className="rounded-2xl object-cover transition-opacity group-hover:opacity-80" 
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity">
+                        <ZoomIn className="text-white" size={24} />
+                      </div>
+                    </div>
                     <div>
                       <h2 className="text-xl font-black">{selectedApp.full_name}</h2>
                       <p className="text-sm font-bold">{selectedApp.phone_number}</p>
@@ -157,6 +168,7 @@ export default function ApplicationsDashboard() {
                    {/* แอดมินโชว์ข้อมูลเฉพาะ */}
                    {selectedApp.app_type === 'admin' && (
                     <>
+                      <DetailItem label="อายุ" value={selectedApp.age?.toString() || '-'} />
                       <DetailItem label="คณะ/ปี" value={selectedApp.faculty_year || '-'} />
                       <DetailItem label="ประสบการณ์แอดมิน" value={selectedApp.prev_admin_exp || '-'} />
                       <DetailItem label="พิมพ์เร็ว/สมาธิ" value={selectedApp.typing_speed_focus || '-'} />
@@ -164,15 +176,78 @@ export default function ApplicationsDashboard() {
                       <DetailItem label="แนะนำตัว" value={selectedApp.about_me || '-'} />
                     </>
                    )}
-                   {/* ... ไรเดอร์และแม่ครัวจะยังคงทำงานปกติด้วยระบบเดียวกัน ... */}
-                   {selectedApp.app_type === 'rider' && <DetailItem label="รถ" value={selectedApp.vehicle_model || '-'} />}
-                   {selectedApp.app_type === 'kitchen' && <DetailItem label="ประสบการณ์" value={selectedApp.experience || '-'} />}
+                   {selectedApp.app_type === 'rider' && (
+                    <>
+                      <DetailItem label="อายุ" value={selectedApp.age?.toString() || '-'} />
+                      <DetailItem label="คณะ/สาขา" value={selectedApp.faculty || '-'} />
+                      <DetailItem label="รุ่นรถ" value={selectedApp.vehicle_model || '-'} />
+                      <DetailItem label="ใบขับขี่/พ.ร.บ." value={selectedApp.driving_license_status || '-'} />
+                      <DetailItem label="ประสบการณ์/พื้นที่" value={selectedApp.experience_and_area || '-'} />
+                      <DetailItem label="เริ่มงาน/ความตั้งใจ" value={selectedApp.start_date_and_commitment || '-'} />
+                    </>
+                   )}
+                   {selectedApp.app_type === 'kitchen' && (
+                    <>
+                      <DetailItem label="อายุ" value={selectedApp.age?.toString() || '-'} />
+                      <DetailItem label="ที่อยู่ปัจจุบัน" value={selectedApp.current_address || '-'} />
+                      <DetailItem label="การเดินทาง" value={selectedApp.can_commute || '-'} />
+                      <DetailItem label="วุฒิการศึกษา" value={selectedApp.education || '-'} />
+                      <DetailItem label="ประสบการณ์" value={selectedApp.experience || '-'} />
+                      <DetailItem label="ทำงานเลิกดึกได้ไหม" value={selectedApp.can_work_late || '-'} />
+                      <DetailItem label="ครอบครัวอนุญาตไหม" value={selectedApp.family_approval || '-'} />
+                      <DetailItem label="รับแรงกดดันได้ไหม" value={selectedApp.handle_pressure || '-'} />
+                      <DetailItem label="เริ่มงานได้เมื่อไหร่" value={selectedApp.start_date || '-'} />
+                      <DetailItem label="วันที่สะดวกทำงาน" value={selectedApp.days_per_week || '-'} />
+                      <DetailItem label="แนะนำตัว" value={selectedApp.about_me || '-'} />
+                    </>
+                   )}
                 </div>
               </div>
             ) : <div className="text-center text-slate-400 mt-20">เลือกใบสมัครเพื่อดูรายละเอียด</div>}
           </div>
         </div>
       </div>
+
+      {/* Image Modal */}
+      {selectedFullImage && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4"
+          onClick={() => setSelectedFullImage(null)}
+        >
+          <button 
+            className="absolute top-6 right-6 text-white hover:text-slate-300 z-[110] bg-white/20 p-2 rounded-full backdrop-blur-sm transition-colors"
+            onClick={() => setSelectedFullImage(null)}
+          >
+            <X size={24} />
+          </button>
+          <div 
+            className="relative w-full h-full flex items-center justify-center overflow-auto p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img 
+              src={selectedFullImage} 
+              alt="Full view" 
+              className="cursor-zoom-in transition-all duration-300 object-contain rounded-xl"
+              style={{ 
+                maxHeight: '100%', 
+                maxWidth: '100%',
+              }}
+              onClick={(e) => {
+                const target = e.currentTarget;
+                if (target.style.maxHeight === '100%') {
+                  target.style.maxHeight = '250%';
+                  target.style.maxWidth = '250%';
+                  target.style.cursor = 'zoom-out';
+                } else {
+                  target.style.maxHeight = '100%';
+                  target.style.maxWidth = '100%';
+                  target.style.cursor = 'zoom-in';
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
