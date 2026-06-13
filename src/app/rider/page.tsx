@@ -334,6 +334,12 @@ export default function RiderPage() {
 
     const watchId = navigator.geolocation.watchPosition(
       async (position) => {
+        // หากความแม่นยำมากกว่า 100 เมตร (เพี้ยนมาก) ให้ละเว้นเพื่อไม่ให้หมุดกระโดด
+        if (position.coords.accuracy > 150) {
+          console.warn(`[GPS] Ignore low accuracy: ${position.coords.accuracy}m`);
+          return;
+        }
+
         setGpsEnabled(true);
         setLocationError(null);
         setMyLocation({ lat: position.coords.latitude, lng: position.coords.longitude });
@@ -357,8 +363,8 @@ export default function RiderPage() {
       },
       { 
         enableHighAccuracy: true, 
-        maximumAge: 10000,
-        timeout: 20000 
+        maximumAge: 0,
+        timeout: 15000 
       }
     );
 
