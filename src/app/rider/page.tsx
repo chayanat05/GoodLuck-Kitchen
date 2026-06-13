@@ -339,7 +339,7 @@ export default function RiderPage() {
         setMyLocation({ lat: position.coords.latitude, lng: position.coords.longitude });
 
         const now = Date.now();
-        if (now - lastGpsUpdateRef.current > 30000) {
+        if (now - lastGpsUpdateRef.current > 15000) {
           lastGpsUpdateRef.current = now;
           await supabase.from("profiles").update({
             last_lat: position.coords.latitude,
@@ -555,7 +555,11 @@ export default function RiderPage() {
     return diffMins < 5;
   };
 
-  const availableOrders = orders.filter((o) => !o.rider_id && ["New", "กำลังทำ", "รับงาน"].includes(o.status));
+  const availableOrders = orders.filter((o) => {
+    if (o.rider_id || !["New", "กำลังทำ", "รับงาน"].includes(o.status)) return false;
+    if (myBranchId === "all") return true;
+    return o.branch_id === myBranchId;
+  });
   const activeOrders = orders.filter((o) => o.rider_id === currentUser?.id && o.status !== "ส่งแล้ว/เสร็จ");
   const completedOrders = orders.filter((o) => o.rider_id === currentUser?.id && o.status === "ส่งแล้ว/เสร็จ");
   
@@ -599,8 +603,8 @@ export default function RiderPage() {
     return (
       <div 
         key={order.id} 
-        className={`${isCompact ? "w-[42vw] sm:w-42.5" : "w-[82vw] sm:w-[320px]"} h-full shrink-0 snap-center rounded-2xl shadow-md border overflow-hidden flex flex-col transition-all duration-300 ${cardBgClass} ${isLate ? 'animate-border-blink' : ''}`} 
-        style={{ animation: isLate ? undefined : `fadeIn 0.5s ease-out ${idx * 0.05}s both` }}
+        className={`${isCompact ? "w-[42vw] sm:w-42.5" : "w-[82vw] sm:w-[320px]"} h-full shrink-0 snap-center rounded-2xl shadow-md border overflow-hidden flex flex-col transition-colors duration-300 transform-gpu ${cardBgClass} ${isLate ? 'animate-border-blink' : ''}`} 
+        style={{ animation: isLate ? undefined : `fadeIn 0.5s ease-out ${idx * 0.05}s both`, willChange: 'transform, opacity' }}
       >
         <div className="flex-1 overflow-y-auto hide-scrollbar p-2.5 sm:p-3 relative border-b border-white/10 flex flex-col">
           <div className="flex justify-between items-start mb-2 shrink-0 gap-1">
@@ -657,7 +661,7 @@ export default function RiderPage() {
           )}
 
           {order.menu && (
-            <div className={`mb-2 p-2.5 text-sm sm:text-base bg-black/10 rounded-lg text-white font-bold whitespace-pre-line leading-snug shrink-0 shadow-sm`}>
+            <div className={`mb-2 p-2.5 text-lg sm:text-xl bg-black/10 rounded-lg text-white font-bold whitespace-pre-line leading-snug shrink-0 shadow-sm`}>
               {order.menu}
             </div>
           )}
@@ -673,7 +677,7 @@ export default function RiderPage() {
           )}
 
           {order.details && (
-            <div className={`${isCompact ? "text-xs" : "text-sm"} text-white/90 font-medium mb-2 flex items-start gap-1.5 shrink-0 bg-white/5 p-2 rounded-lg`}>
+            <div className={`${isCompact ? "text-base" : "text-lg"} text-white/90 font-medium mb-2 flex items-start gap-1.5 shrink-0 bg-white/5 p-2 rounded-lg`}>
               <div className={`mt-1.5 w-1.5 h-3 rounded-full shrink-0 bg-white`}></div>
               <span className="leading-relaxed line-clamp-2">{order.details}</span>
             </div>
@@ -866,33 +870,12 @@ export default function RiderPage() {
                 <p className="text-xs text-slate-500 font-medium">รอแอดมินจ่ายงานสักครู่นะครับ ☕</p>
               </div>
             ) : (
-              <>
-                <div className="flex-1 flex flex-col overflow-hidden relative mb-1">
-                  <div className="flex-1 overflow-x-auto overflow-y-hidden snap-x snap-mandatory flex gap-2 items-stretch hide-scrollbar pb-1">
-                    {availableOrders.filter(o => branches.length > 0 && o.branch_id === branches[0].id).length === 0 ? (
-                      <div className="w-full h-full bg-white/50 border border-slate-200 rounded-2xl flex items-center justify-center text-xs font-bold text-slate-400 border-dashed">
-                        ไม่มีงานจากสาขา {branches[0]?.name || 'หลัก'}
-                      </div>
-                    ) : (
-                      availableOrders.filter(o => branches.length > 0 && o.branch_id === branches[0].id).map((order, index) => renderCard(order, index, branches[0]))
-                    )}
-                  </div>
-                </div>
-
-                {branches.length > 1 && (
-                  <div className="flex-1 flex flex-col overflow-hidden relative">
-                    <div className="flex-1 overflow-x-auto overflow-y-hidden snap-x snap-mandatory flex gap-2 items-stretch hide-scrollbar pt-1">
-                      {availableOrders.filter(o => o.branch_id === branches[1].id).length === 0 ? (
-                        <div className="w-full h-full bg-white/50 border border-slate-200 rounded-2xl flex items-center justify-center text-xs font-bold text-slate-400 border-dashed">
-                          ไม่มีงานจากสาขา {branches[1].name}
-                        </div>
-                      ) : (
-                        availableOrders.filter(o => o.branch_id === branches[1].id).map((order, index) => renderCard(order, index, branches[1]))
-                      )}
-                    </div>
-                  </div>
-                )}
-              </>
+              <div className="flex-1 overflow-x-auto overflow-y-hidden snap-x snap-mandatory flex gap-2.5 items-stretch hide-scrollbar -mx-3 px-3 sm:mx-0 sm:px-0 pb-2">
+                {availableOrders.map((order, index) => {
+                  const branch = branches.find(b => b.id === order.branch_id);
+                  return renderCard(order, index, branch);
+                })}
+              </div>
             )}
           </div>
         )}
@@ -1176,7 +1159,7 @@ export default function RiderPage() {
               {selectedViewOrder.menu && (
                 <div className="space-y-2">
                   <div className="text-[10px] font-black text-slate-500 uppercase tracking-wider">รายการที่สั่ง</div>
-                  <div className="p-4 bg-white rounded-xl border border-slate-200 text-xs text-slate-700 font-bold whitespace-pre-line leading-relaxed shadow-sm">
+                  <div className="p-4 bg-white rounded-xl border border-slate-200 text-base sm:text-lg text-slate-700 font-bold whitespace-pre-line leading-relaxed shadow-sm">
                     {selectedViewOrder.menu}
                   </div>
                 </div>
@@ -1185,7 +1168,7 @@ export default function RiderPage() {
               {selectedViewOrder.details && (
                 <div className="space-y-2">
                   <div className="text-[10px] font-black text-slate-500 uppercase tracking-wider">หมายเหตุ (Note)</div>
-                  <div className="p-4 bg-amber-50 rounded-xl border border-amber-100 text-xs text-amber-800 font-medium whitespace-pre-line leading-relaxed shadow-inner">
+                  <div className="p-4 bg-amber-50 rounded-xl border border-amber-100 text-base sm:text-lg text-amber-800 font-medium whitespace-pre-line leading-relaxed shadow-inner">
                     {selectedViewOrder.details}
                   </div>
                 </div>

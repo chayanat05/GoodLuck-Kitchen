@@ -49,13 +49,31 @@ const getCycleDetails = () => {
   return { startDateStr: startDate.toISOString(), endDateStr: endDate.toISOString() };
 };
 
+// 🌟 เพิ่มฟังก์ชันแปลงวันที่แบบไทย (กันบัค Timezone)
+const getLocalYMD = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const getInitialBizDate = (businessDayStart: string) => {
+  const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
+  const now = new Date();
+  if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
+    now.setDate(now.getDate() - 1);
+  }
+  return getLocalYMD(now);
+};
+
 interface DashboardViewProps {
   riderName: string;
   onBack: () => void;
   activeOrdersCount: number;
   allCompletedOrders: Order[]; 
-  cutOffHour: number; 
+  businessDayStart: string; 
 }
+
 interface AttendanceRecord {
   id: string;
   rider_id: string;
@@ -74,14 +92,16 @@ export default function DashboardView({
   onBack, 
   activeOrdersCount, 
   allCompletedOrders,
-  cutOffHour
+  businessDayStart
 }: DashboardViewProps) {
   
   const [filterMode, setFilterMode] = useState<FilterMode>('today');
-  const [filterDate, setFilterDate] = useState<string>(new Date().toISOString().split('T')[0]); 
-  const [filterMonth, setFilterMonth] = useState<string>(new Date().toISOString().slice(0, 7)); 
-  const [jobTypeFilter, setJobTypeFilter] = useState<string>('all'); 
   
+  // 🌟 แก้ไขให้ Default วันที่อิงตามรอบบิลของร้าน
+  const [filterDate, setFilterDate] = useState<string>(getInitialBizDate(businessDayStart)); 
+  const [filterMonth, setFilterMonth] = useState<string>(getInitialBizDate(businessDayStart).slice(0, 7)); 
+  
+  const [jobTypeFilter, setJobTypeFilter] = useState<string>('all'); 
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
   const [imageGallery, setImageGallery] = useState<{urls: string[], startIndex: number} | null>(null);
@@ -133,8 +153,11 @@ export default function DashboardView({
 
       const now = new Date();
       const shiftStart = new Date(now);
-      if (now.getHours() < cutOffHour) shiftStart.setDate(shiftStart.getDate() - 1);
-      shiftStart.setHours(cutOffHour, 0, 0, 0);
+      const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
+      if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
+        shiftStart.setDate(shiftStart.getDate() - 1);
+      }
+      shiftStart.setHours(bizHour, bizMin, 0, 0);
 
       const { data: dailyData } = await supabase
         .from('rider_attendance')
@@ -182,21 +205,24 @@ export default function DashboardView({
       }
     };
     fetchPayroll();
-  }, [cutOffHour]);
+  }, [businessDayStart]);
 
   const getFilteredOrders = () => {
     return (Array.isArray(allCompletedOrders) ? allCompletedOrders : []).filter(order => {
-      if (!order.end_time) return false;
-      const orderDate = new Date(order.end_time);
+      // 🌟 แก้ไข: ถ้าไม่มี end_time ให้ใช้ created_at แทน ป้องกันข้อมูลหาย
+      const dateString = order.end_time || order.created_at;
+      if (!dateString) return false;
+      const orderDate = new Date(dateString);
 
       let timeMatch = true;
       if (filterMode === 'today') {
         const now = new Date();
         const shiftStart = new Date(now);
-        if (now.getHours() < cutOffHour) {
+        const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
+        if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
           shiftStart.setDate(shiftStart.getDate() - 1);
         }
-        shiftStart.setHours(cutOffHour, 0, 0, 0);
+        shiftStart.setHours(bizHour, bizMin, 0, 0);
 
         const shiftEnd = new Date(shiftStart);
         shiftEnd.setDate(shiftEnd.getDate() + 1);
@@ -204,13 +230,15 @@ export default function DashboardView({
         timeMatch = orderDate >= shiftStart && orderDate < shiftEnd;
 
       } else if (filterMode === 'date' && filterDate) {
-        const target = new Date(filterDate);
-        target.setHours(cutOffHour, 0, 0, 0);
+        const [y, m, d] = filterDate.split('-').map(Number);
+        const targetStart = new Date(y, m - 1, d);
+        const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
+        targetStart.setHours(bizHour, bizMin, 0, 0);
         
-        const targetEnd = new Date(target);
+        const targetEnd = new Date(targetStart);
         targetEnd.setDate(targetEnd.getDate() + 1);
 
-        timeMatch = orderDate >= target && orderDate < targetEnd;
+        timeMatch = orderDate >= targetStart && orderDate < targetEnd;
 
       } else if (filterMode === 'month' && filterMonth) {
         const [year, month] = filterMonth.split('-');
@@ -222,8 +250,8 @@ export default function DashboardView({
 
       return timeMatch && jobMatch;
     }).sort((a, b) => {
-      const aTime = a.end_time ? new Date(a.end_time).getTime() : 0;
-      const bTime = b.end_time ? new Date(b.end_time).getTime() : 0;
+      const aTime = new Date(a.end_time || a.created_at).getTime();
+      const bTime = new Date(b.end_time || b.created_at).getTime();
       return bTime - aTime;
     });
   };
@@ -233,19 +261,18 @@ export default function DashboardView({
   const todaysCompletedOrdersCount = useMemo(() => {
     const now = new Date();
     const shiftStart = new Date(now);
-    if (now.getHours() < cutOffHour) shiftStart.setDate(shiftStart.getDate() - 1);
-    shiftStart.setHours(cutOffHour, 0, 0, 0);
+    const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
+    if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) shiftStart.setDate(shiftStart.getDate() - 1);
+    shiftStart.setHours(bizHour, bizMin, 0, 0);
     const shiftEnd = new Date(shiftStart);
     shiftEnd.setDate(shiftEnd.getDate() + 1);
 
     return (Array.isArray(allCompletedOrders) ? allCompletedOrders : []).filter(o => {
-      if (o.status !== 'ส่งแล้ว/เสร็จ' || !o.end_time) return false;
-      const d = new Date(o.end_time);
+      const d = new Date(o.end_time || o.created_at);
       return d >= shiftStart && d < shiftEnd;
     }).length;
-  }, [allCompletedOrders, cutOffHour]); 
+  }, [allCompletedOrders, businessDayStart]); 
 
-  // 🌟 ฟังก์ชันคำนวณระยะทางและค่าน้ำมัน
   const calculateDistanceAndGas = (): { distance: string; gasCost: number; netProfit: number } => {
     if (!Array.isArray(displayOrders) || displayOrders.length === 0) return { distance: "0.0", gasCost: 0, netProfit: 0 };
     
@@ -264,15 +291,13 @@ export default function DashboardView({
     });
 
     const distString = Number.isFinite(totalDist) ? totalDist.toFixed(1) : "0.0";
-    
-    // 🌟 คำนวณค่าน้ำมัน (40 กม./ลิตร, ลิตรละ 40 บาท)
     const estimatedLiters = totalDist / 40;
     const gasCost = Math.round(estimatedLiters * 40);
     
     return { 
       distance: distString, 
       gasCost: gasCost,
-      netProfit: 0 // จะคำนวณต่อในส่วนของ Live Pay
+      netProfit: 0 
     };
   };
 
@@ -291,8 +316,6 @@ export default function DashboardView({
     : payrollStats.dailyFixedPay - payrollStats.dailyFixedGas;
 
   const liveTotalPay = liveBasePay + liveGas;
-  
-  // 🌟 กำไรสุทธิ = (รายได้รวม) - ค่าน้ำมันที่ใช้ไปจริง
   const netProfit = Math.max(0, Math.round(liveTotalPay - distStats.gasCost));
 
   useEffect(() => {
@@ -320,7 +343,13 @@ export default function DashboardView({
     }
   };
 
-  const totalCash = displayOrders.filter(o => o.payment_method === 'เงินสด' || !o.payment_method).reduce((sum, o) => sum + (o.total_price || 0), 0);
+  const totalCash = displayOrders.filter(o => {
+    if (!o.payment_method) return true;
+    const pm = o.payment_method.trim();
+    if (pm === "โอน" || pm.includes("โอน")) return false;
+    if (pm === "คนละครึ่ง" || pm.includes("คนละครึ่ง") || pm.includes("ครึ่ง")) return false;
+    return true;
+  }).reduce((sum, o) => sum + (o.total_price || 0), 0);
 
   return (
     <div className="min-h-screen bg-slate-50 pb-safe animate-in fade-in slide-in-from-bottom-4 duration-300 relative font-sans">
@@ -356,7 +385,6 @@ export default function DashboardView({
           </div>
         </div>
 
-        {/* 🌟 1. การ์ดรายได้ Realtime ของไรเดอร์ (อัปเกรดกำไร) */}
         <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
           <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
             <h3 className="font-black text-slate-700 text-sm flex items-center">
@@ -385,7 +413,6 @@ export default function DashboardView({
                 <div className="text-2xl font-black text-emerald-600 tracking-tighter">฿{Math.round(liveTotalPay).toLocaleString()}</div>
               </div>
               
-              {/* 🌟 โชว์กำไรสุทธิ */}
               <div className="mt-3 pt-2 border-t border-emerald-200/50 flex flex-col items-center">
                 <div className="text-[9px] font-black text-emerald-700/60 uppercase tracking-wider flex items-center gap-1">
                   <Flame size={10} className="text-rose-500"/> กำไรสุทธิ (หักค่าน้ำมัน)
@@ -401,14 +428,12 @@ export default function DashboardView({
               </div>
               <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2">
                 <span className="flex items-center"><Package size={12} className="mr-1 text-orange-500"/> สำเร็จแล้ว</span>
-                {/* 🌟 เปลี่ยนคำว่า งาน เป็น ออเดอร์ */}
                 <span className="text-orange-700 font-black">{todaysCompletedOrdersCount} ออเดอร์</span>
               </div>
               <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2 border-t border-blue-100 pt-2">
                 <span className="flex items-center"><Fuel size={12} className="mr-1 text-slate-500"/> น้ำมันที่ได้</span>
                 <span className="text-emerald-600 font-black">+ ฿{liveGas.toLocaleString()}</span>
               </div>
-              {/* 🌟 โชว์ค่าน้ำมันที่ใช้จริง */}
               <div className="flex justify-between items-center text-[10px] font-bold text-slate-500">
                 <span className="flex items-center">น้ำมันที่ใช้จริง</span>
                 <span className="text-rose-500 font-black">- ฿{distStats.gasCost.toLocaleString()}</span>
@@ -434,7 +459,6 @@ export default function DashboardView({
           </div>
         </div>
 
-        {/* ฟิลเตอร์ ข้อมูลเดิม */}
         <div className="space-y-3 pt-2">
           <div className="flex items-center justify-between px-1">
             <h3 className="font-black text-slate-700 text-sm flex items-center">
@@ -511,7 +535,6 @@ export default function DashboardView({
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          {/* 🌟 เปลี่ยนคำว่า งาน เป็น ออเดอร์ */}
           <div className="bg-linear-to-br from-emerald-500 to-teal-600 rounded-3xl p-5 text-white shadow-lg relative overflow-hidden transform transition-all duration-300 hover:-translate-y-1">
             <CheckCircle2 size={64} className="absolute -right-4 -bottom-4 text-white opacity-20" />
             <div className="text-emerald-100 text-xs font-bold mb-1 flex items-center tracking-wide"><CheckCircle2 size={14} className="mr-1.5"/> ส่งสำเร็จ</div>
@@ -558,7 +581,7 @@ export default function DashboardView({
                         <span className="font-black text-slate-500 mr-1.5 border-r border-slate-200 pr-1.5">
                           {new Date(order.created_at).toLocaleDateString('th-TH', { month: 'short', day: 'numeric' })}
                         </span> 
-                        {order.end_time ? new Date(order.end_time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '-'} น.
+                        {order.end_time || order.created_at ? new Date(order.end_time || order.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '-'} น.
                       </div>
                     </div>
                   </div>
@@ -650,7 +673,16 @@ export default function DashboardView({
                 <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">ประเภทงาน:</span><span className="font-black text-slate-700 uppercase px-2.5 py-1 bg-white border border-slate-200 shadow-sm rounded-md">{selectedOrder.job_type}</span></div>
                 <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">ผู้รับผิดชอบ:</span><span className="font-black text-slate-700 bg-white border border-slate-200 shadow-sm px-2.5 py-1 rounded-md">{selectedOrder.rider_name || '-'}</span></div>
                 <div className="flex justify-between items-center pt-2 border-t border-slate-200/60"><span className="text-slate-500 font-medium">ยอดเรียกเก็บ:</span><span className="font-black text-blue-600 text-lg">฿{selectedOrder.total_price}</span></div>
-                <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">การชำระเงิน:</span><span className={`font-black text-[10px] uppercase px-2.5 py-1 rounded-md ${selectedOrder.payment_method === 'โอน' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-600'}`}>{selectedOrder.payment_method || 'เงินสด'}</span></div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 font-medium">การชำระเงิน:</span>
+                  <span className={`font-black text-[10px] uppercase px-2.5 py-1 rounded-md ${
+                    selectedOrder.payment_method === 'โอน' ? 'bg-blue-100 text-blue-700' : 
+                    selectedOrder.payment_method === 'คนละครึ่ง' ? 'bg-cyan-100 text-cyan-700' : 
+                    'bg-orange-100 text-orange-600'
+                  }`}>
+                    {selectedOrder.payment_method || 'เงินสด'}
+                  </span>
+                </div>
               </div>
 
               {selectedOrder.address && (

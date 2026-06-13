@@ -27,6 +27,23 @@ interface OrderRecord {
   status: string;
 }
 
+// 🌟 เพิ่มฟังก์ชันแปลงวันที่ ป้องกันบัค Timezone
+const getLocalYMD = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const getInitialBizDate = (businessDayStart: string = "07:00") => {
+  const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
+  const now = new Date();
+  if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
+    now.setDate(now.getDate() - 1);
+  }
+  return getLocalYMD(now);
+};
+
 export default function KitchenDashboardPage() {
   const router = useRouter();
   const [, setCurrentUser] = useState<SupabaseUser | null>(null);
@@ -45,8 +62,8 @@ export default function KitchenDashboardPage() {
   const [shift2Start, setShift2Start] = useState<string>("19:00");
   const [shift2End, setShift2End] = useState<string>("04:00");
 
-  const [customStartDate, setCustomStartDate] = useState<string>("");
-  const [customEndDate, setCustomEndDate] = useState<string>("");
+  const [customStartDate, setCustomStartDate] = useState<string>(getInitialBizDate("07:00"));
+  const [customEndDate, setCustomEndDate] = useState<string>(getInitialBizDate("07:00"));
 
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
 
@@ -72,27 +89,36 @@ export default function KitchenDashboardPage() {
 
     const { data: settings } = await supabase.from("store_settings").select("*").eq("id", 1).single();
     if (settings) {
-      if (settings.business_day_start) setBusinessDayStart(settings.business_day_start);
+      if (settings.business_day_start) {
+        setBusinessDayStart(settings.business_day_start);
+        setCustomStartDate(getInitialBizDate(settings.business_day_start));
+        setCustomEndDate(getInitialBizDate(settings.business_day_start));
+      }
       if (settings.shift1_start) setShift1Start(settings.shift1_start);
       if (settings.shift1_end) setShift1End(settings.shift1_end);
       if (settings.shift2_start) setShift2Start(settings.shift2_start);
       if (settings.shift2_end) setShift2End(settings.shift2_end);
     }
 
+    // 🌟 เพิ่ม .limit(5000) ป้องกันข้อมูลในอดีตหาย
     const { data: attData } = await supabase
       .from("rider_attendance")
       .select("*")
       .eq("rider_id", session.user.id)
-      .order("check_in", { ascending: false });
+      .order("check_in", { ascending: false })
+      .limit(5000);
     if (attData) setAttendances(attData as AttendanceRecord[]);
 
     if (profile.branch_id) {
+      // 🌟 เพิ่ม .not("is_deleted") และ .limit(5000)
       const { data: orderData } = await supabase
         .from("orders")
         .select("id, created_at, status")
         .eq("branch_id", profile.branch_id)
-        .eq("job_type", "ร้าน") // สนใจแค่งานร้าน
-        .or("is_deleted.is.null,is_deleted.eq.false");
+        .eq("job_type", "ร้าน") 
+        .not("is_deleted", "eq", true)
+        .order("created_at", { ascending: false })
+        .limit(5000);
       if (orderData) setOrders(orderData as OrderRecord[]);
     }
     
@@ -103,13 +129,13 @@ export default function KitchenDashboardPage() {
     fetchData();
   }, [fetchData]);
 
-  // ฟังก์ชันหาช่วงเวลา (Business Day Logic)
+  // 🌟 ฟังก์ชันหาช่วงเวลา (Business Day Logic) สมบูรณ์แบบ
   const getDateRange = () => {
     const now = new Date();
     let startDate = new Date(0); 
     let endDate = new Date(8640000000000000); 
 
-    const [bizHour, bizMin] = businessDayStart.split(':').map(Number);
+    const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
     const currentBizDate = new Date(now);
     if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
       currentBizDate.setDate(currentBizDate.getDate() - 1);
@@ -127,29 +153,40 @@ export default function KitchenDashboardPage() {
       const [eH, eM] = shift1End.split(':').map(Number);
       startDate = new Date(y, m, d, sH, sM, 0, 0);
       endDate = new Date(y, m, d, eH, eM, 0, 0);
-      if (eH < sH) endDate.setDate(endDate.getDate() + 1); 
+      if (eH < sH || (eH === sH && eM < sM)) endDate.setDate(endDate.getDate() + 1); 
     } else if (timeRange === "shift2") {
       const [sH, sM] = shift2Start.split(':').map(Number);
       const [eH, eM] = shift2End.split(':').map(Number);
       startDate = new Date(y, m, d, sH, sM, 0, 0);
       endDate = new Date(y, m, d, eH, eM, 0, 0);
-      if (eH < sH) endDate.setDate(endDate.getDate() + 1); 
+      if (eH < sH || (eH === sH && eM < sM)) endDate.setDate(endDate.getDate() + 1); 
     } else if (timeRange === "yesterday") {
       startDate = new Date(y, m, d - 1, bizHour, bizMin, 0, 0);
       endDate = new Date(y, m, d, bizHour, bizMin, 0, 0);
       endDate.setMilliseconds(endDate.getMilliseconds() - 1);
     } else if (timeRange === "7days") {
-      startDate = new Date(y, m, d - 7, bizHour, bizMin, 0, 0);
+      startDate = new Date(y, m, d - 6, bizHour, bizMin, 0, 0);
+      endDate = new Date(y, m, d + 1, bizHour, bizMin, 0, 0);
+      endDate.setMilliseconds(endDate.getMilliseconds() - 1);
     } else if (timeRange === "30days") {
-      startDate = new Date(y, m, d - 30, bizHour, bizMin, 0, 0);
+      startDate = new Date(y, m, d - 29, bizHour, bizMin, 0, 0);
+      endDate = new Date(y, m, d + 1, bizHour, bizMin, 0, 0);
+      endDate.setMilliseconds(endDate.getMilliseconds() - 1);
     } else if (timeRange === "cycle") {
       startDate = new Date(now);
       if (now.getDate() >= 26) startDate.setDate(26);
       else { startDate.setMonth(startDate.getMonth() - 1); startDate.setDate(26); }
       startDate.setHours(0, 0, 0, 0);
     } else if (timeRange === "custom") {
-      if (customStartDate) { startDate = new Date(customStartDate); startDate.setHours(0, 0, 0, 0); }
-      if (customEndDate) { endDate = new Date(customEndDate); endDate.setHours(23, 59, 59, 999); }
+      if (customStartDate) { 
+        const [sy, sm, sd] = customStartDate.split('-').map(Number);
+        startDate = new Date(sy, sm - 1, sd, bizHour, bizMin, 0, 0); 
+      }
+      if (customEndDate) { 
+        const [ey, em, ed] = customEndDate.split('-').map(Number);
+        endDate = new Date(ey, em - 1, ed + 1, bizHour, bizMin, 0, 0); 
+        endDate.setMilliseconds(endDate.getMilliseconds() - 1); 
+      }
     }
     return { startDate, endDate };
   };

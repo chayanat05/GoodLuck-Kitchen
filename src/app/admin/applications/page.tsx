@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { Check, X, Search, UserSquare2, Loader2, ArrowLeft, ZoomIn, ImageIcon, ChefHat, Bike, ShieldCheck } from "lucide-react";
+import { X, ArrowLeft, ZoomIn, ChefHat, Bike, ShieldCheck } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -41,7 +41,6 @@ interface Application {
 
 export default function ApplicationsDashboard() {
   const [applications, setApplications] = useState<Application[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<'rider' | 'kitchen' | 'admin'>('rider');
   const [selectedApp, setSelectedApp] = useState<Application | null>(null);
@@ -49,7 +48,6 @@ export default function ApplicationsDashboard() {
 
   useEffect(() => {
     const fetchApplications = async () => {
-      setIsLoading(true);
       const [riderRes, kitchenRes, adminRes] = await Promise.all([
         supabase.from('rider_applications').select('*').order('created_at', { ascending: false }),
         supabase.from('kitchen_applications').select('*').order('created_at', { ascending: false }),
@@ -61,7 +59,6 @@ export default function ApplicationsDashboard() {
       const adminApps: Application[] = (adminRes.data || []).map(a => ({ ...a, app_type: 'admin', status: a.status || 'pending' }));
 
       setApplications([...riderApps, ...kitchenApps, ...adminApps]);
-      setIsLoading(false);
     };
 
     fetchApplications();
@@ -211,11 +208,11 @@ export default function ApplicationsDashboard() {
       {/* Image Modal */}
       {selectedFullImage && (
         <div 
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4"
+          className="fixed inset-0 z-100 flex items-center justify-center bg-black/90 p-4"
           onClick={() => setSelectedFullImage(null)}
         >
           <button 
-            className="absolute top-6 right-6 text-white hover:text-slate-300 z-[110] bg-white/20 p-2 rounded-full backdrop-blur-sm transition-colors"
+            className="absolute top-6 right-6 text-white hover:text-slate-300 z-110 bg-white/20 p-2 rounded-full backdrop-blur-sm transition-colors"
             onClick={() => setSelectedFullImage(null)}
           >
             <X size={24} />
@@ -224,6 +221,7 @@ export default function ApplicationsDashboard() {
             className="relative w-full h-full flex items-center justify-center overflow-auto p-4"
             onClick={(e) => e.stopPropagation()}
           >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img 
               src={selectedFullImage} 
               alt="Full view" 

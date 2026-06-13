@@ -48,7 +48,7 @@ export async function POST(request: Request) {
         title: title,
         body: message,
         // ถ้าระบุลิงก์ พอกดแจ้งเตือนมันจะพาไปหน้านั้น
-        image: '/logo.png', // ใส่ path รูปโลโก้ร้าน (ถ้ามี)
+        image: '/riderlogo_192x192.png', // ใส่ path รูปโลโก้ร้าน (ถ้ามี)
       },
       webpush: {
         fcmOptions: {
