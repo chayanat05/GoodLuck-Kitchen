@@ -639,8 +639,8 @@ export default function RiderPage() {
                 </div>
               )}
               {!isCompact && (
-                <button onClick={(e) => { e.stopPropagation(); setSelectedViewOrder(order); setShowContactInfo(false); }} className="bg-white/20 text-white px-1.5 py-0.5 rounded text-[10px] uppercase font-black flex items-center hover:bg-white/30 active:scale-95 transition-colors">
-                  <Eye size={12} className="mr-0.5" /> ข้อมูล
+                <button onClick={(e) => { e.stopPropagation(); setSelectedViewOrder(order); setShowContactInfo(false); }} className="bg-white/20 text-white px-3 py-1 rounded-md text-xs sm:text-sm uppercase font-black flex items-center hover:bg-white/30 active:scale-95 transition-colors">
+                  <Eye size={14} className="mr-1" /> ดูข้อมูล
                 </button>
               )}
               <span className="text-[10px] sm:text-[11px] px-1.5 py-0.5 font-black rounded uppercase shadow-sm bg-white/20 text-white">
@@ -683,9 +683,13 @@ export default function RiderPage() {
           )}
 
           {order.details && (
-            <div className={`${isCompact ? "text-base" : "text-lg"} text-white/90 font-medium mb-2 flex items-start gap-1.5 shrink-0 bg-white/5 p-2 rounded-lg`}>
-              <div className={`mt-1.5 w-1.5 h-3 rounded-full shrink-0 bg-white`}></div>
-              <span className="leading-relaxed line-clamp-2">{order.details}</span>
+            <div className={`mb-2 p-2.5 bg-amber-500/20 border border-amber-500/30 rounded-lg text-amber-50 shrink-0 shadow-sm flex flex-col`}>
+              <div className="flex items-center text-[10px] text-amber-300 font-black uppercase tracking-wider mb-1">
+                <AlertTriangle size={12} className="mr-1" /> หมายเหตุ / โน๊ตจากลูกค้า
+              </div>
+              <div className={`${isCompact ? "text-base" : "text-lg"} font-medium leading-relaxed line-clamp-2`}>
+                {order.details}
+              </div>
             </div>
           )}
 
@@ -1434,4 +1438,6 @@ function canAction(order: RiderOrder) {
 
 function getActionBtnLabel(order: RiderOrder) {
   return order.status === "รับงาน" ? "ส่งลูกค้าสำเร็จ" : "รอครัวทำอาหาร...";
+}
+ : "รอครัวทำอาหาร...";
 }

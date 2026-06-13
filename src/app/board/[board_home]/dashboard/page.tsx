@@ -17,7 +17,7 @@ import { toast } from "sonner";
 
 const COLORS = ['#3b82f6', '#10b981', '#06b6d4', '#f59e0b', '#8b5cf6', '#f43f5e'];
 
-type DateFilterType = "active_board" | "today" | "singleDay" | "yesterday" | "7days" | "month" | "all" | "custom";
+type DateFilterType = "today" | "singleDay" | "yesterday" | "7days" | "month" | "all" | "custom";
 
 interface OrderData {
   id: string;
@@ -75,7 +75,7 @@ export default function BranchDashboardPage({ params }: { params: Promise<{ boar
   const [orders, setOrders] = useState<OrderData[]>([]);
   const [businessDayStart, setBusinessDayStart] = useState<string>("07:00");
   
-  const [timeRange, setTimeRange] = useState<DateFilterType>("active_board");
+  const [timeRange, setTimeRange] = useState<DateFilterType>("today");
   const [singleDate, setSingleDate] = useState<string>(getInitialBizDate());
   const [customStart, setCustomStart] = useState<string>(getInitialBizDate());
   const [customEnd, setCustomEnd] = useState<string>(getInitialBizDate());
@@ -205,12 +205,6 @@ export default function BranchDashboardPage({ params }: { params: Promise<{ boar
     }
 
     return orders.filter(o => {
-      if (timeRange === "active_board") {
-        const isNotArchived = o.is_archived === null || o.is_archived === false;
-        const isNotCompleted = !["ส่งแล้ว/เสร็จ", "ยกเลิก"].includes(o.status);
-        return isNotArchived && isNotCompleted;
-      }
-      
       const orderDate = new Date(o.created_at);
       return orderDate >= startDate && orderDate <= endDate;
     });
@@ -405,7 +399,6 @@ export default function BranchDashboardPage({ params }: { params: Promise<{ boar
             <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner flex-1 sm:flex-none">
               <Calendar size={14} className="text-slate-500 ml-2 mr-1" />
               <select value={timeRange} onChange={(e) => setTimeRange(e.target.value as DateFilterType)} className="bg-transparent text-xs font-black text-slate-700 outline-none cursor-pointer p-2 w-full sm:w-auto">
-                <option value="active_board">📌 ออเดอร์ค้างบนบอร์ด</option>
                 <option value="today">🔥 วันนี้ (ตัดรอบ {businessDayStart})</option>
                 <option value="singleDay">📌 เลือกดูเฉพาะวัน...</option>
                 <option value="yesterday">⏪ เมื่อวาน</option>
