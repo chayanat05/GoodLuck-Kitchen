@@ -696,6 +696,35 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
         }]);
       }
     } else {
+      let finalNumToUse = orderData.order_number;
+      let isDuplicate = true;
+      let attempts = 0;
+
+      while (isDuplicate && attempts < 10) {
+        const { data: existing } = await supabase
+          .from("orders")
+          .select("id")
+          .eq("order_number", finalNumToUse)
+          .eq("branch_id", currentBranchId)
+          .limit(1);
+
+        if (existing && existing.length > 0) {
+          const currentNumMatch = String(finalNumToUse).match(/\d+/);
+          if (currentNumMatch) {
+            const num = parseInt(currentNumMatch[0], 10);
+            finalNumToUse = String(finalNumToUse).replace(/\d+/, (num + 1).toString());
+          } else {
+            finalNumToUse = finalNumToUse + "-copy";
+          }
+          attempts++;
+        } else {
+          isDuplicate = false;
+        }
+      }
+
+      finalOrderNumber = finalNumToUse;
+      orderData.order_number = finalOrderNumber;
+
       const { data } = await supabase.from("orders").insert([{ ...orderData, branch_id: currentBranchId, status: "New" }]).select();
       if (data && data.length > 0) {
         targetId = data[0].id;
