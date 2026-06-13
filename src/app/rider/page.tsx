@@ -1439,5 +1439,3 @@ function canAction(order: RiderOrder) {
 function getActionBtnLabel(order: RiderOrder) {
   return order.status === "รับงาน" ? "ส่งลูกค้าสำเร็จ" : "รอครัวทำอาหาร...";
 }
- : "รอครัวทำอาหาร...";
-}
