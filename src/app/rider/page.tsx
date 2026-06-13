@@ -800,7 +800,7 @@ export default function RiderPage() {
         onBack={() => setShowDashboard(false)}
         activeOrdersCount={activeOrders.length}
         allCompletedOrders={completedOrders}
-        cutOffHour={cutOffHour} 
+        businessDayStart={`${String(cutOffHour).padStart(2, '0')}:00`} 
       />
     );
   }
