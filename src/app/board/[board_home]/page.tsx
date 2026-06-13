@@ -1392,7 +1392,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                 ไรเดอร์
               </div>
               <span className="text-sm text-slate-400 my-auto ml-auto pl-4 whitespace-nowrap">
-                *พิกัดอัปเดตทุก 30 วินาที*
+                *พิกัดอัปเดตทุก 15 วินาที*
               </span>
             </div>
           </div>
