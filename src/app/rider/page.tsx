@@ -27,7 +27,9 @@ import {
   Lock, 
   Link as LinkIcon,
   Calendar,
-  RefreshCw
+  RefreshCw,
+  Camera,
+  Loader2
 } from "lucide-react";
 import { Order } from "../../components/OrderCard";
 import { User as SupabaseUser } from "@supabase/supabase-js";
@@ -56,6 +58,12 @@ interface Branch {
   lat: number;
   lng: number;
   cut_off_hour: number;
+}
+
+interface ActiveAttendance {
+  id: string;
+  check_in: string;
+  check_out: string | null;
 }
 
 type RiderOrder = Order & { branch_id?: string | null };
@@ -99,6 +107,14 @@ export default function RiderPage() {
 
   const [currentUserRole, setCurrentUserRole] = useState<string>("rider");
   const [isEmergencyMode, setIsEmergencyMode] = useState<boolean>(false);
+
+  // 🌟 State สำหรับระบบตอกบัตร
+  const [activeAttendance, setActiveAttendance] = useState<ActiveAttendance | null>(null);
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [cameraAction, setCameraAction] = useState<'in' | 'out'>('in');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [isProcessingAttendance, setIsProcessingAttendance] = useState(false);
   
   const [mapLibraries] = useState<"places"[]>(["places"]);
   const { isLoaded } = useJsApiLoader({
@@ -151,7 +167,6 @@ export default function RiderPage() {
       console.error('Push Error:', e);
     }
   };
-
 
   const fetchOrdersAndBranches = useCallback(async (userId: string) => {
     if (!userId) return;
@@ -239,6 +254,19 @@ export default function RiderPage() {
       if (settings) setIsEmergencyMode(settings.emergency_reveal_contacts);
 
       const isSuper = profile?.role === 'superadmin' || profile?.role === 'admin';
+      
+      if (!isSuper) {
+        const { data: attData } = await supabase
+          .from("rider_attendance")
+          .select("id, check_in, check_out")
+          .eq("rider_id", session.user.id)
+          .is("check_out", null)
+          .order("check_in", { ascending: false })
+          .limit(1)
+          .single();
+        setActiveAttendance(attData || null);
+      }
+
       if (profile?.branch_id || isSuper) {
         if (profile?.branch_id) {
           setMyBranchId(profile.branch_id);
@@ -334,7 +362,6 @@ export default function RiderPage() {
 
     const watchId = navigator.geolocation.watchPosition(
       async (position) => {
-        // หากความแม่นยำมากกว่า 100 เมตร (เพี้ยนมาก) ให้ละเว้นเพื่อไม่ให้หมุดกระโดด
         if (position.coords.accuracy > 150) {
           console.warn(`[GPS] Ignore low accuracy: ${position.coords.accuracy}m`);
           return;
@@ -377,9 +404,23 @@ export default function RiderPage() {
         await fetchRidersLocation();
       };
       initMap();
-      const interval = setInterval(fetchRidersLocation, 10000);
-      const profileChannel = supabase.channel("public:profiles")
-        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles" }, () => fetchRidersLocation())
+      const interval = setInterval(fetchRidersLocation, 30000);
+      const profileChannel = supabase.channel("public:profiles:rider-map")
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles" }, (payload) => {
+          setRidersLoc((prev) => {
+            const exists = prev.some(r => r.id === payload.new.id);
+            if (!exists && payload.new.last_lat) {
+              return [...prev, payload.new as RiderLocation];
+            }
+            return prev.map(r => r.id === payload.new.id ? { ...r, ...payload.new as RiderLocation } : r);
+          });
+          setSelectedRiderMapInfo((prev) => {
+            if (prev && prev.id === payload.new.id) {
+              return { ...prev, ...payload.new as RiderLocation };
+            }
+            return prev;
+          });
+        })
         .subscribe();
       return () => { clearInterval(interval); supabase.removeChannel(profileChannel); };
     }
@@ -410,6 +451,55 @@ export default function RiderPage() {
     const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
+  };
+
+  const submitAttendance = async () => {
+    if (!photoFile || !currentUser) return;
+    setIsProcessingAttendance(true);
+    try {
+      // 1. Upload Photo
+      const fileExt = photoFile.name.split('.').pop() || 'jpg';
+      const fileName = `attendance-${Date.now()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage.from('rider-applications').upload(fileName, photoFile);
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage.from('rider-applications').getPublicUrl(fileName);
+      const imageUrl = urlData.publicUrl;
+
+      // 2. Insert or Update DB
+      if (cameraAction === 'in') {
+        const { data, error } = await supabase.from('rider_attendance').insert([{
+          rider_id: currentUser.id,
+          check_in_image: imageUrl
+        }]).select().single();
+        if (error) throw error;
+        setActiveAttendance(data as ActiveAttendance);
+        showAlert("เข้างานสำเร็จ!", "ตอกบัตรเข้างานเรียบร้อย ลุยเลย! 🚀", "success");
+      } else {
+        if (!activeAttendance) return;
+        const now = new Date();
+        const checkInDate = new Date(activeAttendance.check_in);
+        const minutes = Math.floor((now.getTime() - checkInDate.getTime()) / 60000);
+        
+        const { error } = await supabase.from('rider_attendance').update({
+          check_out: now.toISOString(),
+          total_minutes: minutes,
+          check_out_image: imageUrl
+        }).eq('id', activeAttendance.id);
+        if (error) throw error;
+        setActiveAttendance(null);
+        showAlert("เลิกงานสำเร็จ!", "ตอกบัตรออกงานเรียบร้อย พักผ่อนได้! 🌙", "success");
+      }
+      
+      setShowCameraModal(false);
+      setPhotoFile(null);
+      setPhotoPreview(null);
+    } catch (err) {
+      console.error(err);
+      showAlert("เกิดข้อผิดพลาด", "ไม่สามารถบันทึกข้อมูลตอกบัตรได้", "error");
+    } finally {
+      setIsProcessingAttendance(false);
+    }
   };
 
   const handleTakeJob = async (order: RiderOrder) => {
@@ -818,6 +908,7 @@ export default function RiderPage() {
   return (
     <div className="h-dvh bg-slate-100 text-slate-800 font-sans flex flex-col overflow-hidden transition-colors duration-500">
       
+      {/* 🌟 Header & ตอกบัตร */}
       <div className="shrink-0 bg-white/90 backdrop-blur-xl text-slate-800 p-3.5 shadow-sm flex justify-between items-center border-b border-slate-200 z-30">
         <div className="flex items-center">
           <button onClick={() => setIsMenuOpen(true)} className="mr-2 p-1.5 hover:bg-slate-100 rounded-lg active:scale-90 transition-all cursor-pointer">
@@ -838,8 +929,21 @@ export default function RiderPage() {
             </div>
           </div>
         </div>
-        <div className="bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full text-[10px] font-black tracking-wide text-slate-600 shadow-inner truncate max-w-25">
-          {riderName}
+        
+        {/* 🌟 ปุ่มตอกบัตรเข้า-ออก */}
+        <div className="flex items-center gap-2">
+          {activeAttendance ? (
+            <button onClick={() => { setCameraAction('out'); setShowCameraModal(true); }} className="bg-rose-100 text-rose-600 px-3 py-1.5 rounded-full text-[10px] font-black tracking-wide shadow-sm border border-rose-200 active:scale-95 transition-all cursor-pointer">
+              ตอกออก
+            </button>
+          ) : (
+            <button onClick={() => { setCameraAction('in'); setShowCameraModal(true); }} className="bg-emerald-100 text-emerald-600 px-3 py-1.5 rounded-full text-[10px] font-black tracking-wide shadow-sm border border-emerald-200 active:scale-95 transition-all cursor-pointer">
+              ตอกเข้า
+            </button>
+          )}
+          <div className="bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full text-[10px] font-black tracking-wide text-slate-600 shadow-inner truncate max-w-25">
+            {riderName}
+          </div>
         </div>
       </div>
 
@@ -866,12 +970,26 @@ export default function RiderPage() {
               <h2 className="font-black text-slate-800 text-lg flex items-center">
                 งานว่าง <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] rounded-md shadow-sm">{availableOrders.length}</span>
               </h2>
-              <button onClick={() => setIsCompact(!isCompact)} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black text-slate-600 hover:text-blue-600 transition-all active:scale-95 shadow-sm">
+              <button onClick={() => setIsCompact(!isCompact)} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black text-slate-600 hover:text-blue-600 transition-all active:scale-95 shadow-sm cursor-pointer">
                 {isCompact ? <ZoomIn size={12} className="text-blue-600" /> : <ZoomOut size={12} className="text-blue-600" />} {isCompact ? "ซูมเข้า" : "ซูมออก"}
               </button>
             </div>
 
-            {availableOrders.length === 0 ? (
+            {/* 🌟 บังคับตอกบัตรก่อนเห็นงานว่าง (แอดมินดูได้เลย) - ปิดใช้งานชั่วคราวตามคำขอ */}
+            {false && !activeAttendance && currentUserRole !== 'admin' && currentUserRole !== 'superadmin' ? (
+              <div className="text-center bg-white rounded-4xl border border-slate-200 shadow-sm flex flex-col items-center justify-center mx-auto max-w-sm w-full flex-1 p-8">
+                <div className="w-24 h-24 bg-rose-50 rounded-full flex items-center justify-center mb-6 shadow-inner border border-rose-100">
+                  <Camera size={40} className="text-rose-500" />
+                </div>
+                <h3 className="text-slate-800 font-black mb-2 text-xl tracking-tight">ยังไม่ได้ตอกบัตรเข้างาน</h3>
+                <p className="text-sm text-slate-500 font-medium mb-8 leading-relaxed">
+                  ต้องถ่ายรูปเซลฟี่เพื่อตอกบัตรเข้างานก่อน<br/>จึงจะมองเห็นและรับงานว่างได้ครับ 📸
+                </p>
+                <button onClick={() => { setCameraAction('in'); setShowCameraModal(true); }} className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black shadow-lg shadow-emerald-500/30 active:scale-95 transition-all text-base cursor-pointer">
+                  📸 ตอกบัตรเข้างาน
+                </button>
+              </div>
+            ) : availableOrders.length === 0 ? (
               <div className="text-center bg-white rounded-4xl border border-slate-200 shadow-sm flex flex-col items-center justify-center mx-auto max-w-xs w-full flex-1 p-6">
                 <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mb-4 shadow-inner">
                   <PackageCheck size={36} className="text-blue-500" />
@@ -899,7 +1017,7 @@ export default function RiderPage() {
                   {activeOrders.length} / {orderLimit}
                 </span>
               </h2>
-              <button onClick={() => setIsCompact(!isCompact)} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black text-slate-600 hover:text-blue-600 transition-all active:scale-95 shadow-sm">
+              <button onClick={() => setIsCompact(!isCompact)} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black text-slate-600 hover:text-blue-600 transition-all active:scale-95 shadow-sm cursor-pointer">
                 {isCompact ? <ZoomIn size={12} className="text-blue-600" /> : <ZoomOut size={12} className="text-blue-600" />} {isCompact ? "ซูมเข้า" : "ซูมออก"}
               </button>
             </div>
@@ -1015,6 +1133,7 @@ export default function RiderPage() {
         </div>
       </div>
 
+      {/* 🌟 เมนูด้านข้าง (Hamburger Menu) */}
       {isMenuOpen && (
         <div className="fixed inset-0 flex" style={{ zIndex: 110 }}>
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setIsMenuOpen(false)}></div>
@@ -1033,17 +1152,17 @@ export default function RiderPage() {
             </div>
             <div className="flex-1 p-4 space-y-2 overflow-y-auto bg-slate-50">
               {(currentUserRole === "admin" || currentUserRole === "superadmin") && (
-                              <Link
-                                href="/home"
-                                prefetch={false}
-                                className="w-full flex items-center p-4 text-slate-600 hover:bg-rose-50 hover:text-rose-700 rounded-2xl transition-all font-bold border border-transparent hover:border-rose-100 group"
-                              >
-                                <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
-                                  <Store size={20} className="text-rose-600" />
-                                </div>
-                                กลับหน้าเลือกสาขา
-                              </Link>
-                            )}
+                <Link
+                  href="/home"
+                  prefetch={false}
+                  className="w-full flex items-center p-4 text-slate-600 hover:bg-rose-50 hover:text-rose-700 rounded-2xl transition-all font-bold border border-transparent hover:border-rose-100 group"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                    <Store size={20} className="text-rose-600" />
+                  </div>
+                  กลับหน้าเลือกสาขา
+                </Link>
+              )}
               <button onClick={() => { setIsMenuOpen(false); setShowDashboard(true); }} className="w-full flex items-center p-3 text-slate-700 bg-white hover:bg-blue-50 hover:text-blue-700 rounded-xl transition-all text-sm font-bold cursor-pointer border border-slate-200 shadow-sm group">
                 <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center mr-3 group-hover:bg-blue-100 transition-colors">
                   <LayoutDashboard size={16} className="text-blue-600" />
@@ -1095,6 +1214,64 @@ export default function RiderPage() {
         </div>
       )}
 
+      {/* 🌟 Modal สำหรับถ่ายรูปตอกบัตร */}
+      {showCameraModal && (
+        <div className="fixed inset-0 bg-slate-900/90 z-[200] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] p-6 w-full max-w-sm flex flex-col items-center shadow-2xl animate-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-black mb-2 text-slate-800">
+              {cameraAction === 'in' ? '📸 ถ่ายรูปเข้างาน' : '📸 ถ่ายรูปเลิกงาน'}
+            </h3>
+            <p className="text-xs text-slate-500 mb-6 text-center">ต้องถ่ายรูปเซลฟี่กับหน้าร้านเพื่อยืนยันตัวตนเข้าระบบ</p>
+            
+            {photoPreview ? (
+              <div className="relative w-full aspect-square rounded-3xl overflow-hidden mb-6 shadow-md border-4 border-slate-100">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photoPreview} className="object-cover w-full h-full" alt="Preview" />
+                <button onClick={() => {setPhotoPreview(null); setPhotoFile(null);}} className="absolute top-3 right-3 bg-rose-500/90 backdrop-blur-md text-white p-2.5 rounded-full shadow-lg hover:bg-rose-600 transition-colors cursor-pointer">
+                  <X size={18} strokeWidth={3}/>
+                </button>
+              </div>
+            ) : (
+              <label className="w-full aspect-square bg-slate-50 border-2 border-dashed border-slate-300 rounded-3xl flex flex-col items-center justify-center mb-6 cursor-pointer hover:bg-slate-100 hover:border-blue-400 transition-all group">
+                <div className="w-20 h-20 bg-white rounded-full shadow-sm flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                  <Camera size={36} className="text-blue-500" />
+                </div>
+                <span className="font-black text-slate-600 text-lg">แตะเพื่อถ่ายรูป</span>
+                <span className="text-[10px] text-slate-400 mt-1 uppercase tracking-widest font-bold">เปิดกล้องมือถือ</span>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  capture="environment" 
+                  className="hidden" 
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      setPhotoFile(e.target.files[0]);
+                      setPhotoPreview(URL.createObjectURL(e.target.files[0]));
+                    }
+                  }} 
+                />
+              </label>
+            )}
+
+            <div className="flex gap-3 w-full">
+              <button 
+                onClick={() => {setShowCameraModal(false); setPhotoPreview(null); setPhotoFile(null);}} 
+                className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold transition-colors active:scale-95 cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button 
+                disabled={!photoFile || isProcessingAttendance} 
+                onClick={submitAttendance}
+                className="flex-1 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black disabled:bg-slate-300 transition-colors shadow-lg shadow-blue-500/30 flex justify-center items-center active:scale-95 cursor-pointer"
+              >
+                {isProcessingAttendance ? <Loader2 className="animate-spin" size={20}/> : 'ยืนยัน'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedViewOrder && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm" style={{ zIndex: 200 }}>
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-300 border border-slate-100 flex flex-col" style={{ maxHeight: "85vh" }}>
@@ -1140,7 +1317,7 @@ export default function RiderPage() {
                           </div>
                         )}
                         {!isRevealed && (
-                          <button onClick={() => { const pin = window.prompt("กรุณาใส่รหัส PIN (ค่าเริ่มต้น: 9999):"); if (pin === "9999") setShowContactInfo(true); else if (pin) alert("รหัสผ่านไม่ถูกต้อง ❌"); }} className="ml-3 px-3 py-1.5 bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-500 hover:text-white rounded-lg text-[10px] font-black transition-colors shrink-0 shadow-sm">
+                          <button onClick={() => { const pin = window.prompt("กรุณาใส่รหัส PIN (ค่าเริ่มต้น: 9999):"); if (pin === "9999") setShowContactInfo(true); else if (pin) alert("รหัสผ่านไม่ถูกต้อง ❌"); }} className="ml-3 px-3 py-1.5 bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-500 hover:text-white rounded-lg text-[10px] font-black transition-colors shrink-0 shadow-sm cursor-pointer">
                             ปลดล็อก
                           </button>
                         )}
@@ -1228,6 +1405,73 @@ export default function RiderPage() {
         </div>
       )}
 
+      {/* 🌟 ปรับปรุง: Modal ดูรูปเต็มจอและ Gallery แผนที่กลับมาสมบูรณ์ 100% */}
+      {imageGallery && (
+        <div 
+          className="fixed inset-0 z-[300] bg-black/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200" 
+          onClick={() => { setImageGallery(null); setImgScale(1); }}
+        >
+          <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-50 text-white pointer-events-none">
+            <span className="font-bold text-[10px] bg-white/10 backdrop-blur-md px-2.5 py-1 rounded-full shadow-sm border border-white/10">แตะเพื่อซูม / ปัดซ้ายขวา</span>
+            <button type="button" onClick={() => { setImageGallery(null); setImgScale(1); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors active:scale-90 pointer-events-auto cursor-pointer">
+              <X size={18} strokeWidth={2.5} />
+            </button>
+          </div>
+
+          {imageGallery.urls.length > 1 && (
+            <>
+              <button onClick={(e) => { e.stopPropagation(); scrollGallery("left"); }} className="absolute left-3 top-1/2 -translate-y-1/2 p-2.5 bg-white/10 hover:bg-white/20 rounded-full text-white z-50 transition-all cursor-pointer hidden md:block">
+                <ChevronLeft size={20} />
+              </button>
+              <button onClick={(e) => { e.stopPropagation(); scrollGallery("right"); }} className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 bg-white/10 hover:bg-white/20 rounded-full text-white z-50 transition-all cursor-pointer hidden md:block">
+                <ChevronRight size={20} />
+              </button>
+            </>
+          )}
+
+          <div ref={galleryRef} className="flex-1 w-full h-full flex overflow-x-auto snap-x snap-mandatory hide-scrollbar">
+            {imageGallery.urls.map((url, i) => (
+              <div 
+                key={i} 
+                className="w-full h-full shrink-0 snap-center flex overflow-auto relative p-2" 
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* 🌟 ให้อิสระในการเลื่อน (Scroll) เมื่อซูมภาพแล้ว */}
+                <div className={`m-auto flex ${imgScale > 1 ? "items-start justify-start" : "items-center justify-center w-full h-full"}`}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={url}
+                    className={`transition-all duration-300 origin-center rounded-lg shadow-2xl ${imgScale > 1 ? "cursor-zoom-out" : "cursor-zoom-in"}`}
+                    style={{ 
+                      width: imgScale > 1 ? `${imgScale * 100}%` : "100%", 
+                      height: imgScale > 1 ? "auto" : "100%", 
+                      objectFit: "contain", 
+                      maxWidth: imgScale > 1 ? "none" : "100%",
+                      maxHeight: imgScale > 1 ? "none" : "100%"
+                    }}
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      setImgScale((prev) => (prev === 1 ? 2.5 : 1)); 
+                    }}
+                    alt={`Gallery ${i}`}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex items-center gap-5 bg-slate-800/80 px-5 py-2.5 rounded-full backdrop-blur-md border border-slate-700 shadow-2xl z-50" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setImgScale((prev) => Math.max(1, prev - 0.5))} className={`p-1.5 rounded-full transition-all cursor-pointer ${imgScale <= 1 ? "text-slate-600 cursor-not-allowed" : "text-slate-300 hover:text-white hover:bg-slate-700"}`} disabled={imgScale <= 1}>
+              <ZoomOut size={20} />
+            </button>
+            <span className="text-white font-black text-xs w-10 text-center">{Math.round(imgScale * 100)}%</span>
+            <button onClick={() => setImgScale((prev) => Math.min(4, prev + 0.25))} className={`p-1.5 rounded-full transition-all cursor-pointer ${imgScale >= 4 ? "text-slate-600 cursor-not-allowed" : "text-slate-300 hover:text-white hover:bg-slate-700"}`} disabled={imgScale >= 4}>
+              <ZoomIn size={20} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {showRiderMap && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col h-5/6">
@@ -1272,41 +1516,45 @@ export default function RiderPage() {
                     }
                   />
 
-                  {ridersLoc.map(
-                    (rider) =>
-                      rider.last_lat &&
-                      rider.last_lng && (
-                        <MarkerF
-                          key={rider.id}
-                          position={{ lat: rider.last_lat, lng: rider.last_lng }}
-                          icon={{ url: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png" }}
-                          label={{
-                            text: rider.username,
-                            color: "#1e293b",
-                            className: "bg-white/80 px-2 py-0.5 rounded-full shadow-sm text-xs font-bold mt-8 border border-slate-200 backdrop-blur-sm",
-                          }}
-                          onClick={() => setSelectedRiderMapInfo(rider)}
-                        />
-                      ),
-                  )}
+                  {/* 🌟 โค้ดที่โดนตัด: นำกลับมาครบถ้วนพร้อมเช็ค isMe และ isOnline */}
+                  {ridersLoc.map((rider) => {
+                    if (!rider.last_lat || !rider.last_lng) return null;
+                    const isMe = rider.id === currentUser?.id;
+                    const isRiderOnline = isOnline(rider.last_seen);
+                    
+                    return (
+                      <MarkerF
+                        key={rider.id}
+                        position={{ lat: rider.last_lat, lng: rider.last_lng }}
+                        icon={{
+                          url: isMe 
+                            ? "https://maps.google.com/mapfiles/ms/icons/blue-dot.png" 
+                            : isRiderOnline ? "https://maps.google.com/mapfiles/ms/icons/green-dot.png" : "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
+                        }}
+                        onClick={() => setSelectedRiderMapInfo(rider)}
+                        zIndex={isMe ? 100 : 1}
+                      />
+                    );
+                  })}
 
-                  {selectedRiderMapInfo &&
-                    selectedRiderMapInfo.last_lat &&
-                    selectedRiderMapInfo.last_lng && (
-                      <InfoWindowF
-                        position={{ lat: selectedRiderMapInfo.last_lat, lng: selectedRiderMapInfo.last_lng }}
-                        onCloseClick={() => setSelectedRiderMapInfo(null)}
-                      >
-                        <div className="p-1 min-w-32 text-center text-slate-800">
-                          <div className="font-bold text-sm mb-1">{selectedRiderMapInfo.username}</div>
-                          {selectedRiderMapInfo.id !== "shop" && (
-                            <div className={`text-xs font-bold px-2 py-0.5 rounded-full inline-block ${isOnline(selectedRiderMapInfo.last_seen) ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>
-                              {isOnline(selectedRiderMapInfo.last_seen) ? "🟢 ออนไลน์" : "⚫️ ออฟไลน์"}
-                            </div>
-                          )}
-                        </div>
-                      </InfoWindowF>
-                    )}
+                  {selectedRiderMapInfo && selectedRiderMapInfo.last_lat && selectedRiderMapInfo.last_lng && (
+                    <InfoWindowF
+                      position={{ lat: selectedRiderMapInfo.last_lat, lng: selectedRiderMapInfo.last_lng }}
+                      onCloseClick={() => setSelectedRiderMapInfo(null)}
+                    >
+                      <div className="p-2 text-slate-800 text-xs min-w-[140px]">
+                        <div className="font-black mb-1 text-sm border-b border-slate-100 pb-1">{selectedRiderMapInfo.username}</div>
+                        {selectedRiderMapInfo.id !== "shop" && (
+                          <div className="flex items-center gap-1.5 mt-1.5 font-medium">
+                            <Clock size={12} className={isOnline(selectedRiderMapInfo.last_seen) ? "text-emerald-500" : "text-slate-400"} /> 
+                            <span className={isOnline(selectedRiderMapInfo.last_seen) ? "text-emerald-600 font-bold" : "text-slate-500"}>
+                              {isOnline(selectedRiderMapInfo.last_seen) ? "กำลังออนไลน์" : selectedRiderMapInfo.last_seen ? `ออฟไลน์ (${new Date(selectedRiderMapInfo.last_seen).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.)` : "ไม่ทราบ"}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </InfoWindowF>
+                  )}
                 </GoogleMap>
               ) : (
                 <div className="w-full h-full flex items-center justify-center animate-pulse text-slate-400 font-bold">
@@ -1318,60 +1566,16 @@ export default function RiderPage() {
               <div className="px-3 py-1.5 bg-red-50 text-red-700 text-xs font-bold rounded-lg border border-red-100 shrink-0 flex items-center gap-1.5">
                 <div className="w-3 h-3 bg-red-500 rounded-full shadow-inner"></div> ร้านสาขาของคุณ
               </div>
-              <div className="px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg border border-blue-100 shrink-0 flex items-center gap-1.5">
-                <div className="w-3 h-3 bg-blue-500 rounded-full shadow-inner animate-pulse"></div> ไรเดอร์ (ทุกสาขา)
+              <div className="px-3 py-1.5 bg-green-50 text-green-700 text-xs font-bold rounded-lg border border-green-100 shrink-0 flex items-center gap-1.5">
+                <div className="w-3 h-3 bg-green-500 rounded-full shadow-inner animate-pulse"></div> ไรเดอร์ออนไลน์
+              </div>
+              <div className="px-3 py-1.5 bg-slate-50 text-slate-500 text-xs font-bold rounded-lg border border-slate-200 shrink-0 flex items-center gap-1.5">
+                <div className="w-3 h-3 bg-slate-400 rounded-full shadow-inner"></div> ออฟไลน์
               </div>
               <span className="text-xs text-slate-400 my-auto ml-auto pl-4 whitespace-nowrap">
                 *พิกัดอัปเดตทุก 30 วินาที*
               </span>
             </div>
-          </div>
-        </div>
-      )}
-
-      {imageGallery && (
-        <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200" onClick={() => { setImageGallery(null); setImgScale(1); }} style={{ zIndex: 300 }}>
-          <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-50 text-white pointer-events-none">
-            <span className="font-bold text-[10px] bg-white/10 backdrop-blur-md px-2.5 py-1 rounded-full shadow-sm border border-white/10">ปัดซ้าย-ขวา / ซูมได้</span>
-            <button type="button" onClick={() => { setImageGallery(null); setImgScale(1); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors active:scale-90 pointer-events-auto cursor-pointer">
-              <X size={18} strokeWidth={2.5} />
-            </button>
-          </div>
-
-          {imageGallery.urls.length > 1 && (
-            <>
-              <button onClick={(e) => { e.stopPropagation(); scrollGallery("left"); }} className="absolute left-3 top-1/2 -translate-y-1/2 p-2.5 bg-white/10 hover:bg-white/20 rounded-full text-white z-50 transition-all cursor-pointer hidden md:block">
-                <ChevronLeft size={20} />
-              </button>
-              <button onClick={(e) => { e.stopPropagation(); scrollGallery("right"); }} className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 bg-white/10 hover:bg-white/20 rounded-full text-white z-50 transition-all cursor-pointer hidden md:block">
-                <ChevronRight size={20} />
-              </button>
-            </>
-          )}
-
-          <div ref={galleryRef} className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory hide-scrollbar">
-            {imageGallery.urls.map((url, i) => (
-              <div key={i} className={`w-full h-full shrink-0 snap-center p-2 flex overflow-auto ${imgScale > 1 ? "items-start justify-start" : "items-center justify-center"}`} onClick={(e) => e.stopPropagation()}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={url}
-                  className={`transition-all duration-300 origin-center cursor-zoom-in shadow-2xl rounded-lg ${imgScale > 1 ? "m-auto" : ""}`}
-                  style={{ width: imgScale > 1 ? `${imgScale * 100}%` : "100%", height: imgScale > 1 ? "auto" : "100%", objectFit: "contain", maxWidth: imgScale > 1 ? "none" : "100%" }}
-                  onDoubleClick={(e) => { e.stopPropagation(); setImgScale((prev) => (prev === 1 ? 2.5 : 1)); }}
-                  alt={`Gallery ${i}`}
-                />
-              </div>
-            ))}
-          </div>
-
-          <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex items-center gap-5 bg-slate-800/80 px-5 py-2.5 rounded-full backdrop-blur-md border border-slate-700 shadow-2xl z-50" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setImgScale((prev) => Math.max(1, prev - 0.5))} className={`p-1.5 rounded-full transition-all cursor-pointer ${imgScale <= 1 ? "text-slate-600 cursor-not-allowed" : "text-slate-300 hover:text-white hover:bg-slate-700"}`} disabled={imgScale <= 1}>
-              <ZoomOut size={20} />
-            </button>
-            <span className="text-white font-black text-xs w-10 text-center">{Math.round(imgScale * 100)}%</span>
-            <button onClick={() => setImgScale((prev) => Math.min(4, prev + 0.25))} className={`p-1.5 rounded-full transition-all cursor-pointer ${imgScale >= 4 ? "text-slate-600 cursor-not-allowed" : "text-slate-300 hover:text-white hover:bg-slate-700"}`} disabled={imgScale >= 4}>
-              <ZoomIn size={20} />
-            </button>
           </div>
         </div>
       )}

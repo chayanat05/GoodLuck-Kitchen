@@ -368,20 +368,42 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     checkAuthAndInit();
 
     const orderChannel = supabase
-      .channel("public:orders")
+      .channel(`orders-${currentBranchId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
-          if (!payload.new.is_archived) {
+          if (!payload.new.is_archived && !payload.new.is_deleted) {
             if (notificationAudio.current) {
               notificationAudio.current.currentTime = 0;
               notificationAudio.current.play().catch(() => {});
             }
             showToast(`🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`);
+            setOrders(prev => {
+              if (prev.some(o => o.id === payload.new.id)) return prev;
+              return [payload.new as Order, ...prev];
+            });
           }
-          fetchOrdersAndLocations();
         }
       )
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, () => fetchOrdersAndLocations())
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, () => fetchOrdersAndLocations())
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
+          setOrders(prev => {
+            const isArchivedOrDeleted = payload.new.is_archived || payload.new.is_deleted;
+            const exists = prev.some(o => o.id === payload.new.id);
+            
+            if (isArchivedOrDeleted) {
+              return prev.filter(o => o.id !== payload.new.id);
+            }
+            
+            if (!exists) {
+              return [payload.new as Order, ...prev];
+            }
+            
+            return prev.map(o => o.id === payload.new.id ? { ...o, ...payload.new as Order } : o);
+          });
+        }
+      )
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
+          setOrders(prev => prev.filter(o => o.id !== payload.old.id));
+        }
+      )
       .subscribe();
 
     const syncChannel = supabase
@@ -399,10 +421,24 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   useEffect(() => {
     if (showRiderMap && currentBranchId) {
       const timer = setTimeout(() => fetchRidersLocation(), 0);
-      const interval = setInterval(fetchRidersLocation, 10000);
+      const interval = setInterval(fetchRidersLocation, 30000);
       const profileChannel = supabase
-        .channel("public:profiles")
-        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles" }, () => fetchRidersLocation())
+        .channel(`profiles-map-${currentBranchId}`)
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles" }, (payload) => {
+          setRidersLoc((prev) => {
+            const exists = prev.some(r => r.id === payload.new.id);
+            if (!exists && payload.new.last_lat) {
+              return [...prev, payload.new as RiderLocation];
+            }
+            return prev.map(r => r.id === payload.new.id ? { ...r, ...payload.new as RiderLocation } : r);
+          });
+          setSelectedRiderMapInfo((prev) => {
+            if (prev && prev.id === payload.new.id) {
+              return { ...prev, ...payload.new as RiderLocation };
+            }
+            return prev;
+          });
+        })
         .subscribe();
       return () => {
         clearInterval(interval);

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { 
   ArrowLeft, Calendar, Loader2, CheckCircle2, AlertTriangle, 
   Search, Edit3, X, DollarSign, Trophy, User, ImagePlus, Check,
@@ -29,7 +29,6 @@ interface PaymentForm {
   slip_url: string | null;
 }
 
-// 🌟 สร้าง Interface มารองรับข้อมูลจากฐานข้อมูลแทนการใช้ any
 interface RawAttendance {
   rider_id: string;
   diligence_bonus: number | null;
@@ -63,7 +62,6 @@ export default function MonthlyPayrollPage() {
 
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
 
-  // 🌟 แก้ไขชื่อ State เป็น editingRecord ให้ตรงกันทั้งไฟล์!
   const [editingRecord, setEditingRecord] = useState<MonthlySummary | null>(null);
   const [editForm, setEditForm] = useState<PaymentForm>({
     total_bonus: 0,
@@ -77,6 +75,7 @@ export default function MonthlyPayrollPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [viewSlip, setViewSlip] = useState<string | null>(null);
+  const [isZoomed, setIsZoomed] = useState(false); // 🌟 เพิ่ม State การซูม
 
   const showToast = useCallback((msg: string, type: 'success'|'error' = 'success') => {
     setToast({ show: true, message: msg, type });
@@ -92,6 +91,7 @@ export default function MonthlyPayrollPage() {
     const endOfCycle = new Date(year, month - 1, 25);
     const payDate = new Date(year, month, 5);
 
+    // ป้องกันเรื่อง Timezone หายข้ามวัน โดยการเซ็ตเป็น local เสมอ
     return {
       startText: startOfCycle.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }),
       endText: endOfCycle.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }),
@@ -293,13 +293,11 @@ export default function MonthlyPayrollPage() {
   return (
     <div className="min-h-screen pb-12 transition-all duration-500 bg-slate-50 font-sans">
       
-      {/* Toast */}
       <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-150 ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
         {toast.type === 'error' ? <AlertTriangle size={18} className="text-red-400 mr-2" /> : <CheckCircle2 size={18} className="text-green-400 mr-2" />}
         <span className="font-bold text-sm tracking-wide">{toast.message}</span>
       </div>
 
-      {/* Header */}
       <div className="bg-white/90 backdrop-blur-md border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -318,7 +316,6 @@ export default function MonthlyPayrollPage() {
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         
-        {/* Controls */}
         <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
           <div className="flex items-center w-full md:w-auto bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden focus-within:border-indigo-400 focus-within:ring-4 focus-within:ring-indigo-500/10 transition-all">
             <div className="pl-4 text-slate-400"><Search size={18} /></div>
@@ -353,7 +350,6 @@ export default function MonthlyPayrollPage() {
           </div>
         </div>
 
-        {/* Data List */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 text-slate-400 space-y-4">
             <Loader2 size={48} className="animate-spin text-indigo-500" />
@@ -396,7 +392,7 @@ export default function MonthlyPayrollPage() {
 
                           {summary.slip_url && (
                             <button 
-                              onClick={() => setViewSlip(summary.slip_url || null)}
+                              onClick={() => { setViewSlip(summary.slip_url || null); setIsZoomed(false); }}
                               className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100 transition-colors cursor-pointer"
                             >
                               <ImageIcon size={10} /> ดูสลิป
@@ -439,7 +435,7 @@ export default function MonthlyPayrollPage() {
         )}
       </div>
 
-      {/* 🌟 Modal: จัดการเงิน */}
+      {/* Modal: จัดการเงิน */}
       {editingRecord && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-60 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
@@ -543,22 +539,43 @@ export default function MonthlyPayrollPage() {
         </div>
       )}
 
-      {/* 🌟 Modal: แสดงรูปสลิปแบบเต็มจอ */}
+      {/* 🌟 Modal: แสดงรูปสลิปแบบเต็มจอพร้อมระบบซูมเลื่อนได้ */}
       {viewSlip && (
         <div 
-          className="fixed inset-0 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4 z-200 animate-in fade-in duration-200"
-          onClick={() => setViewSlip(null)}
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/95 backdrop-blur-md p-4 animate-in fade-in duration-200"
+          onClick={() => { setViewSlip(null); setIsZoomed(false); }}
         >
-          <div className="relative max-w-2xl w-full h-[80vh] flex flex-col items-center justify-center">
-            <button 
-              onClick={(e) => { e.stopPropagation(); setViewSlip(null); }} 
-              className="absolute -top-12 right-0 p-2 bg-white/20 hover:bg-white/40 rounded-full text-white transition-colors cursor-pointer"
-            >
-              <X size={24} />
-            </button>
-            <div className="relative w-full h-full bg-black/50 rounded-2xl overflow-hidden border border-white/20 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-              <Image src={viewSlip} alt="Slip Full View" fill className="object-contain" />
-            </div>
+          <button 
+            className="absolute top-6 right-6 text-white hover:text-slate-300 z-[210] bg-white/10 p-2 rounded-full backdrop-blur-sm transition-colors cursor-pointer"
+            onClick={(e) => { e.stopPropagation(); setViewSlip(null); setIsZoomed(false); }}
+          >
+            <X size={24} />
+          </button>
+          
+          <div className="absolute top-6 left-6 text-white/50 text-xs font-bold bg-white/5 px-3 py-1.5 rounded-full backdrop-blur-sm z-[210] pointer-events-none">
+            คลิกที่รูปภาพเพื่อ {isZoomed ? 'ย่อรูป' : 'ซูมรูป'}
+          </div>
+
+          <div 
+            className="relative w-full h-full flex overflow-auto p-4 md:p-10 thin-scrollbar"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img 
+              src={viewSlip} 
+              alt="Slip Full View" 
+              className={`transition-all duration-300 rounded-2xl m-auto shadow-2xl ${isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'}`}
+              style={{ 
+                maxHeight: isZoomed ? 'none' : '100%', 
+                maxWidth: isZoomed ? 'none' : '100%',
+                width: isZoomed ? '250%' : 'auto',
+                objectFit: 'contain'
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsZoomed(!isZoomed);
+              }}
+            />
           </div>
         </div>
       )}

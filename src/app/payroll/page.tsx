@@ -84,6 +84,7 @@ export default function PayrollPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [viewSlip, setViewSlip] = useState<string | null>(null);
+  const [isZoomed, setIsZoomed] = useState(false); // 🌟 เพิ่ม State การซูม
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
 
   useEffect(() => {
@@ -108,17 +109,13 @@ export default function PayrollPage() {
     
     setCurrentUser(session.user);
 
-    // 🌟 ดึงเวลาเริ่มวันใหม่จาก Database (รองรับกะดึกข้ามคืน)
     const { data: settings } = await supabase.from('store_settings').select('business_day_start').eq('id', 1).single();
     const bizTime = settings?.business_day_start || '07:00';
     const [bizHour, bizMin] = bizTime.split(':').map(Number);
 
     const [year, month, day] = dateStr.split('-').map(Number);
     
-    // เริ่มตั้งแต่เวลาทำการของวันที่เลือก
     const startOfDay = new Date(year, month - 1, day, bizHour, bizMin, 0, 0);
-    
-    // สิ้นสุดที่เวลาก่อนเริ่มทำการของวันถัดไป 1 มิลลิวินาที
     const endOfDay = new Date(year, month - 1, day + 1, bizHour, bizMin, 0, 0);
     endOfDay.setMilliseconds(endOfDay.getMilliseconds() - 1);
 
@@ -151,10 +148,12 @@ export default function PayrollPage() {
     return () => clearTimeout(timer);
   }, [selectedDate, fetchRecords]);
 
+  // 🌟 อัปเดตสูตรคำนวณ (หักเงินสะสมออกจากรายวัน)
   const calculatedTotal = useMemo(() => {
     if (editForm.manual_total !== null) return editForm.manual_total;
     const basePay = ((editForm.total_minutes || 0) / 60) * editForm.hourlyRate;
-    return basePay + (editForm.gas_allowance || 0);
+    const total = basePay + (editForm.gas_allowance || 0) - (editForm.accumulated_savings || 0);
+    return Math.max(0, total);
   }, [editForm]);
 
   const openEditModal = (record: AttendanceRecord) => {
@@ -280,13 +279,11 @@ export default function PayrollPage() {
   return (
     <div className="min-h-screen pb-12 transition-all duration-500 bg-slate-50 font-sans">
       
-      {/* Toast */}
       <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-150 ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
         {toast.type === 'error' ? <AlertTriangle size={18} className="text-red-400 mr-2" /> : <CheckCircle2 size={18} className="text-green-400 mr-2" />}
         <span className="font-bold text-sm tracking-wide">{toast.message}</span>
       </div>
 
-      {/* Header */}
       <div className="bg-white/90 backdrop-blur-md border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -305,7 +302,6 @@ export default function PayrollPage() {
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         
-        {/* Controls */}
         <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-center justify-between">
           <div className="flex items-center w-full md:w-auto bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-500/10 transition-all">
             <div className="pl-4 text-slate-400"><Search size={18} /></div>
@@ -331,7 +327,6 @@ export default function PayrollPage() {
           </div>
         </div>
 
-        {/* Data List */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 text-slate-400 space-y-4">
             <Loader2 size={48} className="animate-spin text-emerald-500" />
@@ -367,7 +362,7 @@ export default function PayrollPage() {
               const displayBasePay = (displayMinutes / 60) * currentRate;
               
               const displayTotal = isWorking 
-                ? (displayBasePay + displayGas)
+                ? Math.max(0, displayBasePay + displayGas - (record.accumulated_savings || 0))
                 : (record.total_pay || 0);
               
               return (
@@ -403,7 +398,7 @@ export default function PayrollPage() {
 
                           {record.payment_slip_url && (
                             <button 
-                              onClick={() => setViewSlip(record.payment_slip_url)}
+                              onClick={() => { setViewSlip(record.payment_slip_url); setIsZoomed(false); }}
                               className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100 transition-colors cursor-pointer"
                             >
                               <ImageIcon size={10} /> ดูสลิป
@@ -562,16 +557,16 @@ export default function PayrollPage() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide items-center gap-1"><PiggyBank size={12}/> เงินเก็บ</label>
+                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide items-center gap-1"><PiggyBank size={12}/> เงินเก็บ (หักจากรายวัน)</label>
                     <div className="flex items-center gap-1 mb-1">
-                      <button type="button" onClick={() => setEditForm(p => ({...p, accumulated_savings: Math.max(0, p.accumulated_savings - 50)}))} className="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-rose-50 text-rose-500 active:scale-95"><Minus size={14}/></button>
+                      <button type="button" onClick={() => setEditForm(p => ({...p, accumulated_savings: Math.max(0, p.accumulated_savings - 50), manual_total: null}))} className="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-rose-50 text-rose-500 active:scale-95"><Minus size={14}/></button>
                       <input 
                         type="number" min="0" 
                         value={editForm.accumulated_savings}
-                        onChange={e => setEditForm({...editForm, accumulated_savings: Number(e.target.value)})}
+                        onChange={e => setEditForm({...editForm, accumulated_savings: Number(e.target.value), manual_total: null})}
                         className="w-full p-2 bg-white border border-indigo-200 rounded-lg text-sm text-center font-black text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
                       />
-                      <button type="button" onClick={() => setEditForm(p => ({...p, accumulated_savings: p.accumulated_savings + 50}))} className="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-emerald-50 text-emerald-500 active:scale-95"><Plus size={14}/></button>
+                      <button type="button" onClick={() => setEditForm(p => ({...p, accumulated_savings: p.accumulated_savings + 50, manual_total: null}))} className="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-emerald-50 text-emerald-500 active:scale-95"><Plus size={14}/></button>
                     </div>
                   </div>
                 </div>
@@ -613,7 +608,7 @@ export default function PayrollPage() {
                   className="w-full p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-3xl font-black text-emerald-700 outline-none focus:bg-white focus:ring-4 focus:ring-emerald-500/20 text-center shadow-inner"
                 />
                 <p className="text-[10px] text-center text-slate-400 font-bold mt-2">
-                  *ระบบคำนวณ (ค่าแรง + ค่าน้ำมัน) อัตโนมัติ แต่แอดมินสามารถพิมพ์ปัดเศษยอดเงินได้
+                  *ระบบคำนวณอัตโนมัติ: (ค่าแรง + ค่าน้ำมัน) - เงินเก็บสะสม (พิมพ์เพื่อแก้ไขได้)
                 </p>
               </div>
 
@@ -636,21 +631,43 @@ export default function PayrollPage() {
         </div>
       )}
 
+      {/* 🌟 Modal: แสดงรูปสลิปแบบเต็มจอพร้อมระบบซูมเลื่อนได้ */}
       {viewSlip && (
         <div 
-          className="fixed inset-0 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4 z-200 animate-in fade-in duration-200"
-          onClick={() => setViewSlip(null)}
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/95 backdrop-blur-md p-4 animate-in fade-in duration-200"
+          onClick={() => { setViewSlip(null); setIsZoomed(false); }}
         >
-          <div className="relative max-w-2xl w-full h-[80vh] flex flex-col items-center justify-center">
-            <button 
-              onClick={(e) => { e.stopPropagation(); setViewSlip(null); }} 
-              className="absolute -top-12 right-0 p-2 bg-white/20 hover:bg-white/40 rounded-full text-white transition-colors cursor-pointer"
-            >
-              <X size={24} />
-            </button>
-            <div className="relative w-full h-full bg-black/50 rounded-2xl overflow-hidden border border-white/20 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-              <Image src={viewSlip} alt="Slip Full View" fill className="object-contain" />
-            </div>
+          <button 
+            className="absolute top-6 right-6 text-white hover:text-slate-300 z-[210] bg-white/10 p-2 rounded-full backdrop-blur-sm transition-colors cursor-pointer"
+            onClick={(e) => { e.stopPropagation(); setViewSlip(null); setIsZoomed(false); }}
+          >
+            <X size={24} />
+          </button>
+          
+          <div className="absolute top-6 left-6 text-white/50 text-xs font-bold bg-white/5 px-3 py-1.5 rounded-full backdrop-blur-sm z-[210] pointer-events-none">
+            คลิกที่รูปภาพเพื่อ {isZoomed ? 'ย่อรูป' : 'ซูมรูป'}
+          </div>
+
+          <div 
+            className="relative w-full h-full flex overflow-auto p-4 md:p-10 thin-scrollbar"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img 
+              src={viewSlip} 
+              alt="Slip Full View" 
+              className={`transition-all duration-300 rounded-2xl m-auto shadow-2xl ${isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'}`}
+              style={{ 
+                maxHeight: isZoomed ? 'none' : '100%', 
+                maxWidth: isZoomed ? 'none' : '100%',
+                width: isZoomed ? '250%' : 'auto',
+                objectFit: 'contain'
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsZoomed(!isZoomed);
+              }}
+            />
           </div>
         </div>
       )}
