@@ -23,7 +23,6 @@ import {
   LayoutDashboard,
   Search,
   Store,
-  CheckCircle2,
   Sun,
   Volume2,
   Shrink,
@@ -42,7 +41,6 @@ import {
   ClipboardList,
   MapPin,
   Plus,
-  AlertTriangle,
   Utensils,
   Calendar,
   Calculator,
@@ -74,7 +72,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   interface SavedLocation { id: string; name: string; lat: number; lng: number; address?: string; }
   interface BranchMenu { id: string; menu_name: string; price: number; branch_id: string; }
   interface ContactSource { id: string; name: string; branch_id: string; }
-  interface CalcItem { name: string; qty: number; unitPrice: number; total: number; found: boolean; }
   interface UnifiedSearchResult { type: string; name: string; address?: string; lat?: number; lng?: number; distanceText?: string; menu_name?: string; price?: number; place_id?: string; }
 
 
@@ -85,7 +82,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
   const [adminName, setAdminName] = useState<string>("กำลังโหลด...");
   const [currentUserRole, setCurrentUserRole] = useState<string>("kitchen");
-  const [setSavedLocations] = useState<SavedLocation[]>([]);
   const [allBranchMenus, setAllBranchMenus] = useState<BranchMenu[]>([]);
   const [contactSources, setContactSources] = useState<ContactSource[]>([]);
   const [isEmergencyMode, setIsEmergencyMode] = useState<boolean>(false);
@@ -254,10 +250,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     if (error) console.error(error);
     if (data) setRidersLoc(data as RiderLocation[]);
   }, [currentBranchId]);
-
-  // 🌟 Smart Menu Matching
-  const normalizeText = (text: string) => text.replace(/[\s\+\-\*\/_.,]/g, '').toLowerCase();
-
 
   // ---------------------------------------------------------------------------
   // 3. EFFECTS
@@ -703,12 +695,13 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       while (isDuplicate && attempts < 10) {
         const { data: existing } = await supabase
           .from("orders")
-          .select("id")
+          .select("id, is_deleted, is_archived")
           .eq("order_number", finalNumToUse)
-          .eq("branch_id", currentBranchId)
-          .limit(1);
+          .eq("branch_id", currentBranchId);
 
-        if (existing && existing.length > 0) {
+        const isExistingActive = existing && existing.some((o: Partial<Order>) => o.is_deleted !== true && o.is_archived !== true);
+
+        if (isExistingActive) {
           const currentNumMatch = String(finalNumToUse).match(/\d+/);
           if (currentNumMatch) {
             const num = parseInt(currentNumMatch[0], 10);
