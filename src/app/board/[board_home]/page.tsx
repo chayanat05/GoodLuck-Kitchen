@@ -135,8 +135,8 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     details: "",
     location_name: "",
     address: "",
-    total_price: "10",
-    delivery_fee: "10",
+    total_price: "",
+    delivery_fee: "0",
     payment_method: "",
     lat: null as number | null,
     lng: null as number | null,
@@ -550,8 +550,8 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       details: "",
       location_name: "",
       address: "",
-      total_price: "10",
-      delivery_fee: "10",
+      total_price: "",
+      delivery_fee: "0",
       payment_method: "",
       lat: null,
       lng: null,
@@ -574,8 +574,8 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       details: order.details || "",
       location_name: order.address || "",
       address: "",
-      total_price: order.total_price.toString(),
-      delivery_fee: order.delivery_fee?.toString() || "10",
+      total_price: order.total_price ? order.total_price.toString() : "",
+      delivery_fee: order.delivery_fee?.toString() || "0",
       payment_method: order.payment_method || "โอน",
       lat: order.lat || null,
       lng: order.lng || null,
@@ -1895,7 +1895,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
               {formData.job_type !== "shopee" && (
                 <div className="space-y-2 pt-2 border-t border-slate-800 mt-2">
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-[10px] font-black text-slate-400 mb-1 tracking-wide uppercase">
                         ค่าอาหาร (บาท)
@@ -1907,33 +1907,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                         className="w-full bg-indigo-900 border border-indigo-700 p-2.5 rounded-xl text-lg outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-500 transition-all font-black text-white placeholder-indigo-300 shadow-sm"
                         value={formData.total_price}
                         onChange={(e) => setFormData({ ...formData, total_price: e.target.value.replace(/[^0-9]/g, "") })}
-                        placeholder="0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-400 mb-1 tracking-wide uppercase">
-                        ค่าส่ง (บาท)
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        inputMode="numeric"
-                        className="w-full bg-orange-900 border border-orange-700 p-2.5 rounded-xl text-lg outline-none focus:ring-2 focus:ring-orange-600 focus:border-orange-500 transition-all font-black text-white placeholder-orange-300 shadow-sm"
-                        value={formData.delivery_fee}
-                        onChange={(e) => {
-                          const newFeeStr = e.target.value.replace(/[^0-9]/g, "");
-                          const newFeeNum = parseInt(newFeeStr || "0", 10);
-                          const oldFeeNum = parseInt(formData.delivery_fee || "0", 10);
-                          const currentTotal = parseInt(formData.total_price || "0", 10);
-                          
-                          const newTotal = currentTotal - oldFeeNum + newFeeNum;
-                          
-                          setFormData({ 
-                            ...formData, 
-                            delivery_fee: newFeeStr, 
-                            total_price: Math.max(0, newTotal).toString() 
-                          });
-                        }}
                         placeholder="0"
                       />
                     </div>
@@ -2074,14 +2047,10 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                       <span>ค่าอาหาร</span>
                       <span>฿{Number(formData.total_price || 0).toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span>ค่าส่ง</span>
-                      <span>฿{Number(formData.delivery_fee || 0).toLocaleString()}</span>
-                    </div>
                   </div>
                   <div className="border-t border-slate-700 pt-4 mt-4 flex justify-between items-center text-white font-black text-lg">
                     <span>รวมทั้งหมด</span>
-                    <span>฿{(Number(formData.total_price || 0) + Number(formData.delivery_fee || 0)).toLocaleString()}</span>
+                    <span>฿{Number(formData.total_price || 0).toLocaleString()}</span>
                   </div>
                 </div>
 
