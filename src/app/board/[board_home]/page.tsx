@@ -234,7 +234,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       .from("contact_sources")
       .select("*")
       .eq("branch_id", currentBranchId)
-      .order("created_at", { ascending: false }); 
+      .order("created_at", { ascending: true }); 
 
     if (menuData) setAllBranchMenus(menuData as BranchMenu[]);
     if (sourceData) setContactSources(sourceData as ContactSource[]);
@@ -451,6 +451,11 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
     const syncChannel = supabase
       .channel("public:sync_menus_sources")
+      .on("broadcast", { event: "sync" }, (payload) => {
+        if (payload.payload?.branch_id === currentBranchId) {
+          fetchOrdersAndLocations();
+        }
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "branch_menus", filter: `branch_id=eq.${currentBranchId}` }, () => fetchOrdersAndLocations())
       .on("postgres_changes", { event: "*", schema: "public", table: "contact_sources", filter: `branch_id=eq.${currentBranchId}` }, () => fetchOrdersAndLocations())
       .subscribe();

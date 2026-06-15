@@ -104,7 +104,7 @@ export default function MenusManagementPage() {
         .from("contact_sources")
         .select("*")
         .eq("branch_id", selectedBranchId)
-        .order("name", { ascending: false });
+        .order("created_at", { ascending: true });
 
       setMenus((menuData as BranchMenu[]) || []);
       setSources((sourceData as ContactSource[]) || []);
@@ -150,12 +150,22 @@ export default function MenusManagementPage() {
     const table = activeTab === "menus" ? "branch_menus" : "contact_sources";
     const { error } = await supabase.from(table).delete().eq("id", id);
     
+    const broadcastSync = () => {
+      const channel = supabase.channel("public:sync_menus_sources");
+      channel.subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          channel.send({ type: "broadcast", event: "sync", payload: { branch_id: selectedBranchId } }).then(() => supabase.removeChannel(channel));
+        }
+      });
+    };
+
     if (error) {
       showToast("ลบข้อมูลไม่สำเร็จ", "error");
     } else {
       showToast("ลบข้อมูลเรียบร้อยแล้ว", "success");
       if (activeTab === "menus") setMenus(prev => prev.filter(m => m.id !== id));
       else setSources(prev => prev.filter(s => s.id !== id));
+      broadcastSync();
     }
   };
 
@@ -200,6 +210,15 @@ export default function MenusManagementPage() {
       payload = { branch_id: selectedBranchId, name: checkName };
     }
 
+    const broadcastSync = () => {
+      const channel = supabase.channel("public:sync_menus_sources");
+      channel.subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          channel.send({ type: "broadcast", event: "sync", payload: { branch_id: selectedBranchId } }).then(() => supabase.removeChannel(channel));
+        }
+      });
+    };
+
     if (editingId) {
       const { data, error } = await supabase.from(table).update(payload).eq("id", editingId).select();
       if (error) showToast("แก้ไขไม่สำเร็จ", "error");
@@ -208,6 +227,7 @@ export default function MenusManagementPage() {
         else setSources(prev => prev.map(s => s.id === editingId ? data[0] as ContactSource : s));
         showToast("อัปเดตข้อมูลเรียบร้อย", "success");
         setIsModalOpen(false);
+        broadcastSync();
       }
     } else {
       const { data, error } = await supabase.from(table).insert([payload]).select();
@@ -218,6 +238,7 @@ export default function MenusManagementPage() {
         else setSources(prev => [data[0] as ContactSource, ...prev]);
         showToast("เพิ่มข้อมูลใหม่เรียบร้อย", "success");
         setIsModalOpen(false);
+        broadcastSync();
       }
     }
     setIsSubmitting(false);
