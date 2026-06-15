@@ -115,6 +115,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [selectedRiderMapInfo, setSelectedRiderMapInfo] = useState<RiderLocation | null>(null);
   const [menuModalSearchQuery, setMenuModalSearchQuery] = useState("");
   const [calcInput, setCalcInput] = useState("");
+  const [isAudioUnlocked, setIsAudioUnlocked] = useState<boolean>(false); // 🌟 State สำหรับการปลดล็อกเสียงแบบชัวร์ๆ
   
   const calcResult = useMemo(() => {
     try {
@@ -255,19 +256,15 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   // 3. EFFECTS
   // ---------------------------------------------------------------------------
 
-  // Unlock audio on first user interaction for iOS Safari
+  // Unlock audio on first user interaction for iOS Safari and setup silent loop to keep context alive
   useEffect(() => {
-    // Initialize audio object if it hasn't been already
     if (!notificationAudio.current) {
       notificationAudio.current = new Audio(NOTIFICATION_SOUND_URL);
-      // Preload the audio to make it ready for playback
       notificationAudio.current.preload = "auto";
     }
 
     const unlockAudio = () => {
       if (notificationAudio.current) {
-        // Unlocking process for iOS: play with volume 0, then pause immediately.
-        // DO NOT use muted = true, as iOS Safari will only unlock for muted playback if you do.
         notificationAudio.current.volume = 0;
         
         const playPromise = notificationAudio.current.play();
@@ -276,12 +273,32 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
             if (notificationAudio.current) {
               notificationAudio.current.pause();
               notificationAudio.current.currentTime = 0;
-              notificationAudio.current.volume = 1; // Restore volume for actual notifications
+              notificationAudio.current.volume = 1;
+              setIsAudioUnlocked(true); // ✅ จำไว้ว่าปลดล็อกสำเร็จแล้ว
+              
+              // 🌟 เคล็ดลับแก้หายขาด: ปล่อย Oscillator เสียงเงียบๆ ทำงานตลอดเวลาเพื่อเลี้ยง Audio Context
+              try {
+                const webkitWindow = window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext };
+                const AudioContextClass = window.AudioContext || webkitWindow.webkitAudioContext;
+                if (AudioContextClass) {
+                  const ctx = new AudioContextClass();
+                  const oscillator = ctx.createOscillator();
+                  const gainNode = ctx.createGain();
+                  gainNode.gain.value = 0.001; // เสียงเบามากๆ จนไม่ได้ยิน
+                  oscillator.connect(gainNode);
+                  gainNode.connect(ctx.destination);
+                  oscillator.start();
+                  // ไม่สั่ง stop() เพื่อให้มันเลี้ยงแท็บนี้ไม่ให้โดนระงับ Audio
+                }
+              } catch (e) {
+                console.error("Silent loop trick failed:", e);
+              }
+
             }
           }).catch((error) => {
             console.warn("Audio unlock failed:", error);
             if (notificationAudio.current) {
-              notificationAudio.current.volume = 1; // Restore volume anyway
+              notificationAudio.current.volume = 1; 
             }
           });
         }
@@ -371,9 +388,25 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       .channel(`orders-${currentBranchId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
           if (!payload.new.is_archived && !payload.new.is_deleted) {
-            if (notificationAudio.current) {
+            try {
+              if (!notificationAudio.current) {
+                notificationAudio.current = new Audio(NOTIFICATION_SOUND_URL);
+              }
+              // Force browser to reload/prepare audio data to prevent it from going to sleep
+              notificationAudio.current.load();
               notificationAudio.current.currentTime = 0;
-              notificationAudio.current.play().catch(() => {});
+              notificationAudio.current.volume = 1;
+              const playPromise = notificationAudio.current.play();
+              if (playPromise !== undefined) {
+                playPromise.catch((error) => {
+                  console.error("Audio play failed on new order:", error);
+                  // Sometimes browsers block audio if it wasn't triggered by user interaction recently.
+                  // There is no perfect workaround for this other than user clicking again,
+                  // but we log it so we know it happened.
+                });
+              }
+            } catch (err) {
+              console.error("Error initializing audio:", err);
             }
             showToast(`🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`);
             setOrders(prev => {
@@ -387,16 +420,26 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
           setOrders(prev => {
             const isArchivedOrDeleted = payload.new.is_archived || payload.new.is_deleted;
             const exists = prev.some(o => o.id === payload.new.id);
-            
+
             if (isArchivedOrDeleted) {
               return prev.filter(o => o.id !== payload.new.id);
             }
-            
+
+            let newOrders = [];
             if (!exists) {
-              return [payload.new as Order, ...prev];
+              newOrders = [payload.new as Order, ...prev];
+            } else {
+              newOrders = prev.map(o => o.id === payload.new.id ? { ...o, ...payload.new as Order } : o);
             }
-            
-            return prev.map(o => o.id === payload.new.id ? { ...o, ...payload.new as Order } : o);
+
+            // 🌟 แก้ปัญหาข้อ 2: เรียง Array ใหม่ทุกครั้งที่มีการอัปเดต เพื่อให้ sort_index ขยับจริงในเครื่องอื่น
+            return newOrders.sort((a, b) => {
+              const sortA = a.sort_index ?? 0;
+              const sortB = b.sort_index ?? 0;
+              if (sortA !== sortB) return sortA - sortB;
+              // ถ้า sort_index เท่ากัน (เช่นสร้างใหม่) ให้เรียงตามเวลาลดหลั่นลงมา
+              return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+            });
           });
         }
       )
