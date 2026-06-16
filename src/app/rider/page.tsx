@@ -930,17 +930,8 @@ export default function RiderPage() {
           </div>
         </div>
         
-        {/* 🌟 ปุ่มตอกบัตรเข้า-ออก */}
+        {/* 🌟 ส่วนแสดงชื่อ */}
         <div className="flex items-center gap-2">
-          {activeAttendance ? (
-            <button onClick={() => { setCameraAction('out'); setShowCameraModal(true); }} className="bg-rose-100 text-rose-600 px-3 py-1.5 rounded-full text-[10px] font-black tracking-wide shadow-sm border border-rose-200 active:scale-95 transition-all cursor-pointer">
-              ตอกออก
-            </button>
-          ) : (
-            <button onClick={() => { setCameraAction('in'); setShowCameraModal(true); }} className="bg-emerald-100 text-emerald-600 px-3 py-1.5 rounded-full text-[10px] font-black tracking-wide shadow-sm border border-emerald-200 active:scale-95 transition-all cursor-pointer">
-              ตอกเข้า
-            </button>
-          )}
           <div className="bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full text-[10px] font-black tracking-wide text-slate-600 shadow-inner truncate max-w-25">
             {riderName}
           </div>
@@ -1151,6 +1142,17 @@ export default function RiderPage() {
               </p>
             </div>
             <div className="flex-1 p-4 space-y-2 overflow-y-auto bg-slate-50">
+              {/* 🌟 ปุ่มตอกบัตรเข้า-ออก (ย้ายจาก Header) */}
+              {activeAttendance ? (
+                <button onClick={() => { setIsMenuOpen(false); setCameraAction('out'); setShowCameraModal(true); }} className="w-full py-3 mb-2 bg-rose-100 text-rose-600 rounded-xl text-sm font-black shadow-sm border border-rose-200 active:scale-95 transition-all cursor-pointer flex justify-center items-center">
+                  <LogOut size={16} className="mr-2" /> ออกงาน
+                </button>
+              ) : (
+                <button onClick={() => { setIsMenuOpen(false); setCameraAction('in'); setShowCameraModal(true); }} className="w-full py-3 mb-2 bg-emerald-100 text-emerald-600 rounded-xl text-sm font-black shadow-sm border border-emerald-200 active:scale-95 transition-all cursor-pointer flex justify-center items-center">
+                  <Clock size={16} className="mr-2" /> เข้างาน
+                </button>
+              )}
+
               {(currentUserRole === "admin" || currentUserRole === "superadmin") && (
                 <Link
                   href="/home"

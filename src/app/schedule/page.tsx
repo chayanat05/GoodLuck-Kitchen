@@ -528,92 +528,96 @@ export default function SchedulePage() {
       </div>
 
       {/* --- 🌟 ฟิลเตอร์กรองตำแหน่ง & ปุ่ม AI --- */}
-      <div className="mb-6 flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm animate-in fade-in">
-        <div className="flex items-center gap-2 overflow-x-auto w-full md:w-auto pb-2 md:pb-0 scrollbar-hide">
-          <span className="text-xs font-black text-slate-400 uppercase mr-2"><Users size={14} className="inline mr-1"/> ตัวกรอง:</span>
-          {['all', 'kitchen', 'rider', 'admin'].map(role => (
-            <button 
-              key={role}
-              onClick={() => setFilterRole(role)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                filterRole === role ? 'bg-slate-800 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-              }`}
-            >
-              {role === 'all' ? 'ทั้งหมด' : role === 'kitchen' ? '🍳 แม่ครัว' : role === 'rider' ? '🛵 ไรเดอร์' : '🌟 แอดมิน'}
-            </button>
-          ))}
-        </div>
-
-        {userRole === 'superadmin' && (
-          <div className="flex gap-2 w-full md:w-auto">
-            {schedules.length === 0 && (
-              <button onClick={handleCopyPrevMonthClick} disabled={isCopying} className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 px-5 py-2.5 rounded-xl flex items-center gap-2 font-bold transition-all shadow-sm active:scale-95 text-xs cursor-pointer">
-                {isCopying ? <Loader2 className="animate-spin" size={16}/> : <Copy size={16} />} ใช้ข้อมูลเดือนที่แล้ว
+      {(userRole === 'admin' || userRole === 'superadmin') && (
+        <div className="mb-6 flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm animate-in fade-in">
+          <div className="flex items-center gap-2 overflow-x-auto w-full md:w-auto pb-2 md:pb-0 scrollbar-hide">
+            <span className="text-xs font-black text-slate-400 uppercase mr-2"><Users size={14} className="inline mr-1"/> ตัวกรอง:</span>
+            {['all', 'kitchen', 'rider', 'admin'].map(role => (
+              <button 
+                key={role}
+                onClick={() => setFilterRole(role)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                  filterRole === role ? 'bg-slate-800 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                }`}
+              >
+                {role === 'all' ? 'ทั้งหมด' : role === 'kitchen' ? '🍳 แม่ครัว' : role === 'rider' ? '🛵 ไรเดอร์' : '🌟 แอดมิน'}
               </button>
-            )}
-            <button onClick={() => setIsAutoModalOpen(true)} className="flex-1 md:flex-none bg-linear-to-r from-violet-600 to-fuchsia-600 hover:from-violet-700 hover:to-fuchsia-700 text-white px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 font-bold transition-all shadow-md active:scale-95 text-xs cursor-pointer">
-              <Wand2 size={16} /> เทรน AI อัตโนมัติ
-            </button>
+            ))}
           </div>
-        )}
-      </div>
+
+          {userRole === 'superadmin' && (
+            <div className="flex gap-2 w-full md:w-auto">
+              {schedules.length === 0 && (
+                <button onClick={handleCopyPrevMonthClick} disabled={isCopying} className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 px-5 py-2.5 rounded-xl flex items-center gap-2 font-bold transition-all shadow-sm active:scale-95 text-xs cursor-pointer">
+                  {isCopying ? <Loader2 className="animate-spin" size={16}/> : <Copy size={16} />} ใช้ข้อมูลเดือนที่แล้ว
+                </button>
+              )}
+              <button onClick={() => setIsAutoModalOpen(true)} className="flex-1 md:flex-none bg-linear-to-r from-violet-600 to-fuchsia-600 hover:from-violet-700 hover:to-fuchsia-700 text-white px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 font-bold transition-all shadow-md active:scale-95 text-xs cursor-pointer">
+                <Wand2 size={16} /> เทรน AI อัตโนมัติ
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* --- Calendar View Table --- */}
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden animate-in fade-in duration-500">
-        <div className="grid grid-cols-7 bg-slate-50 border-b border-slate-100">
-          {dayNamesShort.map((day, i) => (
-            <div key={i} className={`p-3 md:p-4 text-center text-xs md:text-sm font-black uppercase ${i === 0 || i === 6 ? 'text-rose-500' : 'text-slate-500'}`}>{day}</div>
-          ))}
-        </div>
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-x-auto animate-in fade-in duration-500">
+        <div className="min-w-[700px]">
+          <div className="grid grid-cols-7 bg-slate-50 border-b border-slate-100">
+            {dayNamesShort.map((day, i) => (
+              <div key={i} className={`p-3 md:p-4 text-center text-xs md:text-sm font-black uppercase ${i === 0 || i === 6 ? 'text-rose-500' : 'text-slate-500'}`}>{day}</div>
+            ))}
+          </div>
 
-        <div className="grid grid-cols-7 auto-rows-[120px] md:auto-rows-[160px]">
-          {calendarDays.map((dateStr, idx) => {
-            if (!dateStr) return <div key={`empty-${idx}`} className="border-b border-r border-slate-50 bg-slate-50/30"></div>;
-            const dayNum = parseInt(dateStr.split('-')[2]);
-            const isToday = dateStr === getLocalFormattedDate(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
-            const isSelected = selectedDays.includes(dateStr);
+          <div className="grid grid-cols-7 auto-rows-[120px] md:auto-rows-[160px]">
+            {calendarDays.map((dateStr, idx) => {
+              if (!dateStr) return <div key={`empty-${idx}`} className="border-b border-r border-slate-50 bg-slate-50/30"></div>;
+              const dayNum = parseInt(dateStr.split('-')[2]);
+              const isToday = dateStr === getLocalFormattedDate(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+              const isSelected = selectedDays.includes(dateStr);
 
-            const daySchedules = schedules.filter(s => 
-              s.work_date === dateStr && (filterRole === 'all' || s.profiles?.role === filterRole)
-            );
+              const daySchedules = schedules.filter(s => 
+                s.work_date === dateStr && (filterRole === 'all' || s.profiles?.role === filterRole)
+              );
 
-            return (
-              <div key={dateStr} onClick={() => handleDayClick(dateStr)} className={`border-b border-r border-slate-100 p-1.5 md:p-3 relative group transition-all cursor-pointer ${isToday ? 'bg-blue-50/30' : 'hover:bg-blue-50/50'} ${isSelected ? 'bg-violet-50/50 ring-inset ring-2 ring-violet-200' : ''}`}>
-                
-                <div className={`text-right text-xs md:text-sm mb-2 flex justify-end`}>
-                  <button 
-                    onClick={(e) => toggleDaySelection(e, dateStr)}
-                    disabled={userRole !== 'superadmin'}
-                    className={`w-7 h-7 md:w-8 md:h-8 rounded-xl flex items-center justify-center font-bold transition-all ${
-                      isSelected ? 'bg-violet-600 text-white shadow-md ring-2 ring-violet-200 scale-110' : 
-                      isToday ? 'bg-blue-100 text-blue-600' : 
-                      userRole === 'superadmin' ? 'text-slate-400 hover:bg-slate-100 cursor-pointer' : 'text-slate-400 cursor-default'
-                    }`}
-                  >
-                    {dayNum}
-                  </button>
+              return (
+                <div key={dateStr} onClick={() => handleDayClick(dateStr)} className={`border-b border-r border-slate-100 p-1.5 md:p-3 relative group transition-all cursor-pointer ${isToday ? 'bg-blue-50/30' : 'hover:bg-blue-50/50'} ${isSelected ? 'bg-violet-50/50 ring-inset ring-2 ring-violet-200' : ''}`}>
+                  
+                  <div className={`text-right text-xs md:text-sm mb-2 flex justify-end`}>
+                    <button 
+                      onClick={(e) => toggleDaySelection(e, dateStr)}
+                      disabled={userRole !== 'superadmin'}
+                      className={`w-7 h-7 md:w-8 md:h-8 rounded-xl flex items-center justify-center font-bold transition-all ${
+                        isSelected ? 'bg-violet-600 text-white shadow-md ring-2 ring-violet-200 scale-110' : 
+                        isToday ? 'bg-blue-100 text-blue-600' : 
+                        userRole === 'superadmin' ? 'text-slate-400 hover:bg-slate-100 cursor-pointer' : 'text-slate-400 cursor-default'
+                      }`}
+                    >
+                      {dayNum}
+                    </button>
+                  </div>
+                  
+                  <div className="flex flex-col gap-1.5 overflow-y-auto max-h-17.5 md:max-h-25 scrollbar-hide">
+                    {daySchedules.map(s => {
+                      const sName = detectShiftName(s.start_time, s.end_time);
+                      const bgClass = sName === 'กะเช้า' ? 'bg-blue-50 text-blue-700 border-blue-100' : 
+                                      sName === 'กะค่ำ' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-slate-50 text-slate-700 border-slate-200';
+                      return (
+                        <div key={s.id} className={`text-[9px] md:text-xs px-1.5 md:px-2 py-1 rounded font-bold flex flex-col border truncate ${bgClass}`}>
+                          <span className="truncate">{s.profiles?.username || 'พนักงาน'}</span>
+                          <span className="opacity-70 mt-0.5 font-mono">{s.start_time.substring(0, 5)}-{s.end_time.substring(0, 5)} น.</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  
+                  {userRole === 'superadmin' && !isSelected && (
+                    <div className="absolute bottom-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity"><div className="bg-white text-blue-500 rounded-md p-1 shadow-sm border border-slate-100"><Plus size={14}/></div></div>
+                  )}
                 </div>
-                
-                <div className="flex flex-col gap-1.5 overflow-y-auto max-h-17.5 md:max-h-25 scrollbar-hide">
-                  {daySchedules.map(s => {
-                    const sName = detectShiftName(s.start_time, s.end_time);
-                    const bgClass = sName === 'กะเช้า' ? 'bg-blue-50 text-blue-700 border-blue-100' : 
-                                    sName === 'กะค่ำ' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-slate-50 text-slate-700 border-slate-200';
-                    return (
-                      <div key={s.id} className={`text-[9px] md:text-xs px-1.5 md:px-2 py-1 rounded font-bold flex flex-col border truncate ${bgClass}`}>
-                        <span className="truncate">[{sName}] {s.profiles?.username || 'พนักงาน'}</span>
-                        <span className="opacity-70 mt-0.5 font-mono">{s.start_time.substring(0, 5)}-{s.end_time.substring(0, 5)} น.</span>
-                      </div>
-                    );
-                  })}
-                </div>
-                
-                {userRole === 'superadmin' && !isSelected && (
-                  <div className="absolute bottom-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity"><div className="bg-white text-blue-500 rounded-md p-1 shadow-sm border border-slate-100"><Plus size={14}/></div></div>
-                )}
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -696,7 +700,7 @@ export default function SchedulePage() {
                         <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md uppercase tracking-wider font-bold">{schedule.profiles?.role}</span>
                       </p>
                       <div className="flex items-center gap-3 mt-1.5 text-xs font-bold text-slate-500">
-                        <span className="flex items-center gap-1"><Clock size={12}/> ({detectShiftName(schedule.start_time, schedule.end_time)}) {schedule.start_time.substring(0, 5)} - {schedule.end_time.substring(0, 5)} น.</span>
+                        <span className="flex items-center gap-1"><Clock size={12}/> {schedule.start_time.substring(0, 5)} - {schedule.end_time.substring(0, 5)} น.</span>
                         <span className={`${schedule.status === 'ทำงาน' ? 'text-emerald-500' : 'text-rose-500'}`}>{schedule.status}</span>
                       </div>
                     </div>

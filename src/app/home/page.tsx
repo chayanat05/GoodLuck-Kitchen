@@ -212,7 +212,7 @@ export default function BranchSelectorPage() {
 
   const handleBulkAction = async (type: 'in' | 'out') => {
     if (selectedEmployees.length === 0) return;
-    const isConfirmed = window.confirm(`ยืนยันการตอก${type === 'in' ? 'เข้า' : 'ออก'}งาน ${selectedEmployees.length} คนพร้อมกัน?`);
+    const isConfirmed = window.confirm(`ยืนยันการ${type === 'in' ? 'เข้า' : 'ออก'}งาน ${selectedEmployees.length} คนพร้อมกัน?`);
     if (!isConfirmed) return;
 
     setIsSubmitting(true);
@@ -763,7 +763,7 @@ export default function BranchSelectorPage() {
                           disabled={isSubmitting}
                           className="px-3 py-2 bg-rose-50 text-rose-600 hover:bg-rose-500 hover:text-white border border-rose-100 rounded-xl text-xs font-black transition-colors active:scale-95 shadow-sm whitespace-nowrap"
                         >
-                          ตอกออก
+                          ออกงาน
                         </button>
                       ) : (
                         <button 
@@ -771,7 +771,7 @@ export default function BranchSelectorPage() {
                           disabled={isSubmitting}
                           className="px-3 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white border border-emerald-100 rounded-xl text-xs font-black transition-colors active:scale-95 shadow-sm whitespace-nowrap"
                         >
-                          ตอกเข้า
+                          เข้างาน
                         </button>
                       )}
                     </div>
