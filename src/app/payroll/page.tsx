@@ -26,7 +26,9 @@ interface AttendanceRecord {
   payment_slip_url: string | null; 
   profiles: {
     username: string;
+    role?: string;
   } | null;
+  real_time_order_count?: number;
 }
 
 interface EditForm {
@@ -42,13 +44,12 @@ interface EditForm {
 }
 
 const getAutoGasAllowance = (orders: number): number => {
-  if (orders >= 71) return 350;
-  if (orders >= 61) return 300;
-  if (orders >= 51) return 250;
-  if (orders >= 41) return 200;
-  if (orders >= 31) return 150;
-  if (orders >= 21) return 100;
-  if (orders >= 10) return 50;
+  if (orders >= 80) return 300;
+  if (orders >= 65) return 250;
+  if (orders >= 50) return 200;
+  if (orders >= 35) return 150;
+  if (orders >= 25) return 100;
+  if (orders >= 15) return 50;
   return 0; 
 };
 
@@ -121,7 +122,7 @@ export default function PayrollPage() {
 
     const { data, error } = await supabase
       .from('rider_attendance')
-      .select('*, profiles(username)')
+      .select('*, profiles(username, role)')
       .gte('check_in', startOfDay.toISOString())
       .lte('check_in', endOfDay.toISOString())
       .order('check_in', { ascending: false });
@@ -135,7 +136,35 @@ export default function PayrollPage() {
         profiles: Array.isArray(item.profiles) ? item.profiles[0] : item.profiles
       })) as AttendanceRecord[];
       
-      setRecords(formattedData);
+      const recordsWithOrders = await Promise.all(formattedData.map(async (record) => {
+        if (record.profiles?.role === 'rider' || record.profiles?.role === 'admin' || record.profiles?.role === 'superadmin') {
+          // Fetch orders and filter in JS to perfectly match DashboardView logic
+          const { data: riderOrders } = await supabase
+            .from('orders')
+            .select('created_at, end_time')
+            .eq('rider_id', record.rider_id)
+            .eq('status', 'ส่งแล้ว/เสร็จ');
+            
+          let count = 0;
+          if (riderOrders) {
+            count = riderOrders.filter(o => {
+              const d = new Date(o.end_time || o.created_at);
+              return d >= startOfDay && d < endOfDay;
+            }).length;
+          }
+
+          return {
+            ...record,
+            real_time_order_count: count
+          };
+        }
+        return {
+          ...record,
+          real_time_order_count: 0
+        };
+      }));
+
+      setRecords(recordsWithOrders);
     }
     
     setLoading(false);
@@ -171,8 +200,11 @@ export default function PayrollPage() {
       rate = (record.base_pay / liveMinutes) * 60;
     }
 
-    const currentOrders = record.order_count || 0;
-    const proposedGas = isWorking ? getAutoGasAllowance(currentOrders) : (record.gas_allowance || 0);
+    const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
+    const autoGas = getAutoGasAllowance(currentOrders);
+    const proposedGas = (record.payment_status === 'จ่ายแล้ว' || (record.gas_allowance && record.gas_allowance > 0)) 
+      ? record.gas_allowance 
+      : autoGas;
 
     setEditForm({
       hourlyRate: Math.round(rate),
@@ -352,8 +384,10 @@ export default function PayrollPage() {
                 displayMinutes = Math.floor((currentTime.getTime() - checkInTime) / 60000);
               }
 
-              const currentOrders = record.order_count || 0;
-              const displayGas = isWorking ? getAutoGasAllowance(currentOrders) : (record.gas_allowance || 0);
+              const showOrderAndGas = record.profiles?.role === 'rider' || record.profiles?.role === 'admin' || record.profiles?.role === 'superadmin';
+              const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
+              const autoGas = getAutoGasAllowance(currentOrders);
+              const displayGas = (isPaid || (record.gas_allowance && record.gas_allowance > 0)) ? record.gas_allowance : autoGas;
 
               let currentRate = 40;
               if ((record.base_pay || 0) > 0 && (record.total_minutes || 0) > 0) {
@@ -362,7 +396,7 @@ export default function PayrollPage() {
               const displayBasePay = (displayMinutes / 60) * currentRate;
               
               const displayTotal = isWorking 
-                ? Math.max(0, displayBasePay + displayGas - (record.accumulated_savings || 0))
+                ? Math.max(0, displayBasePay + (showOrderAndGas ? displayGas : 0) - (record.accumulated_savings || 0))
                 : (record.total_pay || 0);
               
               return (
@@ -415,19 +449,23 @@ export default function PayrollPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-y-3 gap-x-2 text-xs font-bold text-slate-600 mb-4 relative z-10">
+                  <div className={`grid ${showOrderAndGas ? 'grid-cols-2' : 'grid-cols-1'} gap-y-3 gap-x-2 text-xs font-bold text-slate-600 mb-4 relative z-10`}>
                     <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
                       <Clock size={14} className="text-blue-500 shrink-0"/> 
                       <span>{displayMinutes >= 60 ? `${Math.floor(displayMinutes / 60)} ชม. ${displayMinutes % 60} นาที` : `${displayMinutes} นาที`}</span> 
                     </div>
-                    <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
-                      <Package size={14} className="text-orange-500 shrink-0"/> 
-                      <span>{currentOrders} งาน</span>
-                    </div>
-                    <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
-                      <Fuel size={14} className="text-slate-400 shrink-0"/> 
-                      <span>น้ำมัน: ฿{displayGas.toLocaleString()}</span>
-                    </div>
+                    {showOrderAndGas && (
+                      <>
+                        <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
+                          <Package size={14} className="text-orange-500 shrink-0"/> 
+                          <span>{currentOrders} งาน</span>
+                        </div>
+                        <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg col-span-2">
+                          <Fuel size={14} className="text-slate-400 shrink-0"/> 
+                          <span>น้ำมัน: ฿{displayGas.toLocaleString()}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100 mb-5 flex justify-between text-xs font-bold text-slate-600 relative z-10">
@@ -507,36 +545,38 @@ export default function PayrollPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide items-center gap-1"><Package size={12}/> ออเดอร์สำเร็จ</label>
-                  <input 
-                    type="number" min="0" required
-                    value={editForm.order_count}
-                    onChange={e => {
-                      const newCount = Number(e.target.value);
-                      setEditForm({
-                        ...editForm, 
-                        order_count: newCount,
-                        gas_allowance: getAutoGasAllowance(newCount),
-                        manual_total: null
-                      });
-                    }}
-                    className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-slate-500 shadow-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide items-center gap-1"><Fuel size={12}/> ค่าน้ำมันรายวัน (บาท)</label>
-                  <div className="flex items-center gap-1">
+              {(editingRecord.profiles?.role === 'rider' || editingRecord.profiles?.role === 'admin' || editingRecord.profiles?.role === 'superadmin') && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide items-center gap-1"><Package size={12}/> ออเดอร์สำเร็จ</label>
                     <input 
-                      type="number" min="0" 
-                      value={editForm.gas_allowance}
-                      onChange={e => setEditForm({...editForm, gas_allowance: Number(e.target.value), manual_total: null})}
+                      type="number" min="0" required
+                      value={editForm.order_count}
+                      onChange={e => {
+                        const newCount = Number(e.target.value);
+                        setEditForm({
+                          ...editForm, 
+                          order_count: newCount,
+                          gas_allowance: getAutoGasAllowance(newCount),
+                          manual_total: null
+                        });
+                      }}
                       className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-slate-500 shadow-sm"
                     />
                   </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide items-center gap-1"><Fuel size={12}/> ค่าน้ำมันรายวัน (บาท)</label>
+                    <div className="flex items-center gap-1">
+                      <input 
+                        type="number" min="0" 
+                        value={editForm.gas_allowance}
+                        onChange={e => setEditForm({...editForm, gas_allowance: Number(e.target.value), manual_total: null})}
+                        className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-slate-500 shadow-sm"
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 space-y-4">
                 <div className="text-xs font-black text-indigo-800 uppercase tracking-widest text-center border-b border-indigo-100 pb-2">ระบบเก็บสะสม (จ่ายรายเดือน)</div>

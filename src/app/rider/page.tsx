@@ -967,7 +967,7 @@ export default function RiderPage() {
             </div>
 
             {/* 🌟 บังคับตอกบัตรก่อนเห็นงานว่าง (แอดมินดูได้เลย) - ปิดใช้งานชั่วคราวตามคำขอ */}
-            {false && !activeAttendance && currentUserRole !== 'admin' && currentUserRole !== 'superadmin' ? (
+            {!activeAttendance && currentUserRole !== 'admin' && currentUserRole !== 'superadmin' ? (
               <div className="text-center bg-white rounded-4xl border border-slate-200 shadow-sm flex flex-col items-center justify-center mx-auto max-w-sm w-full flex-1 p-8">
                 <div className="w-24 h-24 bg-rose-50 rounded-full flex items-center justify-center mb-6 shadow-inner border border-rose-100">
                   <Camera size={40} className="text-rose-500" />

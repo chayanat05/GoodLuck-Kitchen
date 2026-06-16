@@ -2,35 +2,13 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   ArrowLeft, LayoutDashboard, CheckCircle2, 
-  MapPinned, Navigation, X, ClipboardList,
+  MapPinned, X, ClipboardList,
   ImageIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Calendar, CalendarDays,
-  Banknote, Coins, Clock, Package, Fuel, Trophy, PiggyBank, Flame 
+  Banknote, Coins, Clock, Package, Trophy, PiggyBank, Fuel 
 } from 'lucide-react';
 import { Order } from '../../components/OrderCard';
 import Image from 'next/image';
 import { supabase } from '../../lib/supabase'; 
-
-const SHOP_LAT = 16.248130;
-const SHOP_LNG = 103.242206;
-
-const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371; 
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))); 
-};
-
-const getAutoGasAllowance = (orders: number): number => {
-  if (orders >= 71) return 350;
-  if (orders >= 61) return 300;
-  if (orders >= 51) return 250;
-  if (orders >= 41) return 200;
-  if (orders >= 31) return 150;
-  if (orders >= 21) return 100;
-  if (orders >= 10) return 50;
-  return 0;
-};
 
 const getCycleDetails = () => {
   const now = new Date();
@@ -85,7 +63,7 @@ interface AttendanceRecord {
   payment_slip_url?: string | null;
 }
 
-type FilterMode = 'today' | 'date' | 'month' | 'all';
+type FilterMode = 'today' | 'yesterday' | 'date' | 'month' | 'all';
 
 export default function DashboardView({ 
   riderName, 
@@ -128,7 +106,6 @@ export default function DashboardView({
     setLoadingHistory(false);
   };
 
-  const [currentTime, setCurrentTime] = useState<Date>(new Date());
   const [payrollStats, setPayrollStats] = useState({
     isWorking: false,
     checkInTime: null as string | null,
@@ -140,10 +117,67 @@ export default function DashboardView({
     dailyFixedMinutes: 0
   });
 
+  const [historicalOrders, setHistoricalOrders] = useState<Order[]>([]);
+
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
-    return () => clearInterval(timer);
-  }, []);
+    if (filterMode === 'today') return;
+    const fetchHistoricalOrders = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      let query = supabase
+        .from('orders')
+        .select('*')
+        .eq('rider_id', session.user.id)
+        .eq('status', 'ส่งแล้ว/เสร็จ');
+
+      const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
+
+      if (filterMode === 'yesterday') {
+        const now = new Date();
+        const targetStart = new Date(now);
+        if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
+          targetStart.setDate(targetStart.getDate() - 2);
+        } else {
+          targetStart.setDate(targetStart.getDate() - 1);
+        }
+        targetStart.setHours(bizHour, bizMin, 0, 0);
+
+        const targetEnd = new Date(targetStart);
+        targetEnd.setDate(targetEnd.getDate() + 1);
+
+        query = query.gte('created_at', targetStart.toISOString()).lt('created_at', targetEnd.toISOString());
+      } else if (filterMode === 'date' && filterDate) {
+        const [y, m, d] = filterDate.split('-').map(Number);
+        const targetStart = new Date(y, m - 1, d);
+        targetStart.setHours(bizHour, bizMin, 0, 0);
+
+        const targetEnd = new Date(targetStart);
+        targetEnd.setDate(targetEnd.getDate() + 1);
+
+        query = query.gte('created_at', targetStart.toISOString()).lt('created_at', targetEnd.toISOString());
+      } else if (filterMode === 'month' && filterMonth) {
+        const [year, month] = filterMonth.split('-');
+        const targetStart = new Date(parseInt(year), parseInt(month) - 1, 1);
+        targetStart.setHours(bizHour, bizMin, 0, 0);
+
+        const targetEnd = new Date(parseInt(year), parseInt(month), 1);
+        targetEnd.setHours(bizHour, bizMin, 0, 0);
+
+        query = query.gte('created_at', targetStart.toISOString()).lt('created_at', targetEnd.toISOString());
+      }
+
+      query = query.order('created_at', { ascending: false });
+      if (filterMode === 'all') {
+        query = query.limit(500);
+      }
+
+      const { data } = await query;
+      if (data) setHistoricalOrders(data as Order[]);
+    };
+
+    fetchHistoricalOrders();
+  }, [filterMode, filterDate, filterMonth, businessDayStart]);
 
   useEffect(() => {
     const fetchPayroll = async () => {
@@ -151,22 +185,54 @@ export default function DashboardView({
       if (!session) return;
       const riderId = session.user.id;
 
-      const now = new Date();
-      const shiftStart = new Date(now);
       const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-      if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
-        shiftStart.setDate(shiftStart.getDate() - 1);
+      
+      let targetStart = new Date();
+      let targetEnd = new Date();
+      if (filterMode === 'today') {
+        const now = new Date();
+        targetStart = new Date(now);
+        if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
+          targetStart.setDate(targetStart.getDate() - 1);
+        }
+        targetStart.setHours(bizHour, bizMin, 0, 0);
+        targetEnd = new Date(targetStart);
+        targetEnd.setDate(targetEnd.getDate() + 1);
+      } else if (filterMode === 'yesterday') {
+        const now = new Date();
+        targetStart = new Date(now);
+        if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
+          targetStart.setDate(targetStart.getDate() - 2);
+        } else {
+          targetStart.setDate(targetStart.getDate() - 1);
+        }
+        targetStart.setHours(bizHour, bizMin, 0, 0);
+        targetEnd = new Date(targetStart);
+        targetEnd.setDate(targetEnd.getDate() + 1);
+      } else if (filterMode === 'date' && filterDate) {
+        const [y, m, d] = filterDate.split('-').map(Number);
+        targetStart = new Date(y, m - 1, d);
+        targetStart.setHours(bizHour, bizMin, 0, 0);
+        targetEnd = new Date(targetStart);
+        targetEnd.setDate(targetEnd.getDate() + 1);
+      } else if (filterMode === 'month' && filterMonth) {
+        const [year, month] = filterMonth.split('-');
+        targetStart = new Date(parseInt(year), parseInt(month) - 1, 1);
+        targetStart.setHours(bizHour, bizMin, 0, 0);
+        targetEnd = new Date(parseInt(year), parseInt(month), 1);
+        targetEnd.setHours(bizHour, bizMin, 0, 0);
+      } else if (filterMode === 'all') {
+        targetStart = new Date(2000, 0, 1);
+        targetEnd = new Date(2100, 0, 1);
       }
-      shiftStart.setHours(bizHour, bizMin, 0, 0);
 
-      const { data: dailyData } = await supabase
+      const { data: attendanceData } = await supabase
         .from('rider_attendance')
         .select('*')
         .eq('rider_id', riderId)
-        .gte('check_in', shiftStart.toISOString())
-        .order('check_in', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .gte('check_in', targetStart.toISOString())
+        .lt('check_in', targetEnd.toISOString())
+        .order('check_in', { ascending: false });
 
       const cycle = getCycleDetails();
       const { data: monthlyData } = await supabase
@@ -185,30 +251,62 @@ export default function DashboardView({
         });
       }
 
-      if (dailyData) {
-        let rate = 40;
-        if ((dailyData.base_pay || 0) > 0 && (dailyData.total_minutes || 0) > 0) {
-          rate = (dailyData.base_pay / dailyData.total_minutes) * 60;
+      if (attendanceData && attendanceData.length > 0) {
+        if (filterMode === 'today' || filterMode === 'date') {
+          const dailyData = attendanceData[0];
+          let rate = 40;
+          if ((dailyData.base_pay || 0) > 0 && (dailyData.total_minutes || 0) > 0) {
+            rate = (dailyData.base_pay / dailyData.total_minutes) * 60;
+          }
+          setPayrollStats({
+            isWorking: filterMode === 'today' ? !dailyData.check_out : false,
+            checkInTime: dailyData.check_in,
+            hourlyRate: Math.round(rate),
+            monthlyBonus: mBonus,
+            monthlySavings: mSavings,
+            dailyFixedPay: dailyData.total_pay || 0,
+            dailyFixedGas: dailyData.gas_allowance || 0,
+            dailyFixedMinutes: dailyData.total_minutes || 0
+          });
+        } else {
+          let totalPay = 0;
+          let totalGas = 0;
+          let totalMinutes = 0;
+          attendanceData.forEach(r => {
+            totalPay += r.total_pay || 0;
+            totalGas += r.gas_allowance || 0;
+            totalMinutes += r.total_minutes || 0;
+          });
+          setPayrollStats({
+            isWorking: false,
+            checkInTime: null,
+            hourlyRate: 40,
+            monthlyBonus: mBonus,
+            monthlySavings: mSavings,
+            dailyFixedPay: totalPay,
+            dailyFixedGas: totalGas,
+            dailyFixedMinutes: totalMinutes
+          });
         }
-        setPayrollStats({
-          isWorking: !dailyData.check_out,
-          checkInTime: dailyData.check_in,
-          hourlyRate: Math.round(rate),
-          monthlyBonus: mBonus,
-          monthlySavings: mSavings,
-          dailyFixedPay: dailyData.total_pay || 0,
-          dailyFixedGas: dailyData.gas_allowance || 0,
-          dailyFixedMinutes: dailyData.total_minutes || 0
-        });
       } else {
-        setPayrollStats(prev => ({ ...prev, monthlyBonus: mBonus, monthlySavings: mSavings }));
+        setPayrollStats(prev => ({ 
+          ...prev,
+          isWorking: false, 
+          checkInTime: null, 
+          dailyFixedPay: 0, 
+          dailyFixedGas: 0, 
+          dailyFixedMinutes: 0, 
+          monthlyBonus: mBonus, 
+          monthlySavings: mSavings 
+        }));
       }
     };
     fetchPayroll();
-  }, [businessDayStart]);
+  }, [businessDayStart, filterMode, filterDate, filterMonth]);
 
   const getFilteredOrders = () => {
-    return (Array.isArray(allCompletedOrders) ? allCompletedOrders : []).filter(order => {
+    const sourceOrders = filterMode === 'today' ? allCompletedOrders : historicalOrders;
+    return (Array.isArray(sourceOrders) ? sourceOrders : []).filter(order => {
       // 🌟 แก้ไข: ถ้าไม่มี end_time ให้ใช้ created_at แทน ป้องกันข้อมูลหาย
       const dateString = order.end_time || order.created_at;
       if (!dateString) return false;
@@ -220,6 +318,22 @@ export default function DashboardView({
         const shiftStart = new Date(now);
         const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
         if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
+          shiftStart.setDate(shiftStart.getDate() - 1);
+        }
+        shiftStart.setHours(bizHour, bizMin, 0, 0);
+
+        const shiftEnd = new Date(shiftStart);
+        shiftEnd.setDate(shiftEnd.getDate() + 1);
+
+        timeMatch = orderDate >= shiftStart && orderDate < shiftEnd;
+
+      } else if (filterMode === 'yesterday') {
+        const now = new Date();
+        const shiftStart = new Date(now);
+        const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
+        if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
+          shiftStart.setDate(shiftStart.getDate() - 2);
+        } else {
           shiftStart.setDate(shiftStart.getDate() - 1);
         }
         shiftStart.setHours(bizHour, bizMin, 0, 0);
@@ -259,6 +373,24 @@ export default function DashboardView({
   const displayOrders = Array.isArray(getFilteredOrders()) ? getFilteredOrders() : [];
 
   const todaysCompletedOrdersCount = useMemo(() => {
+    if (filterMode === 'yesterday') {
+      const now = new Date();
+      const shiftStart = new Date(now);
+      const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
+      if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) shiftStart.setDate(shiftStart.getDate() - 2);
+      else shiftStart.setDate(shiftStart.getDate() - 1);
+      shiftStart.setHours(bizHour, bizMin, 0, 0);
+      const shiftEnd = new Date(shiftStart);
+      shiftEnd.setDate(shiftEnd.getDate() + 1);
+
+      return (Array.isArray(historicalOrders) ? historicalOrders : []).filter(o => {
+        const d = new Date(o.end_time || o.created_at);
+        return d >= shiftStart && d < shiftEnd;
+      }).length;
+    } else if (filterMode !== 'today') {
+      return historicalOrders.length;
+    }
+
     const now = new Date();
     const shiftStart = new Date(now);
     const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
@@ -271,52 +403,11 @@ export default function DashboardView({
       const d = new Date(o.end_time || o.created_at);
       return d >= shiftStart && d < shiftEnd;
     }).length;
-  }, [allCompletedOrders, businessDayStart]); 
+  }, [allCompletedOrders, businessDayStart, filterMode, historicalOrders]); 
 
-  const calculateDistanceAndGas = (): { distance: string; gasCost: number; netProfit: number } => {
-    if (!Array.isArray(displayOrders) || displayOrders.length === 0) return { distance: "0.0", gasCost: 0, netProfit: 0 };
-    
-    let totalDist = 0;
-    let currentLat = SHOP_LAT;
-    let currentLng = SHOP_LNG;
-
-    [...displayOrders].reverse().forEach(order => {
-      const lat = typeof order.lat === 'number' ? order.lat : currentLat;
-      const lng = typeof order.lng === 'number' ? order.lng : currentLng;
-      if (!isNaN(lat) && !isNaN(lng)) {
-        totalDist += calculateDistance(currentLat, currentLng, lat, lng);
-        currentLat = lat;
-        currentLng = lng;
-      }
-    });
-
-    const distString = Number.isFinite(totalDist) ? totalDist.toFixed(1) : "0.0";
-    const estimatedLiters = totalDist / 40;
-    const gasCost = Math.round(estimatedLiters * 40);
-    
-    return { 
-      distance: distString, 
-      gasCost: gasCost,
-      netProfit: 0 
-    };
-  };
-
-  const distStats = calculateDistanceAndGas();
-
-  const liveMinutes = payrollStats.isWorking 
-    ? Math.max(0, Math.floor((currentTime.getTime() - new Date(payrollStats.checkInTime!).getTime()) / 60000))
-    : payrollStats.dailyFixedMinutes;
-
-  const liveGas = payrollStats.isWorking 
-    ? getAutoGasAllowance(todaysCompletedOrdersCount) 
-    : payrollStats.dailyFixedGas;
-
-  const liveBasePay = payrollStats.isWorking
-    ? ((liveMinutes / 60) * payrollStats.hourlyRate)
-    : payrollStats.dailyFixedPay - payrollStats.dailyFixedGas;
-
-  const liveTotalPay = liveBasePay + liveGas;
-  const netProfit = Math.max(0, Math.round(liveTotalPay - distStats.gasCost));
+  const liveMinutes = payrollStats.dailyFixedMinutes;
+  const liveGas = payrollStats.dailyFixedGas;
+  const liveTotalPay = payrollStats.dailyFixedPay;
 
   useEffect(() => {
     if (
@@ -385,81 +476,7 @@ export default function DashboardView({
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
-          <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
-            <h3 className="font-black text-slate-700 text-sm flex items-center">
-              <Coins size={18} className="mr-2 text-emerald-500" /> กระเป๋าเงินของฉัน (วันนี้)
-            </h3>
-            <div className="flex items-center gap-2">
-              <button onClick={fetchAttendanceHistory} className="text-[10px] font-black uppercase text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-md border border-blue-200 transition-colors shadow-sm flex items-center gap-1 cursor-pointer">
-                <Clock size={12} /> ประวัติ
-              </button>
-              {payrollStats.isWorking ? (
-                <span className="flex items-center gap-1 text-[10px] font-black uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 shadow-sm">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> ทำงานอยู่
-                </span>
-              ) : (
-                <span className="text-[10px] font-black uppercase text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 shadow-sm">
-                  ไม่ได้เข้างาน
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 text-center flex flex-col justify-between">
-              <div>
-                <div className="text-[10px] font-black text-emerald-600/70 uppercase tracking-wider mb-1">รายได้วันนี้ (รวมค่าน้ำมัน)</div>
-                <div className="text-2xl font-black text-emerald-600 tracking-tighter">฿{Math.round(liveTotalPay).toLocaleString()}</div>
-              </div>
-              
-              <div className="mt-3 pt-2 border-t border-emerald-200/50 flex flex-col items-center">
-                <div className="text-[9px] font-black text-emerald-700/60 uppercase tracking-wider flex items-center gap-1">
-                  <Flame size={10} className="text-rose-500"/> กำไรสุทธิ (หักค่าน้ำมัน)
-                </div>
-                <div className="text-xl font-black text-emerald-700">฿{netProfit.toLocaleString()}</div>
-              </div>
-            </div>
-
-            <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 flex flex-col justify-center">
-              <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2">
-                <span className="flex items-center"><Clock size={12} className="mr-1 text-blue-500"/> เวลาทำ</span>
-                <span className="text-blue-700 font-black">{liveMinutes >= 60 ? `${Math.floor(liveMinutes / 60)} ชม. ${liveMinutes % 60} นาที` : `${liveMinutes} นาที`}</span>
-              </div>
-              <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2">
-                <span className="flex items-center"><Package size={12} className="mr-1 text-orange-500"/> สำเร็จแล้ว</span>
-                <span className="text-orange-700 font-black">{todaysCompletedOrdersCount} ออเดอร์</span>
-              </div>
-              <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2 border-t border-blue-100 pt-2">
-                <span className="flex items-center"><Fuel size={12} className="mr-1 text-slate-500"/> น้ำมันที่ได้</span>
-                <span className="text-emerald-600 font-black">+ ฿{liveGas.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between items-center text-[10px] font-bold text-slate-500">
-                <span className="flex items-center">น้ำมันที่ใช้จริง</span>
-                <span className="text-rose-500 font-black">- ฿{distStats.gasCost.toLocaleString()}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex items-center gap-3 bg-amber-50 p-3 rounded-xl border border-amber-100 shadow-sm">
-              <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-500 shrink-0"><Trophy size={14}/></div>
-              <div>
-                <div className="text-[9px] font-black text-amber-600/70 uppercase tracking-wider">โบนัสรอบบิลนี้</div>
-                <div className="text-sm font-black text-amber-700">฿{payrollStats.monthlyBonus.toLocaleString()}</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 bg-indigo-50 p-3 rounded-xl border border-indigo-100 shadow-sm">
-              <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-500 shrink-0"><PiggyBank size={14}/></div>
-              <div>
-                <div className="text-[9px] font-black text-indigo-600/70 uppercase tracking-wider">เงินเก็บรอบบิลนี้</div>
-                <div className="text-sm font-black text-indigo-700">฿{payrollStats.monthlySavings.toLocaleString()}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-3 pt-2">
+        <div className="space-y-3">
           <div className="flex items-center justify-between px-1">
             <h3 className="font-black text-slate-700 text-sm flex items-center">
               <CalendarDays size={16} className="mr-2 text-indigo-500" /> ตัวกรองข้อมูลงานวิ่ง
@@ -469,6 +486,7 @@ export default function DashboardView({
           <div className="flex bg-slate-200/60 p-1.5 rounded-xl border border-slate-200 shadow-inner">
             {[
               { id: 'today', label: 'วันนี้' },
+              { id: 'yesterday', label: 'เมื่อวาน' },
               { id: 'date', label: 'ระบุวัน' },
               { id: 'all', label: 'ทั้งหมด' }
             ].map(tab => (
@@ -524,6 +542,69 @@ export default function DashboardView({
           </div>
         </div>
 
+        <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
+          <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+            <h3 className="font-black text-slate-700 text-sm flex items-center">
+              <Coins size={18} className="mr-2 text-emerald-500" /> กระเป๋าเงินของฉัน {filterMode === 'today' ? '(วันนี้)' : filterMode === 'yesterday' ? '(เมื่อวาน)' : filterMode === 'date' ? `(วันที่ ${filterDate})` : filterMode === 'month' ? `(เดือน ${filterMonth})` : '(ทั้งหมด)'}
+            </h3>
+            <div className="flex items-center gap-2">
+              <button onClick={fetchAttendanceHistory} className="text-[10px] font-black uppercase text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-md border border-blue-200 transition-colors shadow-sm flex items-center gap-1 cursor-pointer">
+                <Clock size={12} /> ประวัติ
+              </button>
+              {payrollStats.isWorking && filterMode === 'today' ? (
+                <span className="flex items-center gap-1 text-[10px] font-black uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> ทำงานอยู่
+                </span>
+              ) : filterMode === 'today' ? (
+                <span className="text-[10px] font-black uppercase text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 shadow-sm">
+                  ไม่ได้เข้างาน
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 text-center flex flex-col justify-center">
+              <div>
+                <div className="text-[10px] font-black text-emerald-600/70 uppercase tracking-wider mb-1">รายได้ {filterMode === 'today' ? 'วันนี้' : filterMode === 'yesterday' ? 'เมื่อวาน' : 'รวม'}</div>
+                <div className="text-2xl font-black text-emerald-600 tracking-tighter">฿{Math.round(liveTotalPay).toLocaleString()}</div>
+              </div>
+            </div>
+
+            <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 flex flex-col justify-center">
+              <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2">
+                <span className="flex items-center"><Clock size={12} className="mr-1 text-blue-500"/> เวลาทำ</span>
+                <span className="text-blue-700 font-black">{liveMinutes >= 60 ? `${Math.floor(liveMinutes / 60)} ชม. ${liveMinutes % 60} นาที` : `${liveMinutes} นาที`}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2">
+                <span className="flex items-center"><Package size={12} className="mr-1 text-orange-500"/> สำเร็จแล้ว</span>
+                <span className="text-orange-700 font-black">{todaysCompletedOrdersCount} ออเดอร์</span>
+              </div>
+              <div className="flex justify-between items-center text-xs font-bold text-slate-600 border-t border-blue-100 pt-2">
+                <span className="flex items-center"><Fuel size={12} className="mr-1 text-slate-500"/> น้ำมันที่ได้</span>
+                <span className="text-emerald-600 font-black">+ ฿{liveGas.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex items-center gap-3 bg-amber-50 p-3 rounded-xl border border-amber-100 shadow-sm">
+              <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-500 shrink-0"><Trophy size={14}/></div>
+              <div>
+                <div className="text-[9px] font-black text-amber-600/70 uppercase tracking-wider">โบนัสรอบบิลนี้</div>
+                <div className="text-sm font-black text-amber-700">฿{payrollStats.monthlyBonus.toLocaleString()}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 bg-indigo-50 p-3 rounded-xl border border-indigo-100 shadow-sm">
+              <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-500 shrink-0"><PiggyBank size={14}/></div>
+              <div>
+                <div className="text-[9px] font-black text-indigo-600/70 uppercase tracking-wider">เงินเก็บรอบบิลนี้</div>
+                <div className="text-sm font-black text-indigo-700">฿{payrollStats.monthlySavings.toLocaleString()}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 flex flex-col gap-3">
           <div className="flex items-center text-slate-700 font-black text-sm mb-1"><Banknote size={18} className="mr-2 text-rose-500" /> สรุปยอดเงินที่ต้องคืนร้าน</div>
           <div className="flex gap-3">
@@ -534,17 +615,11 @@ export default function DashboardView({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4">
           <div className="bg-linear-to-br from-emerald-500 to-teal-600 rounded-3xl p-5 text-white shadow-lg relative overflow-hidden transform transition-all duration-300 hover:-translate-y-1">
             <CheckCircle2 size={64} className="absolute -right-4 -bottom-4 text-white opacity-20" />
             <div className="text-emerald-100 text-xs font-bold mb-1 flex items-center tracking-wide"><CheckCircle2 size={14} className="mr-1.5"/> ส่งสำเร็จ</div>
             <div className="text-4xl font-black tracking-tight">{displayOrders.length} <span className="text-sm font-bold text-emerald-200">ออเดอร์</span></div>
-          </div>
-
-          <div className="bg-linear-to-br from-indigo-500 to-purple-600 rounded-3xl p-5 text-white shadow-lg relative overflow-hidden transform transition-all duration-300 hover:-translate-y-1">
-            <MapPinned size={64} className="absolute -right-4 -bottom-4 text-white opacity-20" />
-            <div className="text-indigo-100 text-xs font-bold mb-1 flex items-center tracking-wide"><Navigation size={14} className="mr-1.5"/> ระยะทางสะสม</div>
-            <div className="text-4xl font-black tracking-tight">{distStats.distance} <span className="text-sm font-bold text-indigo-200">กม.</span></div>
           </div>
         </div>
 
@@ -804,7 +879,7 @@ export default function DashboardView({
         </div>
       )}
 
-      <style jsx>{`
+      <style>{`
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
