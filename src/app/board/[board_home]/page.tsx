@@ -73,6 +73,18 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   interface BranchMenu { id: string; menu_name: string; price: number; branch_id: string; }
   interface ContactSource { id: string; name: string; branch_id: string; }
   interface UnifiedSearchResult { type: string; name: string; address?: string; lat?: number; lng?: number; distanceText?: string; menu_name?: string; price?: number; place_id?: string; }
+  
+  // Custom interface for WakeLock API to avoid using 'any'
+  interface WakeLockSentinel extends EventTarget {
+    released: boolean;
+    type: 'screen';
+    release(): Promise<void>;
+  }
+  interface NavigatorWithWakeLock {
+    wakeLock: {
+      request(type: 'screen'): Promise<WakeLockSentinel>;
+    };
+  }
 
 
   // 🌟 กำจัด Any ทั้งหมดและแทนที่ด้วย Interface ที่ถูกต้อง 100% 🌟
@@ -102,7 +114,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [imgScale, setImgScale] = useState<number>(1);
   const [unifiedResults, setUnifiedResults] = useState<UnifiedSearchResult[]>([]);
   const [isGalleryOpen, setIsGalleryOpen] = useState<boolean>(false);
-  const [wakeLock, setWakeLock] = useState<any>(null);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   
   // 🌟 จัดการ State ที่เขียนไว้แปลกๆ ให้เป็นมาตรฐาน
   const [ridersLoc, setRidersLoc] = useState<RiderLocation[]>([]);
@@ -116,8 +128,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [selectedRiderMapInfo, setSelectedRiderMapInfo] = useState<RiderLocation | null>(null);
   const [menuModalSearchQuery, setMenuModalSearchQuery] = useState("");
   const [calcInput, setCalcInput] = useState("");
-  const [isAudioUnlocked, setIsAudioUnlocked] = useState<boolean>(false); // 🌟 State สำหรับการปลดล็อกเสียงแบบชัวร์ๆ
-  
   const calcResult = useMemo(() => {
     try {
       const s = (calcInput || "").toString().replace(/[^0-9+\-*/().]/g, '');
@@ -262,13 +272,16 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     const requestWakeLock = async () => {
       try {
         if ('wakeLock' in navigator) {
-          const lock = await (navigator as any).wakeLock.request('screen');
-          setWakeLock(lock);
-          console.log('Screen Wake Lock is active');
-          
-          lock.addEventListener('release', () => {
-            console.log('Screen Wake Lock was released');
-          });
+          const nav = navigator as NavigatorWithWakeLock;
+          if (nav.wakeLock) {
+              const lock = await nav.wakeLock.request('screen');
+              wakeLockRef.current = lock;
+              console.log('Screen Wake Lock is active');
+              
+              lock.addEventListener('release', () => {
+                console.log('Screen Wake Lock was released');
+              });
+          }
         }
       } catch (err) {
         console.error(`Wake Lock error: ${err}`);
@@ -286,13 +299,13 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (wakeLock) {
-        wakeLock.release().then(() => {
-          setWakeLock(null);
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().then(() => {
+          wakeLockRef.current = null;
         });
       }
     };
-  }, [wakeLock]);
+  }, []);
 
   // Unlock audio on first user interaction for iOS Safari and setup silent loop to keep context alive
   useEffect(() => {
@@ -827,8 +840,8 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
     if (isEdit) {
       const { data } = await supabase.from("orders").update(orderData).eq("branch_id", currentBranchId).eq("id", editingId).select();
-      if (data) {
-        setOrders(orders.map((o) => (o.id === editingId ? (data[0] as Order) : o)));
+      if (data && data.length > 0) {
+        setOrders(prev => prev.map((o) => (o.id === editingId ? { ...o, ...data[0] } : o)));
         showToast("อัปเดตข้อมูลสำเร็จ! 📝");
 
         // 🌟 1. เพิ่ม Log การแก้ไขออเดอร์
@@ -873,7 +886,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       const { data } = await supabase.from("orders").insert([{ ...orderData, branch_id: currentBranchId, status: "New" }]).select();
       if (data && data.length > 0) {
         targetId = data[0].id;
-        setOrders([data[0] as Order, ...orders]);
+        setOrders(prev => [data[0] as Order, ...prev]);
         showToast("สร้างออเดอร์สำเร็จ! 🚀");
         
         // 🌟 2. เพิ่ม Log การสร้างออเดอร์
@@ -929,8 +942,8 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     if (error) {
       console.error(error);
       showToast("เกิดข้อผิดพลาดในการเปลี่ยนสถานะ ❌");
-    } else if (data) {
-      setOrders(orders.map((o) => (o.id === targetOrder.id ? { ...o, ...data[0] } : o)));
+    } else if (data && data.length > 0) {
+      setOrders(prev => prev.map((o) => (o.id === targetOrder.id ? { ...o, ...data[0] } : o)));
       showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`);
       
       // 🌟 3. เพิ่ม Log การปรับสถานะด้วยมือ
@@ -949,17 +962,19 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       );
       
       setSelectedViewOrder(null);
+    } else {
+      showToast("ไม่สามารถเปลี่ยนสถานะได้ (ไม่พบออเดอร์ หรือถูกล็อก) ❌");
     }
   };
 
   const handleStartOrder = async (orderId: string) => {
     const { data, error } = await supabase.from("orders").update({ status: "กำลังทำ" }).eq("branch_id", currentBranchId).eq("id", orderId).select();
     if (error) console.error(error);
-    if (data) {
-      setOrders(orders.map((o) => (o.id === orderId ? (data[0] as Order) : o)));
+    if (data && data.length > 0) {
+      setOrders(prev => prev.map((o) => (o.id === orderId ? { ...o, ...data[0] } : o)));
       showToast("ครัวเริ่มทำอาหารแล้ว! 🍳");
       
-      const orderNum = orders.find(o => o.id === orderId)?.order_number || "ล่าสุด";
+      const orderNum = data[0].order_number || "ล่าสุด";
       
       // 🌟 4. เพิ่ม Log การเริ่มทำอาหาร
       await supabase.from("activity_logs").insert([{
@@ -976,6 +991,8 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
         `/board/${branchSlug}`
       );
       setSelectedViewOrder(null);
+    } else if (!error) {
+      showToast("ไม่สามารถเริ่มงานได้ (ไม่พบออเดอร์) ❌");
     }
   };
 
@@ -988,11 +1005,11 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
     const { data, error } = await supabase.from("orders").update(updateData).eq("branch_id", currentBranchId).eq("id", orderId).select();
     if (error) console.error(error);
-    if (data) {
-      setOrders(orders.map((o) => (o.id === orderId ? (data[0] as Order) : o)));
+    if (data && data.length > 0) {
+      setOrders(prev => prev.map((o) => (o.id === orderId ? { ...o, ...data[0] } : o)));
       showToast(isShopee ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦" : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵");
 
-      const orderNum = orders.find(o => o.id === orderId)?.order_number || "ล่าสุด";
+      const orderNum = data[0].order_number || "ล่าสุด";
       
       // 🌟 5. เพิ่ม Log การทำอาหารเสร็จ
       await supabase.from("activity_logs").insert([{
@@ -1009,6 +1026,8 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
         `/board/${branchSlug}`
       );
       setSelectedViewOrder(null);
+    } else if (!error) {
+      showToast("ไม่สามารถจบงานได้ (ไม่พบออเดอร์) ❌");
     }
   };
 
@@ -1072,14 +1091,20 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
   const onDragEnd = (result: DropResult) => {
     if (!result.destination) return;
-    const items = Array.from(orders);
-    const [reorderedItem] = items.splice(result.source.index, 1);
-    items.splice(result.destination.index, 0, reorderedItem);
-    setOrders(items);
-    items.forEach((item, index) => {
-      supabase.from("orders").update({ sort_index: index }).eq("branch_id", currentBranchId).eq("id", item.id).then(({ error }) => {
-          if (error) console.error("Error updating sort index:", error);
+    setOrders(prev => {
+      const items = Array.from(prev);
+      const [reorderedItem] = items.splice(result.source.index, 1);
+      items.splice(result.destination!.index, 0, reorderedItem);
+      
+      const changedItems = items.filter((item, index) => item.sort_index !== index);
+      changedItems.forEach((item) => {
+        const newIndex = items.findIndex(i => i.id === item.id);
+        supabase.from("orders").update({ sort_index: newIndex }).eq("branch_id", currentBranchId).eq("id", item.id).then(({ error }) => {
+            if (error) console.error("Error updating sort index:", error);
         });
+      });
+      
+      return items.map((item, index) => ({...item, sort_index: index}));
     });
   };
 
@@ -2556,8 +2581,8 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
           onSuccess={(newImageUrl, statusText) => {
             setScannerConfig({ isOpen: false, orderId: null, amount: 0 });
 
-            setOrders(
-              orders.map((o) => {
+            setOrders(prev =>
+              prev.map((o) => {
                 if (o.id === scannerConfig.orderId) {
                   const updatedImages = o.slip_image
                     ? `${o.slip_image},${newImageUrl}`
