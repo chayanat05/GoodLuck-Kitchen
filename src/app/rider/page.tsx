@@ -1544,7 +1544,7 @@ export default function RiderPage() {
                       position={{ lat: selectedRiderMapInfo.last_lat, lng: selectedRiderMapInfo.last_lng }}
                       onCloseClick={() => setSelectedRiderMapInfo(null)}
                     >
-                      <div className="p-2 text-slate-800 text-xs min-w-[140px]">
+                      <div className="p-2 text-slate-800 text-xs min-w-35">
                         <div className="font-black mb-1 text-sm border-b border-slate-100 pb-1">{selectedRiderMapInfo.username}</div>
                         {selectedRiderMapInfo.id !== "shop" && (
                           <div className="flex items-center gap-1.5 mt-1.5 font-medium">

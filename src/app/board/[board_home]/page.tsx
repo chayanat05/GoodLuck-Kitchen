@@ -102,6 +102,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [imgScale, setImgScale] = useState<number>(1);
   const [unifiedResults, setUnifiedResults] = useState<UnifiedSearchResult[]>([]);
   const [isGalleryOpen, setIsGalleryOpen] = useState<boolean>(false);
+  const [wakeLock, setWakeLock] = useState<any>(null);
   
   // 🌟 จัดการ State ที่เขียนไว้แปลกๆ ให้เป็นมาตรฐาน
   const [ridersLoc, setRidersLoc] = useState<RiderLocation[]>([]);
@@ -255,6 +256,43 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   // ---------------------------------------------------------------------------
   // 3. EFFECTS
   // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    // Attempt to request a wake lock when the component mounts and the page is visible
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          const lock = await (navigator as any).wakeLock.request('screen');
+          setWakeLock(lock);
+          console.log('Screen Wake Lock is active');
+          
+          lock.addEventListener('release', () => {
+            console.log('Screen Wake Lock was released');
+          });
+        }
+      } catch (err) {
+        console.error(`Wake Lock error: ${err}`);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        requestWakeLock();
+      }
+    };
+
+    requestWakeLock();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (wakeLock) {
+        wakeLock.release().then(() => {
+          setWakeLock(null);
+        });
+      }
+    };
+  }, [wakeLock]);
 
   // Unlock audio on first user interaction for iOS Safari and setup silent loop to keep context alive
   useEffect(() => {
@@ -465,6 +503,36 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       supabase.removeChannel(syncChannel);
     };
   }, [fetchOrdersAndLocations, showToast, currentBranchId]);
+
+  // 🌟 Auto-refresh logic to fix stale orders issue when left open all day
+  useEffect(() => {
+    if (!currentBranchId) return;
+
+    // 1. Periodically fetch data every 2 minutes as a fallback for dropped WebSockets
+    const intervalId = setInterval(() => {
+      fetchOrdersAndLocations();
+    }, 120000);
+
+    // 2. Fetch data when the tab becomes visible again (e.g., waking up from sleep or switching tabs)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchOrdersAndLocations();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // 3. Fetch data when the network comes back online
+    const handleOnline = () => {
+      fetchOrdersAndLocations();
+    };
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [currentBranchId, fetchOrdersAndLocations]);
 
   useEffect(() => {
     if (showRiderMap && currentBranchId) {
