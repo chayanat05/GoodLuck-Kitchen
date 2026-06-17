@@ -475,19 +475,32 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
               return prev.filter(o => o.id !== payload.new.id);
             }
 
+            // 🌟 ลำดับน้ำหนักสถานะ ป้องกัน Real-time เอาข้อมูลเก่ามาทับ
+            const STATUS_WEIGHT: Record<string, number> = { "New": 1, "กำลังทำ": 2, "รับงาน": 3, "ส่งแล้ว/เสร็จ": 4 };
+
             let newOrders = [];
             if (!exists) {
               newOrders = [payload.new as Order, ...prev];
             } else {
-              newOrders = prev.map(o => o.id === payload.new.id ? { ...o, ...payload.new as Order } : o);
+              newOrders = prev.map(o => {
+                if (o.id === payload.new.id) {
+                  const currentWeight = STATUS_WEIGHT[o.status] || 0;
+                  const incomingWeight = STATUS_WEIGHT[payload.new.status as string] || 0;
+                  
+                  // ถ้าน้ำหนักของ Payload ใหม่น้อยกว่าของเดิมที่มีบนจอ (เช่น จอเป็น 'กำลังทำ' แต่ payload พา 'New' มา)
+                  // ให้ยึดสถานะบนจอไว้ตามเดิม แต่ฟิลด์อื่นๆ ปล่อยให้อัปเดตตามปกติ
+                  const resolvedStatus = (incomingWeight < currentWeight) ? o.status : payload.new.status;
+                  
+                  return { ...o, ...(payload.new as Order), status: resolvedStatus };
+                }
+                return o;
+              });
             }
 
-            // 🌟 แก้ปัญหาข้อ 2: เรียง Array ใหม่ทุกครั้งที่มีการอัปเดต เพื่อให้ sort_index ขยับจริงในเครื่องอื่น
             return newOrders.sort((a, b) => {
               const sortA = a.sort_index ?? 0;
               const sortB = b.sort_index ?? 0;
               if (sortA !== sortB) return sortA - sortB;
-              // ถ้า sort_index เท่ากัน (เช่นสร้างใหม่) ให้เรียงตามเวลาลดหลั่นลงมา
               return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
             });
           });
@@ -926,27 +939,34 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     }
   };
 
+  // 🌟 1. อัปเดตผ่าน Modal
   const executeStatusChange = async (newStatus: string) => {
     if (!statusModal.order) return;
     const targetOrder = statusModal.order;
+    const previousStatus = targetOrder.status; // เก็บสถานะเดิมไว้เผื่อพัง
+
+    setStatusModal({ isOpen: false, order: null });
+
+    // ✨ Optimistic Update: เปลี่ยน UI ทันทีไม่ต้องรอโหลด
+    setOrders(prev => prev.map(o => o.id === targetOrder.id ? { ...o, status: newStatus } : o));
 
     const updateData: { status: string; end_time?: string } = { status: newStatus };
     if (newStatus === "ส่งแล้ว/เสร็จ" && targetOrder.job_type === "shopee") {
       updateData.end_time = new Date().toISOString();
     }
 
-    setStatusModal({ isOpen: false, order: null });
-
-    const { data, error } = await supabase.from("orders").update(updateData).eq("branch_id", currentBranchId).eq("id", targetOrder.id).select();
+    const { error } = await supabase.from("orders").update(updateData).eq("branch_id", currentBranchId).eq("id", targetOrder.id);
+    
     if (error) {
       console.error(error);
+      // 🔙 ถ้าเซิร์ฟเวอร์พัง ให้ดึงสถานะเดิมกลับมา
+      setOrders(prev => prev.map(o => o.id === targetOrder.id ? { ...o, status: previousStatus } : o));
       showToast("เกิดข้อผิดพลาดในการเปลี่ยนสถานะ ❌");
-    } else if (data && data.length > 0) {
-      setOrders(prev => prev.map((o) => (o.id === targetOrder.id ? { ...o, ...data[0] } : o)));
+    } else {
       showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`);
       
-      // 🌟 3. เพิ่ม Log การปรับสถานะด้วยมือ
-      await supabase.from("activity_logs").insert([{
+      // บันทึก Log
+      supabase.from("activity_logs").insert([{
         branch_id: currentBranchId,
         user_name: adminName,
         action: "CHANGE_STATUS",
@@ -959,74 +979,65 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
         `ออเดอร์ #${targetOrder.order_number} ถูกเปลี่ยนเป็น: ${newStatus}`, 
         `/board/${branchSlug}`
       );
-      
       setSelectedViewOrder(null);
-    } else {
-      showToast("ไม่สามารถเปลี่ยนสถานะได้ (ไม่พบออเดอร์ หรือถูกล็อก) ❌");
     }
   };
 
+  // 🌟 2. เริ่มทำอาหาร
   const handleStartOrder = async (orderId: string) => {
-    const { data, error } = await supabase.from("orders").update({ status: "กำลังทำ" }).eq("branch_id", currentBranchId).eq("id", orderId).select();
-    if (error) console.error(error);
-    if (data && data.length > 0) {
-      setOrders(prev => prev.map((o) => (o.id === orderId ? { ...o, ...data[0] } : o)));
-      showToast("ครัวเริ่มทำอาหารแล้ว! 🍳");
-      
-      const orderNum = data[0].order_number || "ล่าสุด";
-      
-      // 🌟 4. เพิ่ม Log การเริ่มทำอาหาร
-      await supabase.from("activity_logs").insert([{
-        branch_id: currentBranchId,
-        user_name: adminName,
-        action: "CHANGE_STATUS",
-        details: `เริ่มทำอาหารออเดอร์ #${orderNum} (สถานะ: กำลังทำ)`
-      }]);
+    const targetOrder = orders.find(o => o.id === orderId);
+    if (!targetOrder) return;
+    const previousStatus = targetOrder.status;
 
-      notifyRoles(
-        ['rider', 'admin', 'superadmin'], 
-        "🍳 ครัวกำลังทำอาหาร", 
-        `ออเดอร์ #${orderNum} เริ่มปรุงแล้ว`, 
-        `/board/${branchSlug}`
-      );
+    // ✨ Optimistic Update
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: "กำลังทำ" } : o));
+
+    const { error } = await supabase.from("orders").update({ status: "กำลังทำ" }).eq("branch_id", currentBranchId).eq("id", orderId);
+    
+    if (error) {
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: previousStatus } : o));
+      showToast("เกิดข้อผิดพลาด ❌");
+    } else {
+      showToast("ครัวเริ่มทำอาหารแล้ว! 🍳");
+      const orderNum = targetOrder.order_number || "ล่าสุด";
+      
+      supabase.from("activity_logs").insert([{
+        branch_id: currentBranchId, user_name: adminName, action: "CHANGE_STATUS", details: `เริ่มทำอาหารออเดอร์ #${orderNum} (สถานะ: กำลังทำ)`
+      }]);
+      notifyRoles(['rider', 'admin', 'superadmin'], "🍳 ครัวกำลังทำอาหาร", `ออเดอร์ #${orderNum} เริ่มปรุงแล้ว`, `/board/${branchSlug}`);
       setSelectedViewOrder(null);
-    } else if (!error) {
-      showToast("ไม่สามารถเริ่มงานได้ (ไม่พบออเดอร์) ❌");
     }
   };
 
+  // 🌟 3. ทำอาหารเสร็จ
   const handleFinishOrder = async (orderId: string) => {
     const targetOrder = orders.find((o) => o.id === orderId);
-    const isShopee = targetOrder?.job_type === "shopee";
+    if (!targetOrder) return;
+    
+    const previousStatus = targetOrder.status;
+    const isShopee = targetOrder.job_type === "shopee";
     const nextStatus = isShopee ? "ส่งแล้ว/เสร็จ" : "รับงาน";
+    
+    // ✨ Optimistic Update
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: nextStatus } : o));
+
     const updateData: { status: string; end_time?: string } = { status: nextStatus };
     if (isShopee) updateData.end_time = new Date().toISOString();
 
-    const { data, error } = await supabase.from("orders").update(updateData).eq("branch_id", currentBranchId).eq("id", orderId).select();
-    if (error) console.error(error);
-    if (data && data.length > 0) {
-      setOrders(prev => prev.map((o) => (o.id === orderId ? { ...o, ...data[0] } : o)));
+    const { error } = await supabase.from("orders").update(updateData).eq("branch_id", currentBranchId).eq("id", orderId);
+    
+    if (error) {
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: previousStatus } : o));
+      showToast("เกิดข้อผิดพลาด ❌");
+    } else {
       showToast(isShopee ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦" : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵");
-
-      const orderNum = data[0].order_number || "ล่าสุด";
+      const orderNum = targetOrder.order_number || "ล่าสุด";
       
-      // 🌟 5. เพิ่ม Log การทำอาหารเสร็จ
-      await supabase.from("activity_logs").insert([{
-        branch_id: currentBranchId,
-        user_name: adminName,
-        action: "CHANGE_STATUS",
-        details: `ทำอาหารออเดอร์ #${orderNum} เสร็จแล้ว (สถานะ: ${nextStatus})`
+      supabase.from("activity_logs").insert([{
+        branch_id: currentBranchId, user_name: adminName, action: "CHANGE_STATUS", details: `ทำอาหารออเดอร์ #${orderNum} เสร็จแล้ว (สถานะ: ${nextStatus})`
       }]);
-
-      notifyRoles(
-        ['rider', 'admin', 'superadmin'], 
-        "📦 อาหารพร้อมส่ง!", 
-        `ออเดอร์ #${orderNum} เสร็จแล้ว ไรเดอร์มารับได้เลย`, 
-        `/board/${branchSlug}`
-      );
+      notifyRoles(['rider', 'admin', 'superadmin'], "📦 อาหารพร้อมส่ง!", `ออเดอร์ #${orderNum} เสร็จแล้ว ไรเดอร์มารับได้เลย`, `/board/${branchSlug}`);
       setSelectedViewOrder(null);
-    } else if (!error) {
-      showToast("ไม่สามารถจบงานได้ (ไม่พบออเดอร์) ❌");
     }
   };
 

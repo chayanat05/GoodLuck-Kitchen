@@ -44,13 +44,13 @@ interface EditForm {
 }
 
 const getAutoGasAllowance = (orders: number): number => {
-  if (orders >= 80) return 300;
-  if (orders >= 65) return 250;
-  if (orders >= 50) return 200;
-  if (orders >= 35) return 150;
-  if (orders >= 25) return 100;
-  if (orders >= 15) return 50;
-  return 0; 
+  if (orders >= 71) return 350;
+  if (orders >= 65) return 300;
+  if (orders >= 55) return 250;
+  if (orders >= 41) return 200;
+  if (orders >= 31) return 150;
+  if (orders >= 21) return 100;
+  return 50; 
 };
 
 export default function PayrollPage() {
