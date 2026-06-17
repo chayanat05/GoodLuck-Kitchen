@@ -325,7 +325,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
               notificationAudio.current.pause();
               notificationAudio.current.currentTime = 0;
               notificationAudio.current.volume = 1;
-              setIsAudioUnlocked(true); // ✅ จำไว้ว่าปลดล็อกสำเร็จแล้ว
               
               // 🌟 เคล็ดลับแก้หายขาด: ปล่อย Oscillator เสียงเงียบๆ ทำงานตลอดเวลาเพื่อเลี้ยง Audio Context
               try {
