@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { 
   ArrowLeft, Banknote, Calendar, Loader2, CheckCircle2, AlertTriangle, 
   Search, Edit3, X, Save, Clock, Package, DollarSign, Fuel, Trophy, User, ImagePlus, Check,
-  Trash2, Image as ImageIcon, PiggyBank, Plus, Minus
+  Trash2, Image as ImageIcon, PiggyBank, Plus, Minus, Camera
 } from "lucide-react";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import Image from "next/image";
@@ -24,6 +24,9 @@ interface AttendanceRecord {
   total_pay: number;
   payment_status: "รอชำระ" | "จ่ายแล้ว"; 
   payment_slip_url: string | null; 
+  // 🌟 เพิ่มฟิลด์รูปตอกบัตร
+  check_in_image?: string | null;
+  check_out_image?: string | null;
   profiles: {
     username: string;
     role?: string;
@@ -85,7 +88,7 @@ export default function PayrollPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [viewSlip, setViewSlip] = useState<string | null>(null);
-  const [isZoomed, setIsZoomed] = useState(false); // 🌟 เพิ่ม State การซูม
+  const [isZoomed, setIsZoomed] = useState(false);
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
 
   useEffect(() => {
@@ -122,7 +125,7 @@ export default function PayrollPage() {
 
     const { data, error } = await supabase
       .from('rider_attendance')
-      .select('*, profiles(username, role)')
+      .select('*, profiles(username, role)') // 🌟 ดึงฟิลด์ภาพตอกบัตรมาด้วยผ่าน *
       .gte('check_in', startOfDay.toISOString())
       .lte('check_in', endOfDay.toISOString())
       .order('check_in', { ascending: false });
@@ -138,7 +141,6 @@ export default function PayrollPage() {
       
       const recordsWithOrders = await Promise.all(formattedData.map(async (record) => {
         if (record.profiles?.role === 'rider' || record.profiles?.role === 'admin' || record.profiles?.role === 'superadmin') {
-          // Fetch orders and filter in JS to perfectly match DashboardView logic
           const { data: riderOrders } = await supabase
             .from('orders')
             .select('created_at, end_time')
@@ -177,7 +179,6 @@ export default function PayrollPage() {
     return () => clearTimeout(timer);
   }, [selectedDate, fetchRecords]);
 
-  // 🌟 อัปเดตสูตรคำนวณ (หักเงินสะสมออกจากรายวัน)
   const calculatedTotal = useMemo(() => {
     if (editForm.manual_total !== null) return editForm.manual_total;
     const basePay = ((editForm.total_minutes || 0) / 60) * editForm.hourlyRate;
@@ -311,11 +312,13 @@ export default function PayrollPage() {
   return (
     <div className="min-h-screen pb-12 transition-all duration-500 bg-slate-50 font-sans">
       
+      {/* Toast */}
       <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-150 ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
         {toast.type === 'error' ? <AlertTriangle size={18} className="text-red-400 mr-2" /> : <CheckCircle2 size={18} className="text-green-400 mr-2" />}
         <span className="font-bold text-sm tracking-wide">{toast.message}</span>
       </div>
 
+      {/* Header */}
       <div className="bg-white/90 backdrop-blur-md border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -334,6 +337,7 @@ export default function PayrollPage() {
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         
+        {/* Controls */}
         <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-center justify-between">
           <div className="flex items-center w-full md:w-auto bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-500/10 transition-all">
             <div className="pl-4 text-slate-400"><Search size={18} /></div>
@@ -359,6 +363,7 @@ export default function PayrollPage() {
           </div>
         </div>
 
+        {/* Data List */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 text-slate-400 space-y-4">
             <Loader2 size={48} className="animate-spin text-emerald-500" />
@@ -449,11 +454,39 @@ export default function PayrollPage() {
                     </div>
                   </div>
 
+                  {/* 🌟 แสดงเวลาและรูปตอกบัตร */}
                   <div className={`grid ${showOrderAndGas ? 'grid-cols-2' : 'grid-cols-1'} gap-y-3 gap-x-2 text-xs font-bold text-slate-600 mb-4 relative z-10`}>
+                    
+                    <div className="col-span-full flex flex-col sm:flex-row gap-2">
+                      <div className="flex-1 flex items-center justify-between bg-slate-50 p-2 rounded-lg border border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500"></span> 
+                          <span className="text-[10px] text-slate-500">เข้า:</span> {new Date(record.check_in).toLocaleTimeString('th-TH', { hour: '2-digit', minute:'2-digit' })} น.
+                        </div>
+                        {record.check_in_image && (
+                          <button onClick={() => { setViewSlip(record.check_in_image!); setIsZoomed(false); }} className="p-1 hover:bg-emerald-100 text-emerald-600 rounded-md transition-colors">
+                            <Camera size={14} />
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex-1 flex items-center justify-between bg-slate-50 p-2 rounded-lg border border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${record.check_out ? 'bg-rose-500' : 'bg-slate-300'}`}></span> 
+                          <span className="text-[10px] text-slate-500">ออก:</span> {record.check_out ? `${new Date(record.check_out).toLocaleTimeString('th-TH', { hour: '2-digit', minute:'2-digit' })} น.` : '-'}
+                        </div>
+                        {record.check_out_image && (
+                          <button onClick={() => { setViewSlip(record.check_out_image!); setIsZoomed(false); }} className="p-1 hover:bg-rose-100 text-rose-600 rounded-md transition-colors">
+                            <Camera size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
                     <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
                       <Clock size={14} className="text-blue-500 shrink-0"/> 
                       <span>{displayMinutes >= 60 ? `${Math.floor(displayMinutes / 60)} ชม. ${displayMinutes % 60} นาที` : `${displayMinutes} นาที`}</span> 
                     </div>
+                    
                     {showOrderAndGas && (
                       <>
                         <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
@@ -521,6 +554,34 @@ export default function PayrollPage() {
                     <option value="รอชำระ">🔴 รอชำระ</option>
                     <option value="จ่ายแล้ว">🟢 จ่ายแล้ว</option>
                   </select>
+                </div>
+              </div>
+
+              {/* 🌟 แสดงรูปถ่ายยืนยันใน Modal */}
+              <div className="flex gap-2">
+                <div className="flex-1 bg-slate-50 rounded-xl border border-slate-200 p-2 relative overflow-hidden flex flex-col">
+                  <span className="text-[9px] font-bold text-slate-500 mb-1 absolute top-2 left-2 z-10 bg-white/80 px-1.5 py-0.5 rounded shadow-sm">เข้างาน</span>
+                  {editingRecord.check_in_image ? (
+                    <div className="relative w-full h-24 rounded-lg overflow-hidden mt-1 cursor-zoom-in" onClick={() => { setViewSlip(editingRecord.check_in_image!); setIsZoomed(false); }}>
+                      <Image src={editingRecord.check_in_image} alt="Check In" fill className="object-cover hover:scale-105 transition-transform"/>
+                    </div>
+                  ) : (
+                    <div className="w-full h-24 rounded-lg bg-slate-100 flex items-center justify-center mt-1 border border-dashed border-slate-300">
+                      <span className="text-xs text-slate-400 font-bold">ไม่มีรูป</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 bg-slate-50 rounded-xl border border-slate-200 p-2 relative overflow-hidden flex flex-col">
+                  <span className="text-[9px] font-bold text-slate-500 mb-1 absolute top-2 left-2 z-10 bg-white/80 px-1.5 py-0.5 rounded shadow-sm">เลิกงาน</span>
+                  {editingRecord.check_out_image ? (
+                    <div className="relative w-full h-24 rounded-lg overflow-hidden mt-1 cursor-zoom-in" onClick={() => { setViewSlip(editingRecord.check_out_image!); setIsZoomed(false); }}>
+                      <Image src={editingRecord.check_out_image} alt="Check Out" fill className="object-cover hover:scale-105 transition-transform"/>
+                    </div>
+                  ) : (
+                    <div className="w-full h-24 rounded-lg bg-slate-100 flex items-center justify-center mt-1 border border-dashed border-slate-300">
+                      <span className="text-xs text-slate-400 font-bold">ไม่มีรูป</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -671,7 +732,7 @@ export default function PayrollPage() {
         </div>
       )}
 
-      {/* 🌟 Modal: แสดงรูปสลิปแบบเต็มจอพร้อมระบบซูมเลื่อนได้ */}
+      {/* 🌟 Modal: แสดงรูปภาพแบบเต็มจอพร้อมระบบซูมเลื่อนได้ (ใช้ดูได้ทั้งสลิปและรูปถ่ายบัตร) */}
       {viewSlip && (
         <div 
           className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/95 backdrop-blur-md p-4 animate-in fade-in duration-200"
@@ -695,7 +756,7 @@ export default function PayrollPage() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img 
               src={viewSlip} 
-              alt="Slip Full View" 
+              alt="Full View" 
               className={`transition-all duration-300 rounded-2xl m-auto shadow-2xl ${isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'}`}
               style={{ 
                 maxHeight: isZoomed ? 'none' : '100%', 
