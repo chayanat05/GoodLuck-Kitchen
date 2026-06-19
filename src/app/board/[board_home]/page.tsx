@@ -442,18 +442,12 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
               if (!notificationAudio.current) {
                 notificationAudio.current = new Audio(NOTIFICATION_SOUND_URL);
               }
-              // Force browser to reload/prepare audio data to prevent it from going to sleep
               notificationAudio.current.load();
               notificationAudio.current.currentTime = 0;
               notificationAudio.current.volume = 1;
               const playPromise = notificationAudio.current.play();
               if (playPromise !== undefined) {
-                playPromise.catch((error) => {
-                  console.error("Audio play failed on new order:", error);
-                  // Sometimes browsers block audio if it wasn't triggered by user interaction recently.
-                  // There is no perfect workaround for this other than user clicking again,
-                  // but we log it so we know it happened.
-                });
+                playPromise.catch(() => {});
               }
             } catch (err) {
               console.error("Error initializing audio:", err);
@@ -466,37 +460,29 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
           }
         }
       )
+      // 🌟 แก้ไขตรงนี้: ลบตรรกะที่ซับซ้อนและมีโอกาสสร้างบัค (STATUS_WEIGHT) ทิ้งทั้งหมด 
+      // ให้เชื่อข้อมูล (payload.new) ที่มาจากเซิร์ฟเวอร์โดยตรงแบบเรียบง่ายและเสถียร
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
           setOrders(prev => {
             const isArchivedOrDeleted = payload.new.is_archived || payload.new.is_deleted;
-            const exists = prev.some(o => o.id === payload.new.id);
-
+            
+            // ถ้าบิลโดนซ่อนหรือลบ ให้เอาออกจากหน้าจอ
             if (isArchivedOrDeleted) {
               return prev.filter(o => o.id !== payload.new.id);
             }
 
-            // 🌟 ลำดับน้ำหนักสถานะ ป้องกัน Real-time เอาข้อมูลเก่ามาทับ
-            const STATUS_WEIGHT: Record<string, number> = { "New": 1, "กำลังทำ": 2, "รับงาน": 3, "ส่งแล้ว/เสร็จ": 4 };
+            const exists = prev.some(o => o.id === payload.new.id);
 
             let newOrders = [];
             if (!exists) {
+              // ถ้ายังไม่เคยมีในจอ (เช่น เพิ่งถูกกู้คืนจากถังขยะ) เอามาแสดง
               newOrders = [payload.new as Order, ...prev];
             } else {
-              newOrders = prev.map(o => {
-                if (o.id === payload.new.id) {
-                  const currentWeight = STATUS_WEIGHT[o.status] || 0;
-                  const incomingWeight = STATUS_WEIGHT[payload.new.status as string] || 0;
-                  
-                  // ถ้าน้ำหนักของ Payload ใหม่น้อยกว่าของเดิมที่มีบนจอ (เช่น จอเป็น 'กำลังทำ' แต่ payload พา 'New' มา)
-                  // ให้ยึดสถานะบนจอไว้ตามเดิม แต่ฟิลด์อื่นๆ ปล่อยให้อัปเดตตามปกติ
-                  const resolvedStatus = (incomingWeight < currentWeight) ? o.status : payload.new.status;
-                  
-                  return { ...o, ...(payload.new as Order), status: resolvedStatus };
-                }
-                return o;
-              });
+              // 🌟 อัปเดตข้อมูลบนจอให้ตรงกับ Server ทันที
+              newOrders = prev.map(o => o.id === payload.new.id ? { ...o, ...(payload.new as Order) } : o);
             }
 
+            // จัดเรียงข้อมูลให้ถูกต้อง
             return newOrders.sort((a, b) => {
               const sortA = a.sort_index ?? 0;
               const sortB = b.sort_index ?? 0;
