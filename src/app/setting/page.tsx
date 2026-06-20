@@ -1,9 +1,10 @@
-'use client'
+"use client";
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { 
-  ArrowLeft, PaintBucket, Image as ImageIcon, Trash2, MoonStar, Settings, CheckCircle2, ChevronRight, AlertTriangle, Palette, ImagePlus, Maximize, Minimize, LayoutGrid, Clock
+  ArrowLeft, PaintBucket, Image as ImageIcon, Trash2, MoonStar, Settings, CheckCircle2, ChevronRight, AlertTriangle, Palette, ImagePlus, Maximize, Minimize, LayoutGrid, Clock, UserCheck,
+  Loader2
 } from 'lucide-react';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 
@@ -17,12 +18,19 @@ const COLORS = [
   '#faf4ed', '#f5eae1', '#eaddcf', '#e4d4c8', '#d6d3d1', '#a8a29e', '#57534e', '#292524'
 ];
 
-type SettingView = 'menu' | 'theme' | 'store' | 'cutoff';
+type SettingView = 'menu' | 'theme' | 'store' | 'cutoff' | 'access';
 type BgOption = 'cover' | 'contain' | 'repeat';
 
 interface Branch {
   id: string;
   name: string;
+}
+
+interface EmployeeProfile {
+  id: string;
+  username: string;
+  role: string;
+  branch_id: string | null;
 }
 
 export default function SettingPage() {
@@ -55,6 +63,10 @@ export default function SettingPage() {
   const [isClearBoardOpen, setIsClearBoardOpen] = useState(false);
   const [clearTarget, setClearTarget] = useState("ALL");
   const [isClearing, setIsClearing] = useState(false);
+
+  // 🌟 State สำหรับจัดการสิทธิ์สาขา
+  const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
+  const [isSavingAccess, setIsSavingAccess] = useState<string | null>(null);
   
   // 🌟 State สำหรับ Confirm Dialog กลางจอ
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -125,6 +137,23 @@ export default function SettingPage() {
     loadTheme();
     return () => { isMounted = false; };
   }, [selectedBranchId]);
+
+  // 🌟 ดึงข้อมูลพนักงานเมื่อเข้าหน้าตั้งค่าสิทธิ์
+  useEffect(() => {
+    if (activeView === 'access') {
+      const fetchEmployees = async () => {
+        const { data } = await supabase
+          .from('profiles')
+          .select('id, username, role, branch_id')
+          .not('role', 'eq', 'superadmin')
+          .order('role', { ascending: true })
+          .order('username', { ascending: true });
+        
+        if (data) setEmployees(data);
+      };
+      fetchEmployees();
+    }
+  }, [activeView]);
 
   const saveThemeToDB = async (color: string, image: string | null, option: BgOption) => {
     if (selectedBranchId === 'ALL') {
@@ -274,6 +303,21 @@ export default function SettingPage() {
     });
   };
 
+  // 🌟 ฟังก์ชันอัปเดตสิทธิ์สาขา
+  const handleUpdateBranchAccess = async (userId: string, newBranchId: string | null) => {
+    setIsSavingAccess(userId);
+    const { error } = await supabase.from('profiles').update({ branch_id: newBranchId }).eq('id', userId);
+    
+    if (error) {
+      console.error(error);
+      showToast('เกิดข้อผิดพลาดในการอัปเดตสิทธิ์', 'error');
+    } else {
+      setEmployees(prev => prev.map(emp => emp.id === userId ? { ...emp, branch_id: newBranchId } : emp));
+      showToast('อัปเดตการมองเห็นสาขาเรียบร้อย!');
+    }
+    setIsSavingAccess(null);
+  };
+
   if (loading) return <div className="min-h-screen bg-gray-50 flex justify-center items-center font-bold text-gray-400 animate-pulse">กำลังโหลดข้อมูล...</div>;
 
   return (
@@ -301,6 +345,7 @@ export default function SettingPage() {
               {activeView === 'theme' && <><PaintBucket className="mr-2 text-blue-500" size={24} /> ตั้งค่าธีมสาขา</>}
               {activeView === 'store' && <><MoonStar className="mr-2 text-indigo-500" size={24} /> ตั้งค่าไรเดอร์</>}
               {activeView === 'cutoff' && <><Clock className="mr-2 text-emerald-500" size={24} /> ตั้งเวลาทำการ (Shift)</>}
+              {activeView === 'access' && <><UserCheck className="mr-2 text-fuchsia-500" size={24} /> สิทธิ์การมองเห็นสาขา</>}
             </h1>
           </div>
         </div>
@@ -360,7 +405,23 @@ export default function SettingPage() {
                 <ChevronRight size={24} className="text-slate-300 group-hover:text-emerald-500 transition-colors group-hover:translate-x-1" />
               </button>
 
-              {/* 🌟 เมนูล้างบอร์ด ย้ายมาที่นี่แล้ว! */}
+              {/* 🌟 เมนูกำหนดสิทธิ์สาขา */}
+              <button 
+                onClick={() => setActiveView('access')}
+                className="w-full flex items-center justify-between p-5 bg-white border border-slate-100 hover:border-fuchsia-200 hover:bg-fuchsia-50/50 hover:shadow-md rounded-2xl transition-all cursor-pointer group"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-fuchsia-100 rounded-xl flex items-center justify-center text-fuchsia-500 group-hover:scale-110 transition-transform">
+                    <UserCheck size={24} className="group-hover:animate-pulse" />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="font-black text-slate-800 text-lg">สิทธิ์การมองเห็นสาขา</h3>
+                    <p className="text-xs font-medium text-slate-500 mt-0.5">กำหนดว่าพนักงานคนไหนเห็นงานกี่สาขา</p>
+                  </div>
+                </div>
+                <ChevronRight size={24} className="text-slate-300 group-hover:text-fuchsia-500 transition-colors group-hover:translate-x-1" />
+              </button>
+
               <button 
                 onClick={() => setIsClearBoardOpen(true)}
                 className="w-full flex items-center justify-between p-5 bg-white border border-slate-100 hover:border-rose-200 hover:bg-rose-50/50 hover:shadow-md rounded-2xl transition-all cursor-pointer group"
@@ -507,6 +568,60 @@ export default function SettingPage() {
                 >
                   {isSavingLimit ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่า'}
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* 🌟 หน้าตั้งค่าสิทธิ์การมองเห็นสาขา */}
+          {activeView === 'access' && (
+            <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-6 py-4">
+              <div className="bg-fuchsia-50/50 rounded-4xl p-6 md:p-8 border border-fuchsia-100 relative overflow-hidden">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm text-fuchsia-500 shrink-0">
+                    <UserCheck size={32} />
+                  </div>
+                  <div>
+                    <h4 className="font-black text-slate-800 text-xl">สิทธิ์การมองเห็นสาขา</h4>
+                    <p className="text-sm font-medium text-slate-500 mt-1">
+                      กำหนดพนักงานให้เห็นงานทุกสาขา หรือเห็นแค่สาขาเดียว
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-fuchsia-100 shadow-sm overflow-hidden">
+                  <div className="max-h-125 overflow-y-auto thin-scrollbar divide-y divide-slate-100">
+                    {employees.map(emp => (
+                      <div key={emp.id} className="p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-3 hover:bg-slate-50 transition-colors">
+                        <div>
+                          <div className="font-black text-slate-800">{emp.username}</div>
+                          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 flex items-center gap-1.5 mt-1">
+                            <span className={`px-1.5 py-0.5 rounded-md border ${emp.role === 'admin' ? 'bg-purple-50 text-purple-600 border-purple-100' : emp.role === 'kitchen' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
+                              {emp.role}
+                            </span>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={emp.branch_id || 'ALL'}
+                            onChange={(e) => handleUpdateBranchAccess(emp.id, e.target.value === 'ALL' ? null : e.target.value)}
+                            disabled={isSavingAccess === emp.id}
+                            className="bg-slate-50 border border-slate-200 text-sm font-bold text-slate-700 p-2.5 rounded-xl outline-none focus:ring-2 focus:ring-fuchsia-500/20 focus:border-fuchsia-500 cursor-pointer shadow-sm min-w-40"
+                          >
+                            <option value="ALL">🌐 เห็นทุกสาขา</option>
+                            {branches.map(b => (
+                              <option key={b.id} value={b.id}>🏠 เฉพาะ {b.name}</option>
+                            ))}
+                          </select>
+                          {isSavingAccess === emp.id && <Loader2 size={16} className="text-fuchsia-500 animate-spin" />}
+                        </div>
+                      </div>
+                    ))}
+                    {employees.length === 0 && (
+                      <div className="p-8 text-center text-slate-400 font-bold">ไม่มีข้อมูลพนักงาน</div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           )}

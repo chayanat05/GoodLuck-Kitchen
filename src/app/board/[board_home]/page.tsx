@@ -537,7 +537,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   useEffect(() => {
     if (showRiderMap && currentBranchId) {
       const timer = setTimeout(() => fetchRidersLocation(), 0);
-      const interval = setInterval(fetchRidersLocation, 30000);
+      const interval = setInterval(fetchRidersLocation, 15000);
       const profileChannel = supabase
         .channel(`profiles-map-${currentBranchId}`)
         .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles" }, (payload) => {
@@ -1296,7 +1296,8 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
               </Link>
 
               <div className="h-px bg-slate-100 my-2"></div>
-
+              {(currentUserRole === "admin" || currentUserRole === "superadmin") && (
+                <>
               <Link
                 href="/history"
                 prefetch={false}
@@ -1348,7 +1349,8 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                   </div>
                 </div>
               </Link>
-
+              </>
+              )}
               <div className="h-px bg-slate-100 my-2"></div>
 
               {(currentUserRole === "kitchen" || currentUserRole === "superadmin") && (
@@ -1568,7 +1570,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                 ไรเดอร์
               </div>
               <span className="text-sm text-slate-400 my-auto ml-auto pl-4 whitespace-nowrap">
-                *พิกัดอัปเดตทุก 30 วินาที*
+                *พิกัดอัปเดตทุกๆ 15 วินาที*
               </span>
             </div>
           </div>
