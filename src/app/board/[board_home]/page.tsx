@@ -144,7 +144,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     location_name: "",
     address: "",
     total_price: "",
-    delivery_fee: "0",
     payment_method: "",
     lat: null as number | null,
     lng: null as number | null,
@@ -227,9 +226,8 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     if (orderData) {
       const activeOrders = orderData.filter((order) => order.is_deleted !== true);
       console.log(
-    "FETCH ORDERS",
+    "SET ORDERS FROM FETCH",
     activeOrders.map(o => ({
-      id: o.id,
       order: o.order_number,
       status: o.status
     }))
@@ -457,7 +455,12 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
           }
         }
       )
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {console.log("REALTIME UPDATE", payload.new.status);
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
+        console.log(
+  "SET ORDER FROM REALTIME",
+  payload.new.order_number,
+  payload.new.status
+);
           setOrders(prev => {
             const isArchivedOrDeleted = payload.new.is_archived || payload.new.is_deleted;
             
@@ -700,7 +703,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       location_name: "",
       address: "",
       total_price: "",
-      delivery_fee: "0",
       payment_method: "",
       lat: null,
       lng: null,
@@ -724,7 +726,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       location_name: order.address || "",
       address: "",
       total_price: order.total_price ? order.total_price.toString() : "",
-      delivery_fee: order.delivery_fee?.toString() || "0",
       payment_method: order.payment_method || "โอน",
       lat: order.lat || null,
       lng: order.lng || null,
@@ -801,7 +802,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     }
 
     const cleanPrice = formData.job_type === "shopee" ? 0 : parseInt(formData.total_price.replace(/[^0-9]/g, ""), 10) || 0;
-    const cleanDelivery = formData.job_type === "shopee" ? 0 : parseInt(formData.delivery_fee.replace(/[^0-9]/g, ""), 10) || 0;
 
     const orderData = {
       order_number: finalOrderNumber,
@@ -811,7 +811,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       address: formData.job_type === "shopee" ? null : formData.location_name,
       image_url: currentExisting.join(","),
       total_price: cleanPrice,
-      delivery_fee: cleanDelivery,
       payment_method: formData.job_type === "shopee" ? "โอน" : formData.payment_method,
       lat: formData.job_type === "shopee" ? null : formData.lat,
       lng: formData.job_type === "shopee" ? null : formData.lng,
@@ -2050,8 +2049,8 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
               {formData.job_type !== "shopee" && (
                 <div className="space-y-2 pt-2 border-t border-slate-800 mt-2">
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
+                  <div className="grid grid-cols-5 gap-2">
+                    <div className="col-span-3">
                       <label className="block text-[10px] font-black text-slate-400 mb-1 tracking-wide uppercase">
                         ค่าอาหาร (บาท)
                       </label>
@@ -2065,34 +2064,8 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                         placeholder="0"
                       />
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-400 mb-1 tracking-wide uppercase">
-                        ค่าส่ง (บาท)
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        inputMode="numeric"
-                        className="w-full bg-orange-900 border border-orange-700 p-2.5 rounded-xl text-lg outline-none focus:ring-2 focus:ring-orange-600 focus:border-orange-500 transition-all font-black text-white placeholder-orange-300 shadow-sm"
-                        value={formData.delivery_fee}
-                        onChange={(e) => {
-                          const newFeeStr = e.target.value.replace(/[^0-9]/g, "");
-                          const newFeeNum = parseInt(newFeeStr || "0", 10);
-                          const oldFeeNum = parseInt(formData.delivery_fee || "0", 10);
-                          const currentTotal = parseInt(formData.total_price || "0", 10);
-                          
-                          const newTotal = currentTotal - oldFeeNum + newFeeNum;
-                          
-                          setFormData({ 
-                            ...formData, 
-                            delivery_fee: newFeeStr, 
-                            total_price: Math.max(0, newTotal).toString() 
-                          });
-                        }}
-                        placeholder="0"
-                      />
-                    </div>
-                    <div>
+                    
+                    <div className="col-span-2">
                       <label className="block text-[10px] font-black text-slate-400 mb-1 tracking-wide uppercase">
                         ช่องทางชำระเงิน
                       </label>
@@ -2105,7 +2078,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                         <option value="" disabled>เลือกช่องทาง...</option>
                         <option value="โอน">📱 โอน</option>
                         <option value="เงินสด">💵 เงินสด</option>
-                        <option value="คนละครึ่ง">🔵 ครึ่งๆ</option>
+                        <option value="คนละครึ่ง">½ คนละครึ่ง</option>
                       </select>
                     </div>
                   </div>
@@ -2229,14 +2202,10 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                       <span>ค่าอาหาร</span>
                       <span>฿{Number(formData.total_price || 0).toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span>ค่าส่ง</span>
-                      <span>฿{Number(formData.delivery_fee || 0).toLocaleString()}</span>
-                    </div>
+                    
                   </div>
                   <div className="border-t border-slate-700 pt-4 mt-4 flex justify-between items-center text-white font-black text-lg">
                     <span>รวมทั้งหมด</span>
-                    <span>฿{(Number(formData.total_price || 0) + Number(formData.delivery_fee || 0)).toLocaleString()}</span>
                   </div>
                 </div>
 
