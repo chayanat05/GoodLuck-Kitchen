@@ -914,7 +914,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   };
 
   // 🌟 1. อัปเดตผ่าน Modal (Optimistic UI 100%)
-  // 🌟 1. อัปเดตผ่าน Modal (เปลี่ยนวิธีอัปเดตให้ชัวร์ขึ้น)
+  // 🌟 1. อัปเดตผ่าน Modal
   const executeStatusChange = async (newStatus: string) => {
     if (!statusModal.order) return;
     const targetOrder = statusModal.order;
@@ -926,19 +926,21 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       updateData.end_time = new Date().toISOString();
     }
 
-    // 🚨 1. ส่งข้อมูลไปอัปเดตที่ฐานข้อมูล "ก่อน"
+    // ✨ 1. อัปเดตหน้าจอทันที
+    setOrders(prev => prev.map(o => o.id === targetOrder.id ? { ...o, ...updateData } : o));
+
+    // 🚨 2. รอให้ฐานข้อมูลบันทึกสำเร็จจริงๆ
     const { error } = await supabase.from("orders").update(updateData).eq("id", targetOrder.id);
-    
+
     if (error) {
       console.error("Update Error:", error);
       showToast("เกิดข้อผิดพลาดในการเปลี่ยนสถานะ ❌");
-      return; // ถ้าพังให้อยู่เฉยๆ
+      fetchOrdersAndLocations(); // ดึงข้อมูลใหม่ถ้าพัง
+      return;
     }
 
-    // ✨ 2. ถ้าฐานข้อมูลอัปเดตผ่าน ค่อยมาอัปเดตหน้าจอ
-    setOrders(prev => prev.map(o => o.id === targetOrder.id ? { ...o, ...updateData } : o));
     showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`);
-    
+
     supabase.from("activity_logs").insert([{
       branch_id: currentBranchId,
       user_name: adminName,
@@ -955,26 +957,29 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     setSelectedViewOrder(null);
   };
 
-  // 🌟 2. เริ่มทำอาหาร (Optimistic UI 100%)
   // 🌟 2. เริ่มทำอาหาร
   const handleStartOrder = async (orderId: string) => {
     const targetOrder = orders.find(o => o.id === orderId);
     if (!targetOrder) return;
 
-    // 🚨 1. อัปเดตฐานข้อมูลก่อน
-    const { error } = await supabase.from("orders").update({ status: "กำลังทำ" }).eq("id", orderId);
-    
+    const updateData = { status: "กำลังทำ" };
+
+    // ✨ 1. อัปเดตหน้าจอทันที
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updateData } : o));
+
+    // 🚨 2. รอให้ฐานข้อมูลบันทึกสำเร็จจริงๆ
+    const { error } = await supabase.from("orders").update(updateData).eq("id", orderId);
+
     if (error) {
       console.error("Update Error:", error);
       showToast("เกิดข้อผิดพลาด ❌");
+      fetchOrdersAndLocations(); // ดึงข้อมูลใหม่ถ้าพัง
       return;
     }
 
-    // ✨ 2. สำเร็จแล้วค่อยแก้ UI
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: "กำลังทำ" } : o));
     showToast("ครัวเริ่มทำอาหารแล้ว! 🍳");
-    
     const orderNum = targetOrder.order_number || "ล่าสุด";
+
     supabase.from("activity_logs").insert([{
       branch_id: currentBranchId, user_name: adminName, action: "CHANGE_STATUS", details: `เริ่มทำอาหารออเดอร์ #${orderNum} (สถานะ: กำลังทำ)`
     }]);
@@ -982,7 +987,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     setSelectedViewOrder(null);
   };
 
-  // 🌟 3. ทำอาหารเสร็จ (Optimistic UI 100%)
   // 🌟 3. ทำอาหารเสร็จ
   const handleFinishOrder = async (orderId: string) => {
     const targetOrder = orders.find((o) => o.id === orderId);
@@ -994,17 +998,19 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     const updateData: { status: string; end_time?: string } = { status: nextStatus };
     if (isShopee) updateData.end_time = new Date().toISOString();
 
-    // 🚨 1. อัปเดตฐานข้อมูลก่อน
+    // ✨ 1. อัปเดตหน้าจอทันที
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updateData } : o));
+
+    // 🚨 2. รอให้ฐานข้อมูลบันทึกสำเร็จจริงๆ
     const { error } = await supabase.from("orders").update(updateData).eq("id", orderId);
-    
+
     if (error) {
       console.error("Update Error:", error);
       showToast("เกิดข้อผิดพลาด ❌");
+      fetchOrdersAndLocations(); // ดึงข้อมูลใหม่ถ้าพัง
       return;
     }
 
-    // ✨ 2. สำเร็จแล้วค่อยแก้ UI
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updateData } : o));
     showToast(isShopee ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦" : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵");
     
     const orderNum = targetOrder.order_number || "ล่าสุด";
