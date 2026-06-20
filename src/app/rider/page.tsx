@@ -230,7 +230,7 @@ export default function RiderPage() {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("username, branch_id, role")
+        .select("username, branch_id, role, is_approved") // 🌟 ดึง is_approved มาด้วย
         .eq("id", session.user.id)
         .single();
 
@@ -255,6 +255,15 @@ export default function RiderPage() {
 
       const isSuper = profile?.role === 'superadmin' || profile?.role === 'admin';
       
+      // 🌟 1. ดักจับพนักงานใหม่ หรือคนที่ถูกแอดมินบล็อกสิทธิ์
+      // ถ้า is_approved เป็น false ให้เตะเข้าหน้าบล็อกทันที
+      if (profile?.is_approved === false && !isSuper) {
+        setIsCheckingAuth(false);
+        setMyBranchId(null); 
+        return;
+      }
+      
+      // 🌟 2. ดึงข้อมูลการตอกบัตร
       if (!isSuper) {
         const { data: attData } = await supabase
           .from("rider_attendance")
@@ -267,24 +276,20 @@ export default function RiderPage() {
         setActiveAttendance(attData || null);
       }
 
-      if (profile?.branch_id || isSuper) {
-        if (profile?.branch_id) {
-          setMyBranchId(profile.branch_id);
-          const { data: branchData } = await supabase.from("branches").select("lat, lng, cut_off_hour").eq("id", profile.branch_id).single();
-          if (branchData) {
-            setCutOffHour(branchData.cut_off_hour || 4);
-            setShopLocation({ lat: branchData.lat, lng: branchData.lng });
-          }
-        } else {
-          setMyBranchId("all");
+      // 🌟 3. กำหนดสาขาให้ไรเดอร์ (ถ้า branch_id เป็น null แต่ผ่านการอนุมัติแล้ว แปลว่าเห็นทุกสาขา)
+      if (profile?.branch_id) {
+        setMyBranchId(profile.branch_id);
+        const { data: branchData } = await supabase.from("branches").select("lat, lng, cut_off_hour").eq("id", profile.branch_id).single();
+        if (branchData) {
+          setCutOffHour(branchData.cut_off_hour || 4);
+          setShopLocation({ lat: branchData.lat, lng: branchData.lng });
         }
-        
-        await fetchOrdersAndBranches(currentUserId);
-        setIsCheckingAuth(false);
       } else {
-        setMyBranchId(null);
-        setIsCheckingAuth(false);
+        setMyBranchId("all"); // 🌟 กำหนดให้เป็น 'all' จะได้ไม่โดนบล็อก
       }
+      
+      await fetchOrdersAndBranches(currentUserId);
+      setIsCheckingAuth(false);
     };
 
     checkAuthAndInit();
@@ -860,9 +865,9 @@ export default function RiderPage() {
         <div className="w-24 h-24 bg-amber-100 rounded-full flex items-center justify-center mb-6 shadow-lg border border-amber-200 animate-pulse">
           <Store size={40} className="text-amber-500" />
         </div>
-        <h1 className="text-2xl font-black mb-3 tracking-tight">รอการจัดสรรสาขา</h1>
+        <h1 className="text-2xl font-black mb-3 tracking-tight">รอการอนุมัติ / จัดสรรสาขา</h1>
         <p className="text-slate-500 text-sm mb-8 max-w-xs leading-relaxed font-medium">
-          บัญชีของคุณยังไม่ได้ระบุสาขาประจำ กรุณาแจ้งแอดมินเพื่อเลือกสาขาให้คุณก่อนเริ่มรับงานครับ 🛵
+          บัญชีของคุณกำลังรอให้แอดมินอนุมัติสิทธิ์ หรือจัดสรรสาขาให้ก่อนเริ่มรับงานครับ 🛵
         </p>
         <div className="flex gap-4">
           <button onClick={() => window.location.reload()} className="px-6 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-lg active:scale-95 transition-all text-sm uppercase tracking-wide">
@@ -966,9 +971,9 @@ export default function RiderPage() {
               </button>
             </div>
 
-            {/* 🌟 บังคับตอกบัตรก่อนเห็นงานว่าง (แอดมินดูได้เลย) - ปิดใช้งานชั่วคราวตามคำขอ */}
+            {/* 🌟 บังคับตอกบัตรก่อนเห็นงานว่าง (แอดมินดูได้เลย) */}
             {!activeAttendance && currentUserRole !== 'admin' && currentUserRole !== 'superadmin' ? (
-              <div className="text-center bg-white rounded-4xl border border-slate-200 shadow-sm flex flex-col items-center justify-center mx-auto max-w-sm w-full flex-1 p-8">
+              <div className="text-center bg-white rounded-4xl border border-slate-200 shadow-sm flex flex-col items-center justify-center mx-auto max-w-sm w-full flex-1 p-8 animate-in zoom-in duration-300">
                 <div className="w-24 h-24 bg-rose-50 rounded-full flex items-center justify-center mb-6 shadow-inner border border-rose-100">
                   <Camera size={40} className="text-rose-500" />
                 </div>

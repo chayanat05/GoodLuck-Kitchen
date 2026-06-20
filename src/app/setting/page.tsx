@@ -3,8 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { 
-  ArrowLeft, PaintBucket, Image as ImageIcon, Trash2, MoonStar, Settings, CheckCircle2, ChevronRight, AlertTriangle, Palette, ImagePlus, Maximize, Minimize, LayoutGrid, Clock, UserCheck,
-  Loader2
+  ArrowLeft, PaintBucket, Image as ImageIcon, Trash2, MoonStar, Settings, CheckCircle2, ChevronRight, AlertTriangle, Palette, ImagePlus, Maximize, Minimize, LayoutGrid, Clock, UserCheck, Loader2
 } from 'lucide-react';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 
@@ -31,6 +30,7 @@ interface EmployeeProfile {
   username: string;
   role: string;
   branch_id: string | null;
+  is_approved: boolean; // 🌟 เพิ่มฟิลด์สถานะอนุมัติ
 }
 
 export default function SettingPage() {
@@ -144,7 +144,7 @@ export default function SettingPage() {
       const fetchEmployees = async () => {
         const { data } = await supabase
           .from('profiles')
-          .select('id, username, role, branch_id')
+          .select('id, username, role, branch_id, is_approved')
           .not('role', 'eq', 'superadmin')
           .order('role', { ascending: true })
           .order('username', { ascending: true });
@@ -272,7 +272,6 @@ export default function SettingPage() {
     }
   };
 
-  // 🌟 ฟังก์ชันล้างบอร์ด
   const handleClearBoard = async (e: React.FormEvent) => {
     e.preventDefault();
     setConfirmDialog({
@@ -303,16 +302,31 @@ export default function SettingPage() {
     });
   };
 
-  // 🌟 ฟังก์ชันอัปเดตสิทธิ์สาขา
-  const handleUpdateBranchAccess = async (userId: string, newBranchId: string | null) => {
-    setIsSavingAccess(userId);
-    const { error } = await supabase.from('profiles').update({ branch_id: newBranchId }).eq('id', userId);
+  // 🌟 ฟังก์ชันอัปเดตสิทธิ์สาขา (ปรับให้ทำงานร่วมกับ is_approved)
+  const handleUpdateBranchAccess = async (emp: EmployeeProfile, newValue: string) => {
+    setIsSavingAccess(emp.id);
+    
+    let newBranchId: string | null = null;
+    let newIsApproved = true;
+
+    if (newValue === 'BLOCKED') {
+      newBranchId = null;
+      newIsApproved = false; // บล็อก
+    } else if (newValue === 'ALL') {
+      newBranchId = null;
+      newIsApproved = true;  // ให้เห็นทุกสาขา
+    } else {
+      newBranchId = newValue;
+      newIsApproved = true;  // ให้เห็นเฉพาะสาขา
+    }
+
+    const { error } = await supabase.from('profiles').update({ branch_id: newBranchId, is_approved: newIsApproved }).eq('id', emp.id);
     
     if (error) {
       console.error(error);
       showToast('เกิดข้อผิดพลาดในการอัปเดตสิทธิ์', 'error');
     } else {
-      setEmployees(prev => prev.map(emp => emp.id === userId ? { ...emp, branch_id: newBranchId } : emp));
+      setEmployees(prev => prev.map(p => p.id === emp.id ? { ...p, branch_id: newBranchId, is_approved: newIsApproved } : p));
       showToast('อัปเดตการมองเห็นสาขาเรียบร้อย!');
     }
     setIsSavingAccess(null);
@@ -405,7 +419,6 @@ export default function SettingPage() {
                 <ChevronRight size={24} className="text-slate-300 group-hover:text-emerald-500 transition-colors group-hover:translate-x-1" />
               </button>
 
-              {/* 🌟 เมนูกำหนดสิทธิ์สาขา */}
               <button 
                 onClick={() => setActiveView('access')}
                 className="w-full flex items-center justify-between p-5 bg-white border border-slate-100 hover:border-fuchsia-200 hover:bg-fuchsia-50/50 hover:shadow-md rounded-2xl transition-all cursor-pointer group"
@@ -440,7 +453,70 @@ export default function SettingPage() {
             </div>
           )}
 
-          {/* หน้าตั้งเวลาทำการ */}
+          {/* 🌟 หน้าตั้งค่าสิทธิ์การมองเห็นสาขา */}
+          {activeView === 'access' && (
+            <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-6 py-4">
+              <div className="bg-fuchsia-50/50 rounded-4xl p-6 md:p-8 border border-fuchsia-100 relative overflow-hidden">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm text-fuchsia-500 shrink-0">
+                    <UserCheck size={32} />
+                  </div>
+                  <div>
+                    <h4 className="font-black text-slate-800 text-xl">สิทธิ์การมองเห็นสาขา</h4>
+                    <p className="text-sm font-medium text-slate-500 mt-1">
+                      กำหนดให้พนักงานเห็นงานทุกสาขา หรือเห็นแค่สาขาเดียว (ถ้าบล็อกจะไม่สามารถเข้าแอปได้)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-fuchsia-100 shadow-sm overflow-hidden">
+                  <div className="max-h-125 overflow-y-auto thin-scrollbar divide-y divide-slate-100">
+                    {employees.map(emp => {
+                      // 🌟 ตรรกะการแสดงผลสถานะใน Dropdown
+                      const currentValue = !emp.is_approved ? 'BLOCKED' : (emp.branch_id ? emp.branch_id : 'ALL');
+
+                      return (
+                        <div key={emp.id} className="p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-3 hover:bg-slate-50 transition-colors">
+                          <div>
+                            <div className="font-black text-slate-800">{emp.username}</div>
+                            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 flex items-center gap-1.5 mt-1">
+                              <span className={`px-1.5 py-0.5 rounded-md border ${emp.role === 'admin' ? 'bg-purple-50 text-purple-600 border-purple-100' : emp.role === 'kitchen' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
+                                {emp.role}
+                              </span>
+                              {!emp.is_approved && <span className="text-rose-500 animate-pulse">● รอจัดสรร</span>}
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={currentValue}
+                              onChange={(e) => handleUpdateBranchAccess(emp, e.target.value)}
+                              disabled={isSavingAccess === emp.id}
+                              className={`border text-sm font-bold p-2.5 rounded-xl outline-none focus:ring-2 focus:ring-fuchsia-500/20 focus:border-fuchsia-500 cursor-pointer shadow-sm min-w-40 transition-colors
+                                ${!emp.is_approved ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-slate-50 border-slate-200 text-slate-700'}
+                              `}
+                            >
+                              <option value="BLOCKED">🚫 รอจัดสรร (บล็อกการเข้าใช้)</option>
+                              <option value="ALL">🌐 อนุมัติ : เห็นทุกสาขา</option>
+                              {branches.map(b => (
+                                <option key={b.id} value={b.id}>🏠 อนุมัติ : เฉพาะสาขา {b.name}</option>
+                              ))}
+                            </select>
+                            {isSavingAccess === emp.id && <Loader2 size={16} className="text-fuchsia-500 animate-spin" />}
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {employees.length === 0 && (
+                      <div className="p-8 text-center text-slate-400 font-bold">ไม่มีข้อมูลพนักงาน</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* หน้าอื่นๆ ... (ยังคงโค้ดเดิมทั้งหมด) ... */}
           {activeView === 'cutoff' && (
             <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-6 py-4">
               <div className="bg-emerald-50/50 rounded-4xl p-6 md:p-8 border border-emerald-100 relative overflow-hidden">
@@ -526,7 +602,6 @@ export default function SettingPage() {
             </div>
           )}
 
-          {/* หน้าตั้งค่าไรเดอร์ */}
           {activeView === 'store' && (
             <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-6 py-4">
               <div className="bg-indigo-50/50 rounded-4xl p-6 md:p-8 border border-indigo-100 relative overflow-hidden">
@@ -572,61 +647,6 @@ export default function SettingPage() {
             </div>
           )}
 
-          {/* 🌟 หน้าตั้งค่าสิทธิ์การมองเห็นสาขา */}
-          {activeView === 'access' && (
-            <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-6 py-4">
-              <div className="bg-fuchsia-50/50 rounded-4xl p-6 md:p-8 border border-fuchsia-100 relative overflow-hidden">
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm text-fuchsia-500 shrink-0">
-                    <UserCheck size={32} />
-                  </div>
-                  <div>
-                    <h4 className="font-black text-slate-800 text-xl">สิทธิ์การมองเห็นสาขา</h4>
-                    <p className="text-sm font-medium text-slate-500 mt-1">
-                      กำหนดพนักงานให้เห็นงานทุกสาขา หรือเห็นแค่สาขาเดียว
-                    </p>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-2xl border border-fuchsia-100 shadow-sm overflow-hidden">
-                  <div className="max-h-125 overflow-y-auto thin-scrollbar divide-y divide-slate-100">
-                    {employees.map(emp => (
-                      <div key={emp.id} className="p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-3 hover:bg-slate-50 transition-colors">
-                        <div>
-                          <div className="font-black text-slate-800">{emp.username}</div>
-                          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 flex items-center gap-1.5 mt-1">
-                            <span className={`px-1.5 py-0.5 rounded-md border ${emp.role === 'admin' ? 'bg-purple-50 text-purple-600 border-purple-100' : emp.role === 'kitchen' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
-                              {emp.role}
-                            </span>
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={emp.branch_id || 'ALL'}
-                            onChange={(e) => handleUpdateBranchAccess(emp.id, e.target.value === 'ALL' ? null : e.target.value)}
-                            disabled={isSavingAccess === emp.id}
-                            className="bg-slate-50 border border-slate-200 text-sm font-bold text-slate-700 p-2.5 rounded-xl outline-none focus:ring-2 focus:ring-fuchsia-500/20 focus:border-fuchsia-500 cursor-pointer shadow-sm min-w-40"
-                          >
-                            <option value="ALL">🌐 เห็นทุกสาขา</option>
-                            {branches.map(b => (
-                              <option key={b.id} value={b.id}>🏠 เฉพาะ {b.name}</option>
-                            ))}
-                          </select>
-                          {isSavingAccess === emp.id && <Loader2 size={16} className="text-fuchsia-500 animate-spin" />}
-                        </div>
-                      </div>
-                    ))}
-                    {employees.length === 0 && (
-                      <div className="p-8 text-center text-slate-400 font-bold">ไม่มีข้อมูลพนักงาน</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* หน้าตั้งค่าธีม */}
           {activeView === 'theme' && (
             <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-8 pb-4">
               <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
