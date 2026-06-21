@@ -124,6 +124,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [menuModalSearchQuery, setMenuModalSearchQuery] = useState("");
   const [calcInput, setCalcInput] = useState("");
   
+  
   const calcResult = useMemo(() => {
     try {
       const s = (calcInput || "").toString().replace(/[^0-9+\-*/().]/g, '');
@@ -175,7 +176,14 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     language: "th",
     region: "TH",
   });
+  // 🌟 เพิ่ม State นี้เพื่อให้ระบบนับเวลาแบบ Real-time สำหรับกระพริบบิลแดง
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
 
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(Date.now()), 30000); // อัปเดตทุก 30 วินาที
+    return () => clearInterval(timer);
+  }, []);
+  
   // ---------------------------------------------------------------------------
   // 2. CORE FUNCTIONS
   // ---------------------------------------------------------------------------
@@ -913,32 +921,31 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     }
   };
 
-  // 🌟 1. อัปเดตผ่าน Modal (Optimistic UI 100%)
-  // 🌟 1. อัปเดตผ่าน Modal
+  // 🌟 1. เปลี่ยนสถานะผ่าน Modal
   const executeStatusChange = async (newStatus: string) => {
     if (!statusModal.order) return;
     const targetOrder = statusModal.order;
-
     setStatusModal({ isOpen: false, order: null });
+
+    const loadingToast = toast.loading("กำลังบันทึกข้อมูล...");
 
     const updateData: { status: string; end_time?: string } = { status: newStatus };
     if (newStatus === "ส่งแล้ว/เสร็จ" && targetOrder.job_type === "shopee") {
       updateData.end_time = new Date().toISOString();
     }
 
-    // ✨ 1. อัปเดตหน้าจอทันที
-    setOrders(prev => prev.map(o => o.id === targetOrder.id ? { ...o, ...updateData } : o));
+    const { data, error } = await supabase.from("orders").update(updateData).eq("id", targetOrder.id).select().single();
 
-    // 🚨 2. รอให้ฐานข้อมูลบันทึกสำเร็จจริงๆ
-    const { error } = await supabase.from("orders").update(updateData).eq("id", targetOrder.id);
+    toast.dismiss(loadingToast);
 
-    if (error) {
+    if (error || !data) {
       console.error("Update Error:", error);
       showToast("เกิดข้อผิดพลาดในการเปลี่ยนสถานะ ❌");
-      fetchOrdersAndLocations(); // ดึงข้อมูลใหม่ถ้าพัง
+      fetchOrdersAndLocations(); 
       return;
     }
 
+    setOrders(prev => prev.map(o => o.id === targetOrder.id ? { ...o, ...data } : o));
     showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`);
 
     supabase.from("activity_logs").insert([{
@@ -962,24 +969,22 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     const targetOrder = orders.find(o => o.id === orderId);
     if (!targetOrder) return;
 
-    const updateData = { status: "กำลังทำ" };
+    const loadingToast = toast.loading("กำลังรับออเดอร์เข้าครัว...");
 
-    // ✨ 1. อัปเดตหน้าจอทันที
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updateData } : o));
+    const { data, error } = await supabase.from("orders").update({ status: "กำลังทำ" }).eq("id", orderId).select().single();
 
-    // 🚨 2. รอให้ฐานข้อมูลบันทึกสำเร็จจริงๆ
-    const { error } = await supabase.from("orders").update(updateData).eq("id", orderId);
+    toast.dismiss(loadingToast);
 
-    if (error) {
-      console.error("Update Error:", error);
+    if (error || !data) {
       showToast("เกิดข้อผิดพลาด ❌");
-      fetchOrdersAndLocations(); // ดึงข้อมูลใหม่ถ้าพัง
+      fetchOrdersAndLocations();
       return;
     }
 
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...data } : o));
     showToast("ครัวเริ่มทำอาหารแล้ว! 🍳");
+    
     const orderNum = targetOrder.order_number || "ล่าสุด";
-
     supabase.from("activity_logs").insert([{
       branch_id: currentBranchId, user_name: adminName, action: "CHANGE_STATUS", details: `เริ่มทำอาหารออเดอร์ #${orderNum} (สถานะ: กำลังทำ)`
     }]);
@@ -998,19 +1003,19 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     const updateData: { status: string; end_time?: string } = { status: nextStatus };
     if (isShopee) updateData.end_time = new Date().toISOString();
 
-    // ✨ 1. อัปเดตหน้าจอทันที
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updateData } : o));
+    const loadingToast = toast.loading("กำลังอัปเดตสถานะออเดอร์...");
 
-    // 🚨 2. รอให้ฐานข้อมูลบันทึกสำเร็จจริงๆ
-    const { error } = await supabase.from("orders").update(updateData).eq("id", orderId);
+    const { data, error } = await supabase.from("orders").update(updateData).eq("id", orderId).select().single();
 
-    if (error) {
-      console.error("Update Error:", error);
+    toast.dismiss(loadingToast);
+
+    if (error || !data) {
       showToast("เกิดข้อผิดพลาด ❌");
-      fetchOrdersAndLocations(); // ดึงข้อมูลใหม่ถ้าพัง
+      fetchOrdersAndLocations();
       return;
     }
 
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...data } : o));
     showToast(isShopee ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦" : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵");
     
     const orderNum = targetOrder.order_number || "ล่าสุด";
@@ -1074,8 +1079,15 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     });
   };
 
-  const onDragEnd = (result: DropResult) => {
+ const onDragEnd = (result: DropResult) => {
     if (!result.destination) return;
+
+    // 🌟 1. ดักจับบั๊ก: ป้องกันการลากจัดเรียงในขณะที่กำลังพิมพ์ค้นหา
+    if (searchQuery.trim() !== "") {
+      showToast("⚠️ ไม่สามารถจัดเรียงออเดอร์ได้ในขณะที่ใช้งานช่องค้นหา");
+      return;
+    }
+
     setOrders(prev => {
       const items = Array.from(prev);
       const [reorderedItem] = items.splice(result.source.index, 1);
@@ -1647,17 +1659,19 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                       key={order.id}
                       draggableId={order.id}
                       index={index}
-                      isDragDisabled={currentUserRole === "kitchen"}
+                      // 🌟 ล็อกไม่ให้ลากตอนค้นหา
+                      isDragDisabled={currentUserRole === "kitchen" || searchQuery.trim() !== ""}
                     >
                       {(provided, snapshot) => (
                         <div
                           ref={provided.innerRef}
                           {...provided.draggableProps}
+                          // 🌟 ใช้ currentTime แทน new Date().getTime()
                           className={`shrink-0 max-h-full flex flex-col transition-all duration-300 ${isCompact ? "w-48 md:w-56" : "w-72 md:w-80"} ${snapshot.isDragging ? "scale-[1.02] rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl" : ""} ${
-  ((order.status === "New" || order.status === "กำลังทำ") && Math.floor((new Date().getTime() - new Date(order.created_at).getTime()) / 60000) >= 5) ||
-  (currentUserRole !== "kitchen" && order.status === "รับงาน" && Math.floor((new Date().getTime() - new Date(order.created_at).getTime()) / 60000) >= 35)  ? "rounded-3xl animate-border-blink" 
-  : ""
-}`}
+                            ((order.status === "New" || order.status === "กำลังทำ") && Math.floor((currentTime - new Date(order.created_at || 0).getTime()) / 60000) >= 5) ||
+                            (currentUserRole !== "kitchen" && order.status === "รับงาน" && Math.floor((currentTime - new Date(order.created_at || 0).getTime()) / 60000) >= 35)  ? "rounded-3xl animate-border-blink" 
+                            : ""
+                          }`}
                         >
                           <OrderCard
                             order={order}

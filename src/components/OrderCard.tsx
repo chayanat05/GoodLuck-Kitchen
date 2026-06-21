@@ -114,7 +114,7 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
       <div {...dragHandleProps} className={`shrink-0 flex justify-between items-start ${isCompact ? 'mb-2' : 'mb-3'} gap-2 border-b border-white/10 pb-2 ${dragHandleProps ? 'cursor-grab active:cursor-grabbing' : ''}`}>
         <div className="flex flex-wrap gap-2 items-center pointer-events-none">
           <span className={`${isCompact ? 'text-base px-2 py-1' : 'text-lg px-2.5 py-1'} font-black rounded-lg bg-white/90 text-slate-800 tracking-wider shadow-sm`}>
-            {isShopee ? (order.order_number.startsWith('#') ? order.order_number : `#${order.order_number}`) : order.order_number}
+            {isShopee ? (String(order.order_number).startsWith('#') ? order.order_number : `#${order.order_number}`) : order.order_number}
           </span>
           
           {order.status !== 'ส่งแล้ว/เสร็จ' && (
