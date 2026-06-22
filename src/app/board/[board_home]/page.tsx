@@ -927,26 +927,19 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     const targetOrder = statusModal.order;
     setStatusModal({ isOpen: false, order: null });
 
-    const loadingToast = toast.loading("กำลังบันทึกข้อมูล...");
-
     const updateData: { status: string; end_time?: string } = { status: newStatus };
     if (newStatus === "ส่งแล้ว/เสร็จ" && targetOrder.job_type === "shopee") {
       updateData.end_time = new Date().toISOString();
     }
 
-    const { data, error } = await supabase.from("orders").update(updateData).eq("id", targetOrder.id).select().single();
-
-    toast.dismiss(loadingToast);
-
-    if (error || !data) {
-      console.error("Update Error:", error);
-      showToast("เกิดข้อผิดพลาดในการเปลี่ยนสถานะ ❌");
-      fetchOrdersAndLocations(); 
-      return;
-    }
-
-    setOrders(prev => prev.map(o => o.id === targetOrder.id ? { ...o, ...data } : o));
+    // ✨ 1. เปลี่ยนสีบนหน้าจอทันที ไม่ต้องรอโหลดให้หงุดหงิด
+    setOrders(prev => prev.map(o => o.id === targetOrder.id ? { ...o, ...updateData } : o));
     showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`);
+
+    // 🚨 2. ส่งข้อมูลไปอัปเดตเงียบๆ เบื้องหลัง (ไม่รบกวนหน้าจอ)
+    supabase.from("orders").update(updateData).eq("id", targetOrder.id).then(({ error }) => {
+        if (error) fetchOrdersAndLocations(); // ดึงข้อมูลใหม่เฉพาะตอนที่เน็ตหลุด
+    });
 
     supabase.from("activity_logs").insert([{
       branch_id: currentBranchId,
@@ -961,7 +954,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       `ออเดอร์ #${targetOrder.order_number} ถูกเปลี่ยนเป็น: ${newStatus}`, 
       `/board/${branchSlug}`
     );
-    setSelectedViewOrder(null);
   };
 
   // 🌟 2. เริ่มทำอาหาร
@@ -969,27 +961,20 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     const targetOrder = orders.find(o => o.id === orderId);
     if (!targetOrder) return;
 
-    const loadingToast = toast.loading("กำลังรับออเดอร์เข้าครัว...");
-
-    const { data, error } = await supabase.from("orders").update({ status: "กำลังทำ" }).eq("id", orderId).select().single();
-
-    toast.dismiss(loadingToast);
-
-    if (error || !data) {
-      showToast("เกิดข้อผิดพลาด ❌");
-      fetchOrdersAndLocations();
-      return;
-    }
-
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...data } : o));
+    // ✨ 1. เปลี่ยนสีบนหน้าจอทันที
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: "กำลังทำ" } : o));
     showToast("ครัวเริ่มทำอาหารแล้ว! 🍳");
+
+    // 🚨 2. ส่งข้อมูลไปอัปเดตเงียบๆ เบื้องหลัง
+    supabase.from("orders").update({ status: "กำลังทำ" }).eq("id", orderId).then(({ error }) => {
+        if (error) fetchOrdersAndLocations();
+    });
     
     const orderNum = targetOrder.order_number || "ล่าสุด";
     supabase.from("activity_logs").insert([{
       branch_id: currentBranchId, user_name: adminName, action: "CHANGE_STATUS", details: `เริ่มทำอาหารออเดอร์ #${orderNum} (สถานะ: กำลังทำ)`
     }]);
     notifyRoles(['rider', 'admin', 'superadmin'], "🍳 ครัวกำลังทำอาหาร", `ออเดอร์ #${orderNum} เริ่มปรุงแล้ว`, `/board/${branchSlug}`);
-    setSelectedViewOrder(null);
   };
 
   // 🌟 3. ทำอาหารเสร็จ
@@ -999,31 +984,23 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     
     const isShopee = targetOrder.job_type === "shopee";
     const nextStatus = isShopee ? "ส่งแล้ว/เสร็จ" : "รับงาน";
-    
     const updateData: { status: string; end_time?: string } = { status: nextStatus };
     if (isShopee) updateData.end_time = new Date().toISOString();
 
-    const loadingToast = toast.loading("กำลังอัปเดตสถานะออเดอร์...");
-
-    const { data, error } = await supabase.from("orders").update(updateData).eq("id", orderId).select().single();
-
-    toast.dismiss(loadingToast);
-
-    if (error || !data) {
-      showToast("เกิดข้อผิดพลาด ❌");
-      fetchOrdersAndLocations();
-      return;
-    }
-
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...data } : o));
+    // ✨ 1. เปลี่ยนสีบนหน้าจอทันที
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updateData } : o));
     showToast(isShopee ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦" : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵");
+
+    // 🚨 2. ส่งข้อมูลไปอัปเดตเงียบๆ เบื้องหลัง
+    supabase.from("orders").update(updateData).eq("id", orderId).then(({ error }) => {
+        if (error) fetchOrdersAndLocations();
+    });
     
     const orderNum = targetOrder.order_number || "ล่าสุด";
     supabase.from("activity_logs").insert([{
       branch_id: currentBranchId, user_name: adminName, action: "CHANGE_STATUS", details: `ทำอาหารออเดอร์ #${orderNum} เสร็จแล้ว (สถานะ: ${nextStatus})`
     }]);
     notifyRoles(['rider', 'admin', 'superadmin'], "📦 อาหารพร้อมส่ง!", `ออเดอร์ #${orderNum} เสร็จแล้ว ไรเดอร์มารับได้เลย`, `/board/${branchSlug}`);
-    setSelectedViewOrder(null);
   };
 
   const handleLogoutRequest = () => {
@@ -1111,9 +1088,10 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     const q = debouncedQuery.toLowerCase();
     return orders.filter(
       (order) =>
-        (order.order_number?.toLowerCase() || "").includes(q) ||
-        (order.address?.toLowerCase() || "").includes(q) ||
-        (order.rider_name?.toLowerCase() || "").includes(q),
+        // 🌟 ใส่ String(...) ครอบไว้เพื่อป้องกันแอปพังเวลาเลขบิลเป็น Number
+        (String(order.order_number || "").toLowerCase()).includes(q) ||
+        (String(order.address || "").toLowerCase()).includes(q) ||
+        (String(order.rider_name || "").toLowerCase()).includes(q),
     );
   }, [orders, debouncedQuery]);
 

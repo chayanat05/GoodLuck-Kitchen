@@ -211,7 +211,7 @@ export default function RiderPage() {
     if (data) setRidersLoc(data as RiderLocation[]);
   }, []);
 
-  const [currentTime, setCurrentTime] = useState(Date.now());
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(Date.now()), 30000);
@@ -567,15 +567,19 @@ export default function RiderPage() {
     showConfirm(
       "ยืนยันการดำเนินการ", confirmMsg,
       async () => {
+        // ✨ 1. อัปเดตหน้าจอทันที (Optimistic UI) ให้การ์ดเด้งไปประวัติเลย ลื่นไหลสุดๆ
+        setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: nextStatus } : o));
+
         const updateData: { status: string; end_time?: string } = { status: nextStatus };
         if (nextStatus === "ส่งแล้ว/เสร็จ") updateData.end_time = new Date().toISOString();
+        
+        // 🚨 2. ส่งข้อมูลไปอัปเดตเบื้องหลัง
         const { error } = await supabase.from("orders").update(updateData).eq("id", order.id);
         
         if (error) {
           showAlert("เกิดข้อผิดพลาด", "อัปเดตไม่สำเร็จ", "error");
+          fetchOrdersAndBranches(currentUser!.id); // ถ้าเน็ตหลุด ค่อยโหลดข้อมูลเก่ากลับมาโชว์
         } else {
-          fetchOrdersAndBranches(currentUser!.id);
-          
           if (nextStatus === "ส่งแล้ว/เสร็จ") {
             notifyRoles(
               ['admin', 'superadmin'], 
@@ -615,8 +619,17 @@ export default function RiderPage() {
   };
 
   const calculateRoute = (order: RiderOrder) => {
-    if (order.address && (order.address.startsWith("http") || order.address.includes("maps."))) {
-      window.open(order.address, "_blank");
+    // 🌟 1. ดักจับลิงก์ทุกประเภท (http, https, maps., share.google, goo.gl)
+    if (
+      order.address && 
+      (order.address.startsWith("http") || 
+       order.address.includes("maps.") || 
+       order.address.includes("goo.gl") || 
+       order.address.includes("share.google"))
+    ) {
+      // ถ้าลูกค้าลืมใส่ https:// ให้เติมให้เพื่อไม่ให้เบราว์เซอร์เอ๋อ
+      const finalUrl = order.address.startsWith("http") ? order.address : `https://${order.address}`;
+      window.open(finalUrl, "_blank");
       return;
     }
 
@@ -626,6 +639,7 @@ export default function RiderPage() {
       return; 
     }
 
+    // 🌟 2. ถ้าระบบมีพิกัด lat, lng (ปักหมุดเป๊ะๆ) -> ให้เปิดโหมดนำทาง (Directions)
     if (order.lat && order.lng) { 
       const lat = myLocation?.lat || SHOP_LAT;
       const lng = myLocation?.lng || SHOP_LNG;
@@ -634,6 +648,7 @@ export default function RiderPage() {
       return;
     }
 
+    // 🌟 3. ถ้าเป็นแค่ข้อความที่อยู่ธรรมดา -> ให้เปิดโหมดค้นหาสถานที่ (Search)
     if (order.address) {
       const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.address)}`;
       window.open(url, "_blank");
@@ -1223,8 +1238,8 @@ export default function RiderPage() {
 
       {/* 🌟 Modal สำหรับถ่ายรูปตอกบัตร */}
       {showCameraModal && (
-        <div className="fixed inset-0 bg-slate-900/90 z-[200] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2rem] p-6 w-full max-w-sm flex flex-col items-center shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-slate-900/90 z-200 flex items-center justify-center p-4">
+          <div className="bg-white rounded-4xl p-6 w-full max-w-sm flex flex-col items-center shadow-2xl animate-in zoom-in-95 duration-200">
             <h3 className="text-xl font-black mb-2 text-slate-800">
               {cameraAction === 'in' ? '📸 ถ่ายรูปเข้างาน' : '📸 ถ่ายรูปเลิกงาน'}
             </h3>
@@ -1415,7 +1430,7 @@ export default function RiderPage() {
       {/* 🌟 ปรับปรุง: Modal ดูรูปเต็มจอและ Gallery แผนที่กลับมาสมบูรณ์ 100% */}
       {imageGallery && (
         <div 
-          className="fixed inset-0 z-[300] bg-black/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200" 
+          className="fixed inset-0 z-300 bg-black/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200" 
           onClick={() => { setImageGallery(null); setImgScale(1); }}
         >
           <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-50 text-white pointer-events-none">

@@ -303,6 +303,26 @@ export default function PayrollPage() {
     }
   };
 
+  // 🌟 ฟังก์ชันกดจ่ายเงินด่วน (Quick Action)
+  const handleQuickMarkPaid = async (record: AttendanceRecord) => {
+    // อัปเดต UI ทันทีให้ดูลื่นไหล (Optimistic Update)
+    setRecords(prev => prev.map(r => r.id === record.id ? { ...r, payment_status: "จ่ายแล้ว" } : r));
+    
+    // อัปเดตเข้าฐานข้อมูล
+    const { error } = await supabase
+      .from('rider_attendance')
+      .update({ payment_status: "จ่ายแล้ว" })
+      .eq('id', record.id);
+
+    if (error) {
+      console.error(error);
+      showToast('อัปเดตสถานะไม่สำเร็จ ❌', 'error');
+      fetchRecords(selectedDate); // ดึงข้อมูลใหม่เพื่อคืนค่าเดิมถ้าพัง
+    } else {
+      showToast('เปลี่ยนเป็น "จ่ายแล้ว" สำเร็จ! 💸');
+    }
+  };
+
   const filteredRecords = useMemo(() => {
     if (!searchQuery.trim()) return records;
     const query = searchQuery.toLowerCase();
@@ -405,11 +425,25 @@ export default function PayrollPage() {
                 : (record.total_pay || 0);
               
               return (
-                <div key={record.id} className={`bg-white rounded-3xl p-5 border ${isWorking ? 'border-amber-200 shadow-sm shadow-amber-500/10' : isPaid ? 'border-emerald-200 shadow-sm shadow-emerald-500/10' : 'border-slate-200 shadow-sm'} transition-all hover:shadow-md relative overflow-hidden`}>
+                <div key={record.id} className={`bg-white rounded-3xl px-5 pb-5 pt-8 border ${isWorking ? 'border-amber-200 shadow-sm shadow-amber-500/10' : isPaid ? 'border-emerald-200 shadow-sm shadow-emerald-500/10' : 'border-slate-200 shadow-sm'} transition-all hover:shadow-md relative overflow-hidden`}>
                   
+                  {/* 🌟 ปุ่ม "กดจ่ายแล้ว" ห้อยลงมาจากตรงกลางด้านบน */}
+                  {!isPaid ? (
+                    <button 
+                      onClick={() => handleQuickMarkPaid(record)}
+                      className="absolute top-0 left-1/2 transform -translate-x-1/2 bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-black uppercase tracking-wider px-5 py-1.5 rounded-b-xl shadow-md transition-all active:scale-95 z-20 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <CheckCircle2 size={14} /> กดจ่ายแล้ว
+                    </button>
+                  ) : (
+                    <div className="absolute top-0 left-1/2 transform -translate-x-1/2 bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-wider px-4 py-1 rounded-b-xl shadow-sm z-20 flex items-center gap-1">
+                      <Check size={12} /> จ่ายเงินเรียบร้อย
+                    </div>
+                  )}
+
                   {isPaid && (
-                    <div className="absolute -right-6 -top-6 w-24 h-24 bg-emerald-50 rounded-full flex items-end justify-start p-4">
-                       <CheckCircle2 size={32} className="text-emerald-500 opacity-20 rotate-12" />
+                    <div className="absolute -right-6 -top-6 w-24 h-24 bg-emerald-50 rounded-full flex items-end justify-start p-4 pointer-events-none">
+                      <CheckCircle2 size={32} className="text-emerald-500 opacity-20 rotate-12" />
                     </div>
                   )}
 
