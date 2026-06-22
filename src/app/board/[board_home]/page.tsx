@@ -464,11 +464,11 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
         }
       )
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
-        console.log(
-  "SET ORDER FROM REALTIME",
-  payload.new.order_number,
-  payload.new.status
-);
+        console.log("REALTIME PAYLOAD", {
+  order: payload.new.order_number,
+  old: payload.old,
+  new: payload.new,
+});
           setOrders(prev => {
             const isArchivedOrDeleted = payload.new.is_archived || payload.new.is_deleted;
             
@@ -515,32 +515,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       supabase.removeChannel(syncChannel);
     };
   }, [fetchOrdersAndLocations, showToast, currentBranchId]);
-
-  useEffect(() => {
-    if (!currentBranchId) return;
-
-    const intervalId = setInterval(() => {
-      fetchOrdersAndLocations();
-    }, 120000);
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        fetchOrdersAndLocations();
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    const handleOnline = () => {
-      fetchOrdersAndLocations();
-    };
-    window.addEventListener("online", handleOnline);
-
-    return () => {
-      clearInterval(intervalId);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("online", handleOnline);
-    };
-  }, [currentBranchId, fetchOrdersAndLocations]);
 
   useEffect(() => {
     if (showRiderMap && currentBranchId) {
