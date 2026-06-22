@@ -44,6 +44,11 @@ interface EditForm {
   manual_total: number | null;
   payment_status: "รอชำระ" | "จ่ายแล้ว";
   payment_slip_url: string | null;
+  check_in: string;
+  check_out: string | null;
+  // 🌟 เพิ่ม 2 บรรทัดนี้
+  check_in_time: string;
+  check_out_time: string;
 }
 
 const getAutoGasAllowance = (orders: number): number => {
@@ -80,7 +85,13 @@ export default function PayrollPage() {
     accumulated_savings: 0,
     manual_total: null,
     payment_status: "รอชำระ",
-    payment_slip_url: null
+    payment_slip_url: null,
+    // 🌟 เพิ่ม 2 บรรทัดนี้
+    check_in: new Date().toISOString(),
+    check_out: null,
+    // 🌟 เพิ่ม 2 บรรทัดนี้
+    check_in_time: "",
+    check_out_time: ""
   });
   
   const [isSaving, setIsSaving] = useState(false);
@@ -140,7 +151,8 @@ export default function PayrollPage() {
       })) as AttendanceRecord[];
       
       const recordsWithOrders = await Promise.all(formattedData.map(async (record) => {
-        if (record.profiles?.role === 'rider' || record.profiles?.role === 'admin' || record.profiles?.role === 'superadmin') {
+        // 🌟 ดึงออเดอร์จริงเสมอ สำหรับทุกคนที่ไม่ใช่แม่ครัว (แม้ว่าจะเลิกงานไปแล้วก็ตาม)
+        if (record.profiles?.role !== 'kitchen') {
           const { data: riderOrders } = await supabase
             .from('orders')
             .select('created_at, end_time')
@@ -155,15 +167,16 @@ export default function PayrollPage() {
             }).length;
           }
 
-          return {
-            ...record,
-            real_time_order_count: count
+          return { 
+            ...record, 
+            // ✨ ถ้าระบบเคยบันทึกยอดตอนกด 'จ่ายแล้ว' ไว้แล้ว ให้ใช้ยอดนั้น 
+            // แต่ถ้ายังไม่จ่าย ให้ดึงยอดสด (Real-time) มาโชว์เสมอ
+            real_time_order_count: (record.payment_status === 'จ่ายแล้ว' && record.order_count > 0) ? record.order_count : count 
           };
         }
-        return {
-          ...record,
-          real_time_order_count: 0
-        };
+        
+        // ถ้าเป็นแม่ครัว คืนค่า 0 ไปเลย
+        return { ...record, real_time_order_count: 0 };
       }));
 
       setRecords(recordsWithOrders);
@@ -216,7 +229,13 @@ export default function PayrollPage() {
       accumulated_savings: record.accumulated_savings || 0, 
       manual_total: record.total_pay || null,
       payment_status: record.payment_status || "รอชำระ",
-      payment_slip_url: record.payment_slip_url || null
+      payment_slip_url: record.payment_slip_url || null,
+      // 🌟 ดึงค่าเวลาเข้าออกมาใส่ (แปลงฟอร์แมตให้ใช้กับ input type="datetime-local" ได้)
+      check_in: record.check_in,
+      check_out: record.check_out,
+      // 🌟 ดึงชั่วโมงและนาทีมาโชว์ในช่องพิมพ์
+      check_in_time: `${String(new Date(record.check_in).getHours()).padStart(2, '0')}:${String(new Date(record.check_in).getMinutes()).padStart(2, '0')}`,
+      check_out_time: record.check_out ? `${String(new Date(record.check_out).getHours()).padStart(2, '0')}:${String(new Date(record.check_out).getMinutes()).padStart(2, '0')}` : '',
     });
     setEditingRecord(record);
   };
@@ -272,6 +291,9 @@ export default function PayrollPage() {
     const { data, error } = await supabase
       .from('rider_attendance')
       .update({
+        // 🌟 เซฟเวลาใหม่กลับไป (แปลงกลับเป็น UTC)
+        check_in: new Date(editForm.check_in).toISOString(),
+        check_out: editForm.check_out ? new Date(editForm.check_out).toISOString() : null,
         total_minutes: editForm.total_minutes,
         order_count: editForm.order_count,
         base_pay: basePay,
@@ -409,8 +431,7 @@ export default function PayrollPage() {
                 displayMinutes = Math.floor((currentTime.getTime() - checkInTime) / 60000);
               }
 
-              const showOrderAndGas = record.profiles?.role === 'rider' || record.profiles?.role === 'admin' || record.profiles?.role === 'superadmin';
-              const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
+              const showOrderAndGas = record.profiles?.role !== 'kitchen';              const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
               const autoGas = getAutoGasAllowance(currentOrders);
               const displayGas = (isPaid || (record.gas_allowance && record.gas_allowance > 0)) ? record.gas_allowance : autoGas;
 
@@ -619,6 +640,89 @@ export default function PayrollPage() {
                 </div>
               </div>
 
+              {/* 🌟 1. กล่องแก้ไขเวลาเข้าออก (แบบพิมพ์ตัวเลข 24 ชม.) */}
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">เวลาเข้างาน (ชม:นาที)</label>
+                  <input 
+                    type="text" 
+                    placeholder="เช่น 08:30"
+                    maxLength={5}
+                    required
+                    value={editForm.check_in_time}
+                    onChange={(e) => {
+                      let val = e.target.value.replace(/[^0-9:]/g, ''); // พิมพ์ได้แค่เลขกับ :
+                      // เติม : อัตโนมัติถ้าพิมพ์ถึง 2 ตัว
+                      if (val.length === 2 && !val.includes(':') && editForm.check_in_time.length < val.length) {
+                        val += ':';
+                      }
+                      const newForm = { ...editForm, check_in_time: val };
+
+                      // ถ้ารูปแบบครบ 5 ตัว (เช่น 08:30) ให้คำนวณเวลาใหม่
+                      if (val.length === 5 && val.includes(':')) {
+                        const [h, m] = val.split(':');
+                        if (Number(h) < 24 && Number(m) < 60) {
+                          const newDate = new Date(editForm.check_in);
+                          newDate.setHours(Number(h), Number(m), 0, 0);
+                          newForm.check_in = newDate.toISOString();
+
+                          let newMins = editForm.total_minutes;
+                          if (editForm.check_out) {
+                            newMins = Math.max(0, Math.floor((new Date(editForm.check_out).getTime() - newDate.getTime()) / 60000));
+                          } else {
+                            newMins = Math.max(0, Math.floor((new Date().getTime() - newDate.getTime()) / 60000));
+                          }
+                          newForm.total_minutes = newMins;
+                          newForm.manual_total = null;
+                        }
+                      }
+                      setEditForm(newForm);
+                    }}
+                    className="w-full p-2 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm text-center tracking-widest"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">เวลาออกงาน (ชม:นาที)</label>
+                  <input 
+                    type="text"
+                    placeholder="เช่น 17:00"
+                    maxLength={5}
+                    value={editForm.check_out_time}
+                    onChange={(e) => {
+                      let val = e.target.value.replace(/[^0-9:]/g, '');
+                      if (val.length === 2 && !val.includes(':') && editForm.check_out_time.length < val.length) {
+                        val += ':';
+                      }
+                      const newForm = { ...editForm, check_out_time: val };
+
+                      if (val.length === 5 && val.includes(':')) {
+                        const [h, m] = val.split(':');
+                        if (Number(h) < 24 && Number(m) < 60) {
+                          const newDate = new Date(editForm.check_in);
+                          newDate.setHours(Number(h), Number(m), 0, 0);
+                          
+                          // ถ้าเวลาออกน้อยกว่าเวลาเข้า (ทำข้ามวัน) ให้บวกไป 1 วัน
+                          if (newDate < new Date(editForm.check_in)) {
+                            newDate.setDate(newDate.getDate() + 1);
+                          }
+                          newForm.check_out = newDate.toISOString();
+
+                          const newMins = Math.max(0, Math.floor((newDate.getTime() - new Date(editForm.check_in).getTime()) / 60000));
+                          newForm.total_minutes = newMins;
+                          newForm.manual_total = null;
+                        }
+                      } else if (val.length === 0) {
+                         newForm.check_out = null;
+                         newForm.total_minutes = Math.max(0, Math.floor((new Date().getTime() - new Date(editForm.check_in).getTime()) / 60000));
+                      }
+                      setEditForm(newForm);
+                    }}
+                    className="w-full p-2 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm text-center tracking-widest"
+                  />
+                </div>
+              </div>
+
+              {/* 🌟 2. กล่องเรทจ่าย และ เวลาสุทธิ */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">เรทจ่าย (บาท/ชม.)</label>
@@ -630,7 +734,11 @@ export default function PayrollPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">แก้ไขเวลา (นาที)</label>
+                  <label className="flex justify-between text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">
+                    <span>แก้ไขเวลาสุทธิ (นาที)</span>
+                    {/* 🌟 แสดงเวลาเป็น ชม. นาที ให้ดูง่ายๆ ข้างๆ */}
+                    <span className="text-blue-500 text-[10px] bg-blue-50 px-1 rounded">{Math.floor(editForm.total_minutes / 60)} ชม. {editForm.total_minutes % 60} นาที</span>
+                  </label>
                   <input 
                     type="number" min="0" required
                     value={editForm.total_minutes}
@@ -640,25 +748,25 @@ export default function PayrollPage() {
                 </div>
               </div>
 
-              {(editingRecord.profiles?.role === 'rider' || editingRecord.profiles?.role === 'admin' || editingRecord.profiles?.role === 'superadmin') && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide items-center gap-1"><Package size={12}/> ออเดอร์สำเร็จ</label>
-                    <input 
-                      type="number" min="0" required
-                      value={editForm.order_count}
-                      onChange={e => {
-                        const newCount = Number(e.target.value);
-                        setEditForm({
-                          ...editForm, 
-                          order_count: newCount,
-                          gas_allowance: getAutoGasAllowance(newCount),
-                          manual_total: null
-                        });
-                      }}
-                      className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-slate-500 shadow-sm"
-                    />
-                  </div>
+                  {editingRecord.profiles?.role !== 'kitchen' && ( 
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide items-center gap-1"><Package size={12}/> ออเดอร์สำเร็จ</label>
+                        <input 
+                          type="number" min="0" required
+                          value={editForm.order_count}
+                          onChange={e => {
+                            const newCount = Number(e.target.value);
+                            setEditForm({
+                              ...editForm, 
+                              order_count: newCount,
+                              gas_allowance: getAutoGasAllowance(newCount),
+                              manual_total: null
+                            });
+                          }}
+                          className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-slate-500 shadow-sm"
+                        />
+                      </div>
                   <div>
                     <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide items-center gap-1"><Fuel size={12}/> ค่าน้ำมันรายวัน (บาท)</label>
                     <div className="flex items-center gap-1">
