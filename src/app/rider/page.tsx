@@ -460,6 +460,37 @@ export default function RiderPage() {
 
   const submitAttendance = async () => {
     if (!photoFile || !currentUser) return;
+
+    // 🌟 เช็คระยะ 50 เมตรสำหรับการตอกบัตรเข้า-ออก (หาว่าอยู่ใกล้สาขาไหนที่สุด)
+    const isSuper = currentUserRole === "superadmin" || currentUserRole === "admin";
+    if (!isSuper) {
+      if (!myLocation) {
+        showAlert("ไม่พบพิกัด GPS", "กำลังค้นหาตำแหน่งของคุณ กรุณารอสักครู่...", "warning");
+        return;
+      }
+
+      let minDistance = Infinity;
+      let nearestName = "";
+      branches.forEach(b => {
+        if (b.lat && b.lng) {
+          const dist = getDistanceFromLatLonInKm(myLocation.lat, myLocation.lng, b.lat, b.lng) * 1000;
+          if (dist < minDistance) {
+            minDistance = dist;
+            nearestName = b.name;
+          }
+        }
+      });
+
+      if (minDistance > 50) {
+        showAlert(
+          "อยู่ไกลเกินไป ❌", 
+          `ต้องอยู่ในรัศมี 50 เมตรจากร้านเพื่อตอกบัตร\n(ตอนนี้คุณอยู่ห่าง ${Math.round(minDistance)} เมตร จาก ${nearestName || 'ร้าน'})`, 
+          "error"
+        );
+        return;
+      }
+    }
+
     setIsProcessingAttendance(true);
     try {
       // 1. Upload Photo
@@ -517,19 +548,40 @@ export default function RiderPage() {
       return;
     }
 
-    if (!myLocation && !isSuper) {
-      showAlert("แจ้งเตือน", "กำลังค้นหาตำแหน่งของคุณ กรุณารอสักครู่", "warning");
-      return;
-    }
+    // 🌟 เช็คระยะ 100 เมตรสำหรับรับงาน (เช็คว่าใกล้สาขาไหนที่สุดในระบบ)
+    if (!isSuper) {
+      if (!myLocation) {
+        showAlert("แจ้งเตือน", "กำลังค้นหาตำแหน่งของคุณ กรุณารอสักครู่", "warning");
+        return;
+      }
 
-    const orderBranch = branches.find(b => b.id === order.branch_id);
-    if (orderBranch && orderBranch.lat !== 0 && !isSuper) {
-      if (myLocation) {
-        const distance = getDistanceFromLatLonInKm(myLocation.lat, myLocation.lng, orderBranch.lat, orderBranch.lng) * 1000;
-        if (distance > 100) {
-          showAlert("คุณอยู่ไกลจากร้านเกินไป", `ต้องอยู่ในรัศมี 100 เมตรจากร้าน (${orderBranch.name}) เพื่อรับงาน (ห่าง ${Math.round(distance)} เมตร)`, "error");
-          return;
+      let minDistance = Infinity;
+      let nearestName = "";
+      branches.forEach(b => {
+        if (b.lat && b.lng) {
+          const dist = getDistanceFromLatLonInKm(myLocation.lat, myLocation.lng, b.lat, b.lng) * 1000;
+          if (dist < minDistance) {
+            minDistance = dist;
+            nearestName = b.name;
+          }
         }
+      });
+
+      // ดึงระยะห่างของสาขาที่เป็นเจ้าของออเดอร์โดยตรง (เผื่อเอาไว้เช็คคู่กัน)
+      const orderBranch = branches.find(b => String(b.id) === String(order.branch_id));
+      let distToOrderBranch = Infinity;
+      if (orderBranch && orderBranch.lat && orderBranch.lng) {
+        distToOrderBranch = getDistanceFromLatLonInKm(myLocation.lat, myLocation.lng, orderBranch.lat, orderBranch.lng) * 1000;
+      }
+
+      // 🌟 ให้ผ่านถ้าระยะห่างจากสาขาที่ใกล้ที่สุด <= 100 เมตร หรือ ระยะห่างจากสาขาของออเดอร์ <= 100 เมตร
+      if (minDistance > 100 && distToOrderBranch > 100) {
+        showAlert(
+          "คุณอยู่ไกลจากร้านเกินไป ❌", 
+          `ต้องอยู่ในรัศมี 100 เมตรจากสาขาเพื่อรับงาน\n(ตอนนี้ห่าง ${Math.round(Math.min(minDistance, distToOrderBranch))} เมตร)`, 
+          "error"
+        );
+        return;
       }
     }
 

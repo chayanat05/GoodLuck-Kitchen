@@ -712,8 +712,8 @@ export default function PayrollPage() {
                           newForm.manual_total = null;
                         }
                       } else if (val.length === 0) {
-                         newForm.check_out = null;
-                         newForm.total_minutes = Math.max(0, Math.floor((new Date().getTime() - new Date(editForm.check_in).getTime()) / 60000));
+                        newForm.check_out = null;
+                        newForm.total_minutes = Math.max(0, Math.floor((new Date().getTime() - new Date(editForm.check_in).getTime()) / 60000));
                       }
                       setEditForm(newForm);
                     }}
@@ -877,17 +877,17 @@ export default function PayrollPage() {
       {/* 🌟 Modal: แสดงรูปภาพแบบเต็มจอพร้อมระบบซูมเลื่อนได้ (ใช้ดูได้ทั้งสลิปและรูปถ่ายบัตร) */}
       {viewSlip && (
         <div 
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/95 backdrop-blur-md p-4 animate-in fade-in duration-200"
+          className="fixed inset-0 z-200 flex items-center justify-center bg-slate-900/95 backdrop-blur-md p-4 animate-in fade-in duration-200"
           onClick={() => { setViewSlip(null); setIsZoomed(false); }}
         >
           <button 
-            className="absolute top-6 right-6 text-white hover:text-slate-300 z-[210] bg-white/10 p-2 rounded-full backdrop-blur-sm transition-colors cursor-pointer"
+            className="absolute top-6 right-6 text-white hover:text-slate-300 z-210 bg-white/10 p-2 rounded-full backdrop-blur-sm transition-colors cursor-pointer"
             onClick={(e) => { e.stopPropagation(); setViewSlip(null); setIsZoomed(false); }}
           >
             <X size={24} />
           </button>
           
-          <div className="absolute top-6 left-6 text-white/50 text-xs font-bold bg-white/5 px-3 py-1.5 rounded-full backdrop-blur-sm z-[210] pointer-events-none">
+          <div className="absolute top-6 left-6 text-white/50 text-xs font-bold bg-white/5 px-3 py-1.5 rounded-full backdrop-blur-sm z-210 pointer-events-none">
             คลิกที่รูปภาพเพื่อ {isZoomed ? 'ย่อรูป' : 'ซูมรูป'}
           </div>
 
