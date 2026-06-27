@@ -2,7 +2,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback, use } from "react";
 import Link from "next/link";
 import OrderCard, { Order } from "@/components/OrderCard";
-import SlipScanner from "@/components/SlipScanner";
 import SharedGallery from "@/components/SharedGallery";
 import {
   DragDropContext,
@@ -104,7 +103,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [selectedViewOrder, setSelectedViewOrder] = useState<Order | null>(null);
   const [statusModal, setStatusModal] = useState<{ isOpen: boolean; order: Order | null }>({ isOpen: false, order: null });
   const [debouncedQuery, setDebouncedQuery] = useState<string>("");
-  const [scannerConfig, setScannerConfig] = useState<{ isOpen: boolean; orderId: string | null; amount: number; initialImageUrls?: string[] }>({ isOpen: false, orderId: null, amount: 0 });
   const [showContactInfo, setShowContactInfo] = useState<boolean>(false);
   const [imageGallery, setImageGallery] = useState<{ urls: string[]; startIndex: number } | null>(null);
   const [imgScale, setImgScale] = useState<number>(1);
@@ -123,7 +121,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [selectedRiderMapInfo, setSelectedRiderMapInfo] = useState<RiderLocation | null>(null);
   const [menuModalSearchQuery, setMenuModalSearchQuery] = useState("");
   const [calcInput, setCalcInput] = useState("");
-  
+  const [branchName, setBranchName] = useState<string>("KANBAN BOARD");
   
   const calcResult = useMemo(() => {
     try {
@@ -166,7 +164,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const dbTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const googleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const notificationAudio = useRef<HTMLAudioElement | null>(null);
-
   const defaultMapCenter = useMemo(() => ({ lat: SHOP_LAT, lng: SHOP_LNG }), []);
   const [mapLibraries] = useState<"places"[]>(["places"]);
   const { isLoaded } = useJsApiLoader({
@@ -178,6 +175,22 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   });
   // 🌟 เพิ่ม State นี้เพื่อให้ระบบนับเวลาแบบ Real-time สำหรับกระพริบบิลแดง
   const [currentTime, setCurrentTime] = useState(() => Date.now());
+  const [updatingOrders, setUpdatingOrders] = useState<Set<string>>(new Set());
+  const lockOrder = (orderId: string) => {
+  setUpdatingOrders(prev => {
+    const next = new Set(prev);
+    next.add(orderId);
+    return next;
+  });
+};
+
+const unlockOrder = (orderId: string) => {
+  setUpdatingOrders(prev => {
+    const next = new Set(prev);
+    next.delete(orderId);
+    return next;
+  });
+};
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(Date.now()), 30000); // อัปเดตทุก 30 วินาที
@@ -277,6 +290,9 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
   useEffect(() => {
     const requestWakeLock = async () => {
+      // 🌟 1. ดักไว้ก่อนเลยว่า ถ้าไม่ได้เปิดหน้านี้อยู่ (อยู่แท็บอื่น/พับจอ) ไม่ต้องทำงาน
+      if (document.visibilityState !== 'visible') return;
+
       try {
         if ('wakeLock' in navigator) {
           const nav = navigator as NavigatorWithWakeLock;
@@ -289,7 +305,10 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
           }
         }
       } catch (err) {
-        console.error(`Wake Lock error: ${err}`);
+        // แอบเช็คเพิ่มนิดนึง เผื่อเผลอสลับหน้าจอกะทันหัน จะได้ไม่ต้อง log ให้รก
+        if ((err as Error).name !== 'NotAllowedError') {
+          console.error(`Wake Lock error: ${err}`);
+        }
       }
     };
 
@@ -299,7 +318,11 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       }
     };
 
-    requestWakeLock();
+    // 🌟 2. เช็คก่อนเรียกใช้งานครั้งแรก
+    if (document.visibilityState === 'visible') {
+      requestWakeLock();
+    }
+    
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
@@ -307,10 +330,27 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       if (wakeLockRef.current) {
         wakeLockRef.current.release().then(() => {
           wakeLockRef.current = null;
-        });
+        }).catch(() => {}); // ดัก error เงียบๆ ตอน release
       }
     };
   }, []);
+
+  const playNotificationSound = async () => {
+    try {
+      if (!notificationAudio.current) {
+        notificationAudio.current = new Audio(NOTIFICATION_SOUND_URL);
+        notificationAudio.current.preload = "auto";
+      }
+
+      notificationAudio.current.pause();
+      notificationAudio.current.currentTime = 0;
+      notificationAudio.current.volume = 1;
+
+      await notificationAudio.current.play();
+    } catch (err) {
+      console.error("Notification sound error:", err);
+    }
+  };
 
   useEffect(() => {
     if (!notificationAudio.current) {
@@ -324,45 +364,32 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
         
         const playPromise = notificationAudio.current.play();
         if (playPromise !== undefined) {
-          playPromise.then(() => {
-            if (notificationAudio.current) {
-              notificationAudio.current.pause();
-              notificationAudio.current.currentTime = 0;
-              notificationAudio.current.volume = 1;
-              
-              try {
-                const webkitWindow = window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext };
-                const AudioContextClass = window.AudioContext || webkitWindow.webkitAudioContext;
-                if (AudioContextClass) {
-                  const ctx = new AudioContextClass();
-                  const oscillator = ctx.createOscillator();
-                  const gainNode = ctx.createGain();
-                  gainNode.gain.value = 0.001; 
-                  oscillator.connect(gainNode);
-                  gainNode.connect(ctx.destination);
-                  oscillator.start();
-                }
-              } catch (e) {
-                console.error("Silent loop trick failed:", e);
+          playPromise
+            .then(() => {
+              if (notificationAudio.current) {
+                notificationAudio.current.pause();
+                notificationAudio.current.currentTime = 0;
+                notificationAudio.current.volume = 1;
               }
-            }
-          }).catch((error) => {
-            console.warn("Audio unlock failed:", error);
-            if (notificationAudio.current) {
-              notificationAudio.current.volume = 1; 
-            }
-          });
+            })
+            .catch((error) => {
+              console.warn("Audio unlock failed:", error);
+              if (notificationAudio.current) {
+                notificationAudio.current.volume = 1;
+              }
+            });
         }
         
-        document.removeEventListener("touchstart", unlockAudio);
-        document.removeEventListener("click", unlockAudio);
+        document.removeEventListener("pointerdown", unlockAudio);
       }
     };
 
-    document.addEventListener("touchstart", unlockAudio, { once: true });
-    document.addEventListener("click", unlockAudio, { once: true });
+    document.addEventListener("pointerdown", unlockAudio, {
+      once: true,
+    });
     
     return () => {
+      document.removeEventListener("pointerdown", unlockAudio);
       document.removeEventListener("touchstart", unlockAudio);
       document.removeEventListener("click", unlockAudio);
     };
@@ -382,9 +409,10 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       }).subscribe();
 
     const fetchBranchAndTheme = async () => {
-      const { data } = await supabase.from("branches").select("id, theme_bg_color, theme_bg_image, theme_bg_option").eq("slug", branchSlug).single();
+      const { data } = await supabase.from("branches").select("id, name, theme_bg_color, theme_bg_image, theme_bg_option").eq("slug", branchSlug).single();
       if (data) {
         setCurrentBranchId(data.id);
+        if (data.name) setBranchName(data.name);
         if (data.theme_bg_color) setBgColor(data.theme_bg_color);
         if (data.theme_bg_image) setBgImage(data.theme_bg_image);
         if (data.theme_bg_option) setBgOption(data.theme_bg_option as "cover" | "contain" | "repeat");
@@ -437,37 +465,46 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
     const orderChannel = supabase
       .channel(`orders-${currentBranchId}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
-          if (!payload.new.is_archived && !payload.new.is_deleted) {
-            try {
-              if (!notificationAudio.current) {
-                notificationAudio.current = new Audio(NOTIFICATION_SOUND_URL);
-              }
-              notificationAudio.current.load();
-              notificationAudio.current.currentTime = 0;
-              notificationAudio.current.volume = 1;
-              const playPromise = notificationAudio.current.play();
-              if (playPromise !== undefined) {
-                playPromise.catch((error) => {
-                  console.error("Audio play failed on new order:", error);
-                });
-              }
-            } catch (err) {
-              console.error("Error initializing audio:", err);
-            }
-            showToast(`🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`);
-            setOrders(prev => {
-              if (prev.some(o => o.id === payload.new.id)) return prev;
-              return [payload.new as Order, ...prev];
-            });
-          }
-        }
-      )
+      .on(
+  "postgres_changes",
+  {
+    event: "INSERT",
+    schema: "public",
+    table: "orders",
+    filter: `branch_id=eq.${currentBranchId}`,
+  },
+  (payload) => {
+    if (!payload.new.is_archived && !payload.new.is_deleted) {
+
+      playNotificationSound();
+
+      showToast(`🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`);
+
+      setOrders(prev => {
+        if (prev.some(o => o.id === payload.new.id)) return prev;
+        return [payload.new as Order, ...prev];
+      });
+
+    }
+  }
+)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
+        console.log(
+    "UPDATE EVENT",
+    payload.old.status,
+    "→",
+    payload.new.status
+);
         console.log("REALTIME PAYLOAD", {
   order: payload.new.order_number,
   old: payload.old,
   new: payload.new,
+});
+
+console.log("STATUS CHANGE", {
+  order: payload.new.order_number,
+  oldStatus: payload.old.status,
+  newStatus: payload.new.status,
 });
           setOrders(prev => {
             const isArchivedOrDeleted = payload.new.is_archived || payload.new.is_deleted;
@@ -476,12 +513,41 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
               return prev.filter(o => o.id !== payload.new.id);
             }
 
-            const exists = prev.some(o => o.id === payload.new.id);
+            const currentOrder = prev.find(o => o.id === payload.new.id);
+          if (
+              currentOrder &&
+              currentOrder.status === payload.new.status &&
+              currentOrder.sort_index === payload.new.sort_index
+            ) {
+              return prev;
+        }
+
+const exists = !!currentOrder;
             let newOrders = [];
             if (!exists) {
               newOrders = [payload.new as Order, ...prev];
             } else {
-              newOrders = prev.map(o => o.id === payload.new.id ? { ...o, ...(payload.new as Order) } : o);
+              newOrders = prev.map(o => {
+
+  if (o.id !== payload.new.id) return o;
+
+  // ถ้าไม่มีอะไรเปลี่ยนจริง ไม่ต้องอัปเดต
+  if (
+    o.status === payload.new.status &&
+    o.sort_index === payload.new.sort_index &&
+    o.rider_id === payload.new.rider_id &&
+    o.image_url === payload.new.image_url &&
+    o.slip_image === payload.new.slip_image
+  ) {
+    return o;
+  }
+
+  return {
+    ...o,
+    ...(payload.new as Order),
+  };
+
+});
             }
 
             return newOrders.sort((a, b) => {
@@ -494,6 +560,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
         }
       )
       .on("postgres_changes", { event: "DELETE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
+        
           setOrders(prev => prev.filter(o => o.id !== payload.old.id));
         }
       )
@@ -897,25 +964,45 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
   // 🌟 1. เปลี่ยนสถานะผ่าน Modal
   const executeStatusChange = async (newStatus: string) => {
-    if (!statusModal.order) return;
-    const targetOrder = statusModal.order;
+  if (!statusModal.order) return;
+
+  const targetOrder = statusModal.order;
+
+  if (updatingOrders.has(targetOrder.id)) return;
+
+  lockOrder(targetOrder.id);
+
+  try {
+
     setStatusModal({ isOpen: false, order: null });
 
-    const updateData: { status: string; end_time?: string } = { status: newStatus };
-    if (newStatus === "ส่งแล้ว/เสร็จ" && targetOrder.job_type === "shopee") {
+    const updateData: { status: string; end_time?: string } = {
+      status: newStatus,
+    };
+
+    if (
+      newStatus === "ส่งแล้ว/เสร็จ" &&
+      targetOrder.job_type === "shopee"
+    ) {
       updateData.end_time = new Date().toISOString();
     }
 
-    // ✨ 1. เปลี่ยนสีบนหน้าจอทันที ไม่ต้องรอโหลดให้หงุดหงิด
-    setOrders(prev => prev.map(o => o.id === targetOrder.id ? { ...o, ...updateData } : o));
-    showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`);
+    const { error } = await supabase
+      .from("orders")
+      .update(updateData)
+      .eq("id", targetOrder.id);
 
-    // 🚨 2. ส่งข้อมูลไปอัปเดตเงียบๆ เบื้องหลัง (ไม่รบกวนหน้าจอ)
-    supabase.from("orders").update(updateData).eq("id", targetOrder.id).then(({ error }) => {
-        if (error) fetchOrdersAndLocations(); // ดึงข้อมูลใหม่เฉพาะตอนที่เน็ตหลุด
-    });
+    if (!error) {
 
-    supabase.from("activity_logs").insert([{
+      showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`);
+
+    } else {
+
+      fetchOrdersAndLocations();
+
+    }
+
+    await supabase.from("activity_logs").insert([{
       branch_id: currentBranchId,
       user_name: adminName,
       action: "CHANGE_STATUS",
@@ -923,59 +1010,120 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     }]);
 
     notifyRoles(
-      ['rider', 'admin', 'superadmin', 'kitchen'], 
-      `🔄 อัปเดตสถานะออเดอร์`, 
-      `ออเดอร์ #${targetOrder.order_number} ถูกเปลี่ยนเป็น: ${newStatus}`, 
+      ['rider','admin','superadmin','kitchen'],
+      "🔄 อัปเดตสถานะออเดอร์",
+      `ออเดอร์ #${targetOrder.order_number} ถูกเปลี่ยนเป็น: ${newStatus}`,
       `/board/${branchSlug}`
     );
-  };
+
+  } finally {
+
+    unlockOrder(targetOrder.id);
+
+  }
+};
 
   // 🌟 2. เริ่มทำอาหาร
   const handleStartOrder = async (orderId: string) => {
+  if (updatingOrders.has(orderId)) return;
+
+lockOrder(orderId);
+
+  try {
     const targetOrder = orders.find(o => o.id === orderId);
     if (!targetOrder) return;
 
-    // ✨ 1. เปลี่ยนสีบนหน้าจอทันที
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: "กำลังทำ" } : o));
-    showToast("ครัวเริ่มทำอาหารแล้ว! 🍳");
+    const { error } = await supabase
+      .from("orders")
+      .update({
+        status: "กำลังทำ"
+      })
+      .eq("id", orderId);
 
-    // 🚨 2. ส่งข้อมูลไปอัปเดตเงียบๆ เบื้องหลัง
-    supabase.from("orders").update({ status: "กำลังทำ" }).eq("id", orderId).then(({ error }) => {
-        if (error) fetchOrdersAndLocations();
-    });
-    
+    if (!error) {
+      
+    } else {
+      fetchOrdersAndLocations();
+    }
+  showToast("ครัวเริ่มทำอาหารแล้ว! 🍳");
     const orderNum = targetOrder.order_number || "ล่าสุด";
-    supabase.from("activity_logs").insert([{
-      branch_id: currentBranchId, user_name: adminName, action: "CHANGE_STATUS", details: `เริ่มทำอาหารออเดอร์ #${orderNum} (สถานะ: กำลังทำ)`
+
+    await supabase.from("activity_logs").insert([{
+      branch_id: currentBranchId,
+      user_name: adminName,
+      action: "CHANGE_STATUS",
+      details: `เริ่มทำอาหารออเดอร์ #${orderNum} (สถานะ: กำลังทำ)`
     }]);
-    notifyRoles(['rider', 'admin', 'superadmin'], "🍳 ครัวกำลังทำอาหาร", `ออเดอร์ #${orderNum} เริ่มปรุงแล้ว`, `/board/${branchSlug}`);
-  };
+
+    await notifyRoles(
+      ['rider', 'admin', 'superadmin'],
+      "🍳 ครัวกำลังทำอาหาร",
+      `ออเดอร์ #${orderNum} เริ่มปรุงแล้ว`,
+      `/board/${branchSlug}`
+    );
+
+  } finally {
+    unlockOrder(orderId);
+  }
+};
 
   // 🌟 3. ทำอาหารเสร็จ
   const handleFinishOrder = async (orderId: string) => {
-    const targetOrder = orders.find((o) => o.id === orderId);
-    if (!targetOrder) return;
-    
-    const isShopee = targetOrder.job_type === "shopee";
-    const nextStatus = isShopee ? "ส่งแล้ว/เสร็จ" : "รับงาน";
-    const updateData: { status: string; end_time?: string } = { status: nextStatus };
-    if (isShopee) updateData.end_time = new Date().toISOString();
+    if (updatingOrders.has(orderId)) return;
 
-    // ✨ 1. เปลี่ยนสีบนหน้าจอทันที
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updateData } : o));
-    showToast(isShopee ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦" : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵");
+lockOrder(orderId);
 
-    // 🚨 2. ส่งข้อมูลไปอัปเดตเงียบๆ เบื้องหลัง
-    supabase.from("orders").update(updateData).eq("id", orderId).then(({ error }) => {
-        if (error) fetchOrdersAndLocations();
-    });
-    
-    const orderNum = targetOrder.order_number || "ล่าสุด";
-    supabase.from("activity_logs").insert([{
-      branch_id: currentBranchId, user_name: adminName, action: "CHANGE_STATUS", details: `ทำอาหารออเดอร์ #${orderNum} เสร็จแล้ว (สถานะ: ${nextStatus})`
-    }]);
-    notifyRoles(['rider', 'admin', 'superadmin'], "📦 อาหารพร้อมส่ง!", `ออเดอร์ #${orderNum} เสร็จแล้ว ไรเดอร์มารับได้เลย`, `/board/${branchSlug}`);
+try {
+  const targetOrder = orders.find((o) => o.id === orderId);
+  if (!targetOrder) return;
+
+  const isShopee = targetOrder.job_type === "shopee";
+  const nextStatus = isShopee ? "ส่งแล้ว/เสร็จ" : "รับงาน";
+
+  const updateData: { status: string; end_time?: string } = {
+    status: nextStatus,
   };
+
+  if (isShopee) {
+    updateData.end_time = new Date().toISOString();
+  }
+
+  const { error } = await supabase
+    .from("orders")
+    .update(updateData)
+    .eq("id", orderId);
+
+  if (!error) {
+
+    
+  } else {
+    fetchOrdersAndLocations();
+  }
+showToast(
+      isShopee
+        ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦"
+        : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵"
+    );
+  const orderNum = targetOrder.order_number || "ล่าสุด";
+
+  await supabase.from("activity_logs").insert([{
+    branch_id: currentBranchId,
+    user_name: adminName,
+    action: "CHANGE_STATUS",
+    details: `ทำอาหารออเดอร์ #${orderNum} เสร็จแล้ว (สถานะ: ${nextStatus})`
+  }]);
+
+  await notifyRoles(
+    ['rider', 'admin', 'superadmin'],
+    "📦 อาหารพร้อมส่ง!",
+    `ออเดอร์ #${orderNum} เสร็จแล้ว ไรเดอร์มารับได้เลย`,
+    `/board/${branchSlug}`
+  );
+  
+} finally {
+  unlockOrder(orderId);
+}
+};
 
   const handleLogoutRequest = () => {
     Swal.fire({
@@ -1120,13 +1268,13 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
             >
               <Menu size={18} />
             </button>
-            <h1 className="text-lg md:text-xl font-black text-slate-800 flex items-center whitespace-nowrap tracking-tight">
+            <h1 className="text-2xl md:text-3xl font-black text-slate-800 flex items-center whitespace-nowrap tracking-tight">
               <button
                 onClick={() => window.location.reload()}
                 className="flex items-center hover:opacity-70 transition-opacity cursor-pointer text-left mr-2 md:mr-3"
                 title="โหลดหน้าเว็บใหม่เพื่อแก้หน้าจอค้าง"
               >
-                KANBAN <span className="text-blue-600 ml-1">BOARD</span>
+                <span className="text-blue-600">{branchName}</span>
               </button>
               <span className="text-sm md:text-base text-slate-500 font-bold border-l-2 border-slate-200 pl-2 md:pl-3 py-1 flex items-center gap-2">
                 <span>
@@ -1324,19 +1472,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
               </>
               )}
               <div className="h-px bg-slate-100 my-2"></div>
-
-              {(currentUserRole === "kitchen" || currentUserRole === "superadmin") && (
-                <Link
-                  href="/kitchen"
-                  prefetch={false}
-                  className="w-full flex items-center p-4 text-slate-600 hover:bg-orange-50 hover:text-orange-700 rounded-2xl transition-all font-bold border border-transparent hover:border-orange-100 group"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
-                    <ChefHat size={20} className="text-orange-600" />
-                  </div>
-                  แดชบอร์ดของฉัน
-                </Link>
-              )}
 
               {(currentUserRole === "admin" || currentUserRole === "superadmin") && (
                 <>
@@ -1550,7 +1685,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
       )}
 
       {/* 🌟 KANBAN BOARD */}
-      <div className="flex-1 p-2 md:p-4 overflow-hidden z-10 flex flex-col">
+      <div className="flex-1 p-2 md:p-4 overflow-y-auto z-10 flex flex-col">
         {orders.length === 0 && !searchQuery ? (
           <div className="flex flex-col items-center justify-center h-full bg-white/30 backdrop-blur-md rounded-3xl border border-white/40 shadow-xl animate-in fade-in duration-500 m-2">
             <div
@@ -1619,8 +1754,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                           ref={provided.innerRef}
                           {...provided.draggableProps}
                           // 🌟 ใช้ currentTime แทน new Date().getTime()
-                          className={`shrink-0 max-h-full flex flex-col transition-all duration-300 ${isCompact ? "w-48 md:w-56" : "w-72 md:w-80"} ${snapshot.isDragging ? "scale-[1.02] rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl" : ""} ${
-                            ((order.status === "New" || order.status === "กำลังทำ") && Math.floor((currentTime - new Date(order.created_at || 0).getTime()) / 60000) >= 5) ||
+                            className={`shrink-0 max-h-full flex flex-col transition-all duration-300 ${isCompact ? "w-48 md:w-56" : "w-72 md:w-80"} ${snapshot.isDragging ? "scale-[1.02] rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl" : ""} ${                            ((order.status === "New" || order.status === "กำลังทำ") && Math.floor((currentTime - new Date(order.created_at || 0).getTime()) / 60000) >= 5) ||
                             (currentUserRole !== "kitchen" && order.status === "รับงาน" && Math.floor((currentTime - new Date(order.created_at || 0).getTime()) / 60000) >= 35)  ? "rounded-3xl animate-border-blink" 
                             : ""
                           }`}
@@ -1628,6 +1762,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                           <OrderCard
                             order={order}
                             isCompact={isCompact}
+                            isUpdating={updatingOrders.has(order.id)}
                             userRole={currentUserRole}
                             dragHandleProps={provided.dragHandleProps}
                             onEdit={openEditModal}
@@ -1640,18 +1775,42 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
                             onViewImages={(urls, startIndex) =>
                               setImageGallery({ urls, startIndex })
                             }
-                            onVerifySlip={(orderInfo) =>
-                              setScannerConfig({
-                                isOpen: true,
-                                orderId: orderInfo.id,
-                                amount: orderInfo.total_price,
-                                initialImageUrls: orderInfo.slip_image ? orderInfo.slip_image.split(',').filter(Boolean) : undefined,
-                              })
-                            }
                             onDelete={(id) => requestDeleteOrder(id, order.order_number)}
                             onChangeStatusRequest={(orderInfo) =>
                               setStatusModal({ isOpen: true, order: orderInfo })
                             }
+
+                            // 🌟 NEW: ฟังก์ชันรับไฟล์สลิปที่โดนลากมาหยอดใส่การ์ด
+                            onSlipDrop={async (orderId, file) => {
+                              const loadingToast = toast.loading("กำลังอัปโหลดสลิป...");
+                              const fileExt = file.name.split(".").pop();
+                              const fileName = `slip-quick-${Date.now()}.${fileExt}`;
+                              const filePath = `order-photos/${fileName}`;
+                              
+                              const { error: uploadError } = await supabase.storage.from("order-images").upload(filePath, file);
+                              
+                              if (uploadError) {
+                                toast.dismiss(loadingToast);
+                                toast.error("อัปโหลดสลิปไม่สำเร็จ ❌");
+                                return;
+                              }
+
+                              const { data } = supabase.storage.from("order-images").getPublicUrl(filePath);
+                              const newSlipUrl = data.publicUrl;
+
+                              const targetOrder = orders.find(o => o.id === orderId);
+                              const updatedSlips = targetOrder?.slip_image ? `${targetOrder.slip_image},${newSlipUrl}` : newSlipUrl;
+
+                              // อัปเดตหน้าจอทันที
+                              setOrders(prev => prev.map(o => o.id === orderId ? { ...o, slip_image: updatedSlips } : o));
+                              toast.dismiss(loadingToast);
+                              toast.success("แนบสลิปเรียบร้อย! 📸");
+
+                              // บันทึกลง DB แบบเงียบๆ
+                              supabase.from("orders").update({ slip_image: updatedSlips }).eq("id", orderId).then(({error}) => {
+                                if(error) fetchOrdersAndLocations(); // โหลดใหม่ถ้ามีปัญหา
+                              });
+                            }}
                           />
                         </div>
                       )}
@@ -2623,45 +2782,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
             </button>
           </div>
         </div>
-      )}
-
-      {/* 🌟 SlipScanner */}
-      {scannerConfig?.isOpen && (
-        <SlipScanner
-          orderId={scannerConfig.orderId!}
-          expectedAmount={scannerConfig.amount}
-          initialImageUrls={scannerConfig.initialImageUrls}
-          onClose={() => setScannerConfig({ isOpen: false, orderId: null, amount: 0 })}
-          onSuccess={(newImageUrl, statusText) => {
-            setScannerConfig({ isOpen: false, orderId: null, amount: 0 });
-
-            setOrders(prev =>
-              prev.map((o) => {
-                if (o.id === scannerConfig.orderId) {
-                  const updatedImages = o.slip_image
-                    ? `${o.slip_image},${newImageUrl}`
-                    : newImageUrl;
-                  return {
-                    ...o,
-                    slip_image: updatedImages,
-                    slip_status: statusText,
-                  };
-                }
-                return o;
-              }),
-            );
-
-            supabase
-              .from("orders")
-              .update({ slip_image: newImageUrl, slip_status: statusText })
-              .eq("id", scannerConfig.orderId)
-              .then(({ error }) => {
-                if (error) console.error("Update slip error:", error);
-              });
-
-            showToast(`✅ บันทึกสลิปเรียบร้อยแล้ว: ${statusText}`);
-          }}
-        />
       )}
 
       <div className="fixed bottom-6 right-6 pointer-events-none z-40">

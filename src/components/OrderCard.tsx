@@ -1,9 +1,10 @@
+// OrderCard.tsx
 'use client'
-import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, MoreVertical, ScanSearch, CheckCircle2, AlertCircle, XCircle, Trash2, ArrowRightLeft,Store } from "lucide-react";
+import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, MoreVertical, CheckCircle2, AlertCircle, XCircle, Trash2, ArrowRightLeft, Store, ImageIcon } from "lucide-react";
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { motion } from "framer-motion";
 import Image from 'next/image';
-import { DraggableProvidedDragHandleProps } from "@hello-pangea/dnd"; // 🌟 Import Type ที่ถูกต้อง (No Any)
+import { DraggableProvidedDragHandleProps } from "@hello-pangea/dnd"; 
 
 export interface Order {
   slip_image?: string | null;
@@ -24,7 +25,6 @@ export interface Order {
   lat?: number | null;
   lng?: number | null;
   payment_method?: string;
-  slip_status?: "รอตรวจ" | "ผ่าน" | "ไม่ผ่าน" | string; 
   sort_index?: number;
   contact_link?: string;
   contact_source?: string; 
@@ -36,16 +36,17 @@ export interface Order {
 interface OrderProps {
   order: Order;
   isCompact?: boolean;
+  isUpdating?: boolean;
   userRole?: string; 
-  dragHandleProps?: DraggableProvidedDragHandleProps | null; // 🌟 ใช้ Type ที่ถูกต้องแทน any
+  dragHandleProps?: DraggableProvidedDragHandleProps | null;
   onEdit?: (order: Order) => void; 
   onStart?: (id: string) => void;  
   onFinish?: (id: string) => void; 
   onViewDetails?: () => void; 
   onViewImages?: (urls: string[], startIndex: number) => void; 
-  onVerifySlip?: (order: Order) => void; 
   onDelete?: (id: string) => void; 
-  onChangeStatusRequest?: (order: Order) => void; 
+  onChangeStatusRequest?: (order: Order) => void;
+  onSlipDrop?: (orderId: string, file: File) => void;
 }
 
 const getCardTheme = (status: string) => {
@@ -58,7 +59,21 @@ const getCardTheme = (status: string) => {
   }
 };
 
-function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStart, onFinish, onViewDetails, onViewImages, onVerifySlip, onDelete, onChangeStatusRequest }: OrderProps) {
+function OrderCard({
+    order,
+    isCompact,
+    isUpdating,
+    userRole,
+    dragHandleProps,
+    onEdit,
+    onStart,
+    onFinish,
+    onViewDetails,
+    onViewImages,
+    onDelete,
+    onChangeStatusRequest,
+    onSlipDrop
+}: OrderProps) {
   const isShopee = order.job_type === "shopee";
   const isLocked = !!order.rider_id;
 
@@ -75,8 +90,8 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => {
-      document.addEventListener('mousedown', handleClickOutside);
-    };
+    document.removeEventListener("mousedown", handleClickOutside);
+  };
   }, [isMenuOpen]);
 
   const images = useMemo(() => {
@@ -85,9 +100,32 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
   const hasImages = images.length > 0;
 
   const theme = getCardTheme(order.status);
-  const slipStatus = order.slip_status || 'รอตรวจ'; 
 
   const [elapsedMinutes, setElapsedMinutes] = useState(0);
+
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      if (file.type.startsWith('image/') && onSlipDrop) {
+        onSlipDrop(order.id, file);
+      }
+    }
+  };
 
   useEffect(() => {
     const calculateTime = () => {
@@ -109,8 +147,14 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-3xl shadow-xl border-b-8 relative transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:-translate-y-1 flex flex-col max-h-full w-full min-h-56 ${theme.bg}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      // 🌟 ใช้ max-h-full เพื่อให้การ์ดยืดได้สุดความสูงของบอร์ด และมีปุ่มค้างด้านล่างเสมอ
+      className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-3xl shadow-xl border-b-8 relative transition-all duration-300 flex flex-col w-full max-h-full min-h-56 ${theme.bg} ${isDragOver ? 'ring-4 ring-white scale-[1.01]' : '' }`}
     >
+      
+      {/* 📍 ส่วนที่ 1: หัวการ์ด (Fixed) */}
       <div {...dragHandleProps} className={`shrink-0 flex justify-between items-start ${isCompact ? 'mb-2' : 'mb-3'} gap-2 border-b border-white/10 pb-2 ${dragHandleProps ? 'cursor-grab active:cursor-grabbing' : ''}`}>
         <div className="flex flex-wrap gap-2 items-center pointer-events-none">
           <span className={`${isCompact ? 'text-base px-2 py-1' : 'text-lg px-2.5 py-1'} font-black rounded-lg bg-white/90 text-slate-800 tracking-wider shadow-sm`}>
@@ -176,15 +220,16 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto thin-scrollbar pr-1 flex flex-col mb-3">
+      {/* 📍 ส่วนที่ 2: เนื้อหาตรงกลาง (Scroll ได้! เมนูยาว/สลิปยาวจะไม่ดันปุ่มให้ตกขอบ) */}
+      <div className="flex-1 overflow-y-auto thin-scrollbar flex flex-col pr-1 gap-2 pb-2">
         {order.menu && (
-          <div className={`${isCompact ? 'mb-2 text-base' : 'mb-3 text-lg md:text-xl'} font-black whitespace-pre-line leading-relaxed shrink-0 ${theme.text}`}>
+          <div className={`${isCompact ? 'text-base' : 'text-lg md:text-xl'} font-black whitespace-pre-line leading-relaxed shrink-0 ${theme.text}`}>
             {order.menu}
           </div>
         )}
 
         {hasImages && (
-          <div className={`flex flex-col gap-2 shrink-0 ${isCompact ? 'mb-3' : 'mb-4'} mt-1 items-center w-full`}>
+          <div className={`flex flex-col gap-2 shrink-0 items-center w-full`}>
             {images.map((url, i) => (
               <div key={i} onClick={(e) => { e.stopPropagation(); if (onViewImages) onViewImages(images, i); else onViewDetails?.(); }} className="relative w-full aspect-video rounded-xl overflow-hidden border border-white/20 shadow-sm cursor-pointer group/img bg-black/10">
                 <Image src={url} fill sizes="(max-width: 768px) 100vw, 33vw" alt={`Order attachment ${i}`} className="object-cover block group-hover/img:scale-105 transition-transform duration-500" />
@@ -193,92 +238,100 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
           </div>
         )}
 
-        {order.details && <p className={`text-sm font-medium shrink-0 leading-relaxed p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${isCompact ? 'mb-2' : 'mb-4'} ${theme.subText}`}>{order.details}</p>}
+        {order.details && <p className={`text-sm font-medium shrink-0 leading-relaxed p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${theme.subText}`}>{order.details}</p>}
+      </div>
 
+      {/* 📍 ส่วนที่ 3: ท้ายการ์ด (Fixed ล็อกติดก้นการ์ดเสมอ!) */}
+      <div className="shrink-0 flex flex-col gap-2 pt-3 border-t border-white/10 mt-1">
+        
+        {/* ที่อยู่ */}
         {order.address && (
-          <div className={`flex items-start shrink-0 text-[10px] md:text-sm ${isCompact ? 'mb-1' : 'mb-1'} p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${theme.text}`}>
+          <div className={`flex items-start text-[10px] md:text-sm p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${theme.text}`}>
             <MapPin size={14} className="mr-1.5 mt-0.5 shrink-0" />
             <span className="leading-relaxed font-medium">{order.address}</span>
           </div>
         )}
-      </div>
 
-      <div className={`shrink-0 flex flex-wrap items-center justify-between mb-3 border-t border-white/10 pt-3 gap-2 ${theme.subText}`}>
-        <div className="flex items-center text-sm font-bold tracking-wide shrink-0">
-          <Clock size={12} className="mr-1.5" />
-          {new Date(order.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
-        </div>
-        {!isShopee && (
-          <div className="flex items-center gap-2">
-            <span className={`font-black text-lg flex items-baseline ${theme.text}`}>
-              ฿{order.total_price}
-              {order.delivery_fee ? <span className="text-sm ml-1 opacity-80">(รวมค่าส่งแล้ว ฿{order.delivery_fee})</span> : null}
-            </span>
-            {order.payment_method && !isCompact && (
-              <span className={`text-sm font-black uppercase px-2 py-0.5 rounded shadow-sm border ${theme.badgeBg}`}>
-                {order.payment_method}
-              </span>
-            )}
+        {/* เวลาและราคา */}
+        <div className={`flex flex-wrap items-center justify-between mb-1 ${theme.subText}`}>
+          <div className="flex items-center text-sm font-bold tracking-wide shrink-0">
+            <Clock size={12} className="mr-1.5" />
+            {new Date(order.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
           </div>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-2 shrink-0">
-        
-        {/* 🌟 NEW: กล่องตรวจสลิปใหญ่ (แสดงเฉพาะ แอดมิน/ซุปเปอร์แอดมิน และเป็นงานโอนเท่านั้น) 🌟 */}
-        {order.payment_method === 'โอน' && !isShopee && userRole !== 'kitchen' && (
-          <div className={`flex flex-col gap-2.5 p-3 rounded-2xl border bg-black/20 backdrop-blur-sm ${theme.text} border-white/20 shadow-inner mt-1 mb-1`}>
-            <div className="flex items-center justify-between px-1">
-              <span className="text-sm font-black uppercase tracking-wider flex items-center gap-1.5 opacity-90">
-                <ScanSearch size={16} /> สถานะสลิป:
+          {!isShopee && (
+            <div className="flex items-center gap-2">
+              <span className={`font-black text-lg flex items-baseline ${theme.text}`}>
+                ฿{order.total_price}
+                {order.delivery_fee ? <span className="text-sm ml-1 opacity-80">(รวมค่าส่งแล้ว ฿{order.delivery_fee})</span> : null}
               </span>
-              {slipStatus === 'ผ่าน' ? (
-                <span className="flex items-center text-emerald-400 font-black text-sm uppercase tracking-wider bg-emerald-900/40 px-2 py-0.5 rounded-md border border-emerald-500/30 shadow-sm">
-                  <CheckCircle2 size={14} className="mr-1" /> ผ่าน
-                </span>
-              ) : slipStatus === 'ไม่ผ่าน' ? (
-                <span className="flex items-center text-rose-400 font-black text-sm uppercase tracking-wider bg-rose-900/40 px-2 py-0.5 rounded-md border border-rose-500/30 shadow-sm">
-                  <XCircle size={14} className="mr-1" /> ไม่ผ่าน
-                </span>
-              ) : (
-                <span className="flex items-center text-amber-400 font-black text-sm uppercase tracking-wider animate-pulse bg-amber-900/40 px-2 py-0.5 rounded-md border border-amber-500/30 shadow-sm">
-                  <AlertCircle size={14} className="mr-1" /> รอตรวจ
+              {order.payment_method && !isCompact && (
+                <span className={`text-sm font-black uppercase px-2 py-0.5 rounded shadow-sm border ${theme.badgeBg}`}>
+                  {order.payment_method}
                 </span>
               )}
             </div>
-            
-            {/* แสดงปุ่มสแกนเสมอถ้ายังไม่ส่งงาน */}
-            {onVerifySlip && order.status !== 'ส่งแล้ว/เสร็จ' && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onVerifySlip(order);
-                }}
-                className={`w-full py-3 rounded-xl font-black transition-all duration-300 flex justify-center items-center gap-1.5 cursor-pointer active:scale-95 text-sm uppercase tracking-wide border shadow-md
-                  ${slipStatus === 'ผ่าน' 
-                    ? 'bg-white/10 hover:bg-white/20 text-white border-white/20' 
-                    : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/30 border-blue-500'}`}
-              >
-                <ScanSearch size={16} className={slipStatus !== 'ผ่าน' ? "animate-pulse" : ""} /> 
-                {slipStatus === 'ผ่าน' ? 'ตรวจสลิปอีกครั้ง' : 'คลิกเพื่อตรวจสลิปด้วย AI'}
-              </button>
-            )}
-          </div>
-        )}
+          )}
+        </div>
 
-        {order.status === 'New' && onStart && (
-          <button onClick={() => onStart(order.id)} className={`w-full ${isCompact ? 'py-2.5 text-sm' : 'py-3 text-sm'} rounded-xl font-black transition-all duration-300 flex justify-center items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 uppercase tracking-wide border-b-4 border-transparent active:border-none ${theme.btnBg}`}>
-            <PlayCircle size={16} className="shrink-0" />
-            <span className="truncate">{isShopee ? 'รับงาน / เตรียมของ' : 'คลิกเพื่อเริ่มทำอาหาร'}</span>
-          </button>
-        )}
+        {order.status === "New" && onStart && (
+  <button
+    disabled={isUpdating}
+    onClick={() => {
+      if (isUpdating) return;
+      onStart(order.id);
+    }}
+    className={`w-full ${
+      isCompact ? "py-2.5 text-sm" : "py-3 text-sm"
+    } rounded-xl font-black transition-all duration-300 flex justify-center items-center gap-1.5 shadow-lg uppercase tracking-wide border-b-4 border-transparent
+    ${
+      isUpdating
+        ? "bg-gray-400 text-white opacity-70 cursor-not-allowed"
+        : `${theme.btnBg} cursor-pointer active:scale-95 active:border-none`
+    }`}
+  >
+    <PlayCircle size={16} className="shrink-0" />
 
-        {order.status === 'กำลังทำ' && onFinish && (
-          <button onClick={() => onFinish(order.id)} className={`w-full ${isCompact ? 'py-2.5 text-sm' : 'py-3 text-sm'} rounded-xl font-black transition-all duration-300 flex justify-center items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 uppercase tracking-wide border-b-4 border-transparent active:border-none ${theme.btnBg}`}>
-            {isShopee ? <PackageCheck size={16} className="shrink-0"/> : <ChefHat size={16} className="shrink-0" />}
-            <span className="truncate">{isShopee ? 'ส่งมอบให้ขนส่งแล้ว' : 'คลิกเมื่อทำอาหารเสร็จ'}</span>
-          </button>
-        )}
+    <span className="truncate">
+      {isUpdating
+        ? "กำลังบันทึก..."
+        : isShopee
+        ? "รับงาน / เตรียมของ"
+        : "คลิกเพื่อเริ่มทำอาหาร"}
+    </span>
+  </button>
+)}
+
+        {order.status === "กำลังทำ" && onFinish && (
+  <button
+    disabled={isUpdating}
+    onClick={() => {
+      if (isUpdating) return;
+      onFinish(order.id);
+    }}
+    className={`w-full ${
+      isCompact ? "py-2.5 text-sm" : "py-3 text-sm"
+    } rounded-xl font-black transition-all duration-300 flex justify-center items-center gap-1.5 shadow-lg uppercase tracking-wide border-b-4 border-transparent
+    ${
+      isUpdating
+        ? "bg-gray-400 text-white opacity-70 cursor-not-allowed"
+        : `${theme.btnBg} cursor-pointer active:scale-95 active:border-none`
+    }`}
+  >
+    {isShopee ? (
+      <PackageCheck size={16} className="shrink-0" />
+    ) : (
+      <ChefHat size={16} className="shrink-0" />
+    )}
+
+    <span className="truncate">
+      {isUpdating
+        ? "กำลังบันทึก..."
+        : isShopee
+        ? "ส่งมอบให้ขนส่งแล้ว"
+        : "คลิกเมื่อทำอาหารเสร็จ"}
+    </span>
+  </button>
+)}
 
         {isLocked && (
           <div className={`flex items-center justify-center py-2.5 rounded-xl text-sm font-black shadow-inner tracking-wide bg-black/10 border border-white/10 ${theme.text}`}>
@@ -286,12 +339,50 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
           </div>
         )}
 
+        {/* แหล่งที่มา */}
         {(userRole === 'admin' || userRole === 'superadmin') && order.contact_source && order.job_type !== 'shopee' && (
-            <span className={`flex items-center gap-1 text-[16px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider border bg-black/20 text-white border-white/10 shadow-inner`}>
-              <Store size={12} className="opacity-80" />
-              {order.contact_source}
-            </span>
-          )}
+          <span className={`flex items-center justify-center gap-1 text-[14px] font-black px-2 py-1.5 rounded-xl uppercase tracking-wider border bg-black/20 text-white border-white/10 shadow-inner`}>
+            <Store size={14} className="opacity-80" />
+            {order.contact_source}
+          </span>
+        )}
+
+        {/* สลิป */}
+{order.slip_image && (
+  <div className="max-h-80 overflow-y-auto mt-2 pt-2 border-t border-white/10">
+    <div className="text-sm font-black uppercase text-white/90 mb-3 flex items-center gap-1.5">
+      <ImageIcon size={16} />
+      หลักฐานการโอน (สลิป)
+    </div>
+
+    <div className="flex flex-col gap-3">
+      {order.slip_image
+        .split(',')
+        .filter(Boolean)
+        .map((url, i) => (
+          <div
+            key={i}
+            onClick={(e) => {
+              e.stopPropagation();
+              onViewImages?.(
+                order.slip_image!.split(',').filter(Boolean),
+                i
+              );
+            }}
+            className="relative w-full rounded-xl overflow-hidden border border-white/20 shadow-md cursor-zoom-in"
+          >
+            <Image
+  src={url}
+  alt={`Slip ${i}`}
+  width={1200}
+  height={1600}
+  className="w-full h-auto"
+/>
+          </div>
+      ))}
+    </div>
+  </div>
+)}
 
         {isShopee && order.status === 'รับงาน' && (
           <div className={`text-center py-2.5 text-sm font-black rounded-xl shadow-inner tracking-wide bg-black/10 border border-white/10 ${theme.text}`}>
@@ -299,7 +390,7 @@ function OrderCard({ order, isCompact, userRole, dragHandleProps, onEdit, onStar
           </div>
         )}
       </div>
-      
+
     </motion.div>
   );
 }
