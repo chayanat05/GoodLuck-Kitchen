@@ -1,3 +1,4 @@
+// trash
 "use client";
 import { useState, useEffect, useRef, useMemo, useCallback, use } from "react";
 import Link from "next/link";
@@ -44,6 +45,9 @@ import {
   Calculator,
   History,
   Trash2,
+  Camera,
+  Loader2,
+  Clock,
 } from "lucide-react";
 
 import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from '@react-google-maps/api';
@@ -72,6 +76,12 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   interface ContactSource { id: string; name: string; branch_id: string; }
   interface UnifiedSearchResult { type: string; name: string; address?: string; lat?: number; lng?: number; distanceText?: string; menu_name?: string; price?: number; place_id?: string; }
   
+  interface ActiveAttendance {
+    id: string;
+    check_in: string;
+    check_out: string | null;
+  }
+
   interface WakeLockSentinel extends EventTarget {
     released: boolean;
     type: 'screen';
@@ -111,6 +121,14 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   
   const [ridersLoc, setRidersLoc] = useState<RiderLocation[]>([]);
+
+  // State for Attendance System
+  const [activeAttendance, setActiveAttendance] = useState<ActiveAttendance | null>(null);
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [cameraAction, setCameraAction] = useState<'in' | 'out'>('in');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [isProcessingAttendance, setIsProcessingAttendance] = useState(false);
 
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -453,6 +471,19 @@ const unlockOrder = (orderId: string) => {
         window.location.href = "/rider";
         return;
       }
+      
+      // Fetch attendance status for kitchen staff
+      if (profile.role === 'kitchen') {
+        const { data: attData } = await supabase
+          .from("kitchen_attendance")
+          .select("id, check_in, check_out")
+          .eq("user_id", session.user.id)
+          .is("check_out", null)
+          .order("check_in", { ascending: false })
+          .limit(1)
+          .single();
+        setActiveAttendance(attData || null);
+      }
 
       setCurrentUser(session.user);
       setAdminName(profile.username || (profile.role === "admin" ? "แอดมิน" : "แม่ครัว" ));
@@ -638,6 +669,77 @@ const exists = !!currentOrder;
       const { clientWidth } = galleryRef.current;
       const scrollAmount = direction === "left" ? -clientWidth : clientWidth;
       galleryRef.current.scrollBy({ left: scrollAmount, behavior: "smooth" });
+    }
+  };
+
+  const submitAttendance = async () => {
+    if (!photoFile || !currentUser || !currentBranchId) return;
+
+    setIsProcessingAttendance(true);
+    const showAlert = (title: string, message: string, icon: "success" | "error" | "warning" | "info" = "info") => {
+      if (icon === "success") {
+        toast.success(title, { description: message });
+      } else if (icon === "error") {
+        toast.error(title, { description: message });
+      } else {
+        Swal.fire({ title, text: message, icon, confirmButtonColor: "#3b82f6", confirmButtonText: "รับทราบ" });
+      }
+    };
+    
+    try {
+      // 1. Upload Photo
+      const fileExt = photoFile.name.split('.').pop() || 'jpg';
+      const fileName = `attendance-kitchen-${Date.now()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage.from('rider-applications').upload(fileName, photoFile);
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage.from('rider-applications').getPublicUrl(fileName);
+      const imageUrl = urlData.publicUrl;
+
+      // 2. Insert or Update DB
+      if (cameraAction === 'in') {
+        const { data, error } = await supabase.from('kitchen_attendance').insert([{
+          user_id: currentUser.id,
+          branch_id: currentBranchId,
+          check_in_image: imageUrl
+        }]).select().single();
+
+        if (error) throw error;
+        setActiveAttendance(data as ActiveAttendance);
+        showAlert("เข้างานสำเร็จ!", "ถ่ายรูปเข้างานเรียบร้อย ลุยเลย! 🚀", "success");
+      } else {
+        if (!activeAttendance) return;
+        const now = new Date();
+        const checkInDate = new Date(activeAttendance.check_in);
+        const minutes = Math.floor((now.getTime() - checkInDate.getTime()) / 60000);
+        
+        const { error } = await supabase.from('kitchen_attendance').update({
+          check_out: now.toISOString(),
+          total_minutes: minutes,
+          check_out_image: imageUrl
+        }).eq('id', activeAttendance.id);
+
+        if (error) throw error;
+        setActiveAttendance(null);
+        showAlert("เลิกงานสำเร็จ!", "ถ่ายรูปออกงานเรียบร้อย พักผ่อนได้! 🌙", "success");
+      }
+      
+      setShowCameraModal(false);
+      setPhotoFile(null);
+      setPhotoPreview(null);
+    } catch (err: unknown) {
+      console.error(err);
+      if (err instanceof Error && err.message.includes("relation \"public.kitchen_attendance\" does not exist")) {
+        showAlert(
+            "เกิดข้อผิดพลาด ฐานข้อมูล",
+            "ไม่พบตาราง 'kitchen_attendance' สำหรับเก็บข้อมูลการถ่ายรูปของแม่ครัว กรุณาแจ้งผู้พัฒนาเพื่อสร้างตารางใน Supabase ครับ",
+            "error"
+        );
+      } else {
+        showAlert("เกิดข้อผิดพลาด", "ไม่สามารถบันทึกข้อมูลการถ่ายรูปได้", "error");
+      }
+    } finally {
+      setIsProcessingAttendance(false);
     }
   };
 
@@ -1391,6 +1493,23 @@ showToast(
               </p>
             </div>
             <div className="flex-1 p-5 space-y-3 overflow-y-auto thin-scrollbar">
+              
+              {/* ATTENDANCE BUTTONS */}
+              {currentUserRole === 'kitchen' && (
+                <>
+                  {activeAttendance ? (
+                    <button onClick={() => { setIsMenuOpen(false); setCameraAction('out'); setShowCameraModal(true); }} className="w-full py-3 mb-2 bg-rose-100 text-rose-600 rounded-xl text-sm font-black shadow-sm border border-rose-200 active:scale-95 transition-all cursor-pointer flex justify-center items-center">
+                      <LogOut size={16} className="mr-2" /> ออกงาน
+                    </button>
+                  ) : (
+                    <button onClick={() => { setIsMenuOpen(false); setCameraAction('in'); setShowCameraModal(true); }} className="w-full py-3 mb-2 bg-emerald-100 text-emerald-600 rounded-xl text-sm font-black shadow-sm border border-emerald-200 active:scale-95 transition-all cursor-pointer flex justify-center items-center">
+                      <Clock size={16} className="mr-2" /> เข้างาน
+                    </button>
+                  )}
+                  <div className="h-px bg-slate-100 my-2"></div>
+                </>
+              )}
+
               {(currentUserRole === "admin" || currentUserRole === "superadmin") && (
                 <Link
                   href="/home"
@@ -1686,7 +1805,25 @@ showToast(
 
       {/* 🌟 KANBAN BOARD */}
       <div className="flex-1 p-2 md:p-4 overflow-y-auto z-10 flex flex-col">
-        {orders.length === 0 && !searchQuery ? (
+        
+        {/* ATTENDANCE CHECK */}
+        {currentUserRole === 'kitchen' && !activeAttendance ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-center bg-white/30 backdrop-blur-md rounded-3xl border border-white/40 shadow-xl animate-in fade-in duration-500 m-2">
+              <div className="w-24 h-24 bg-rose-50 rounded-full flex items-center justify-center mb-6 shadow-inner border border-rose-100">
+                <Camera size={40} className="text-rose-500" />
+              </div>
+              <h3 className="text-slate-800 font-black mb-2 text-2xl tracking-tight">ยังไม่ได้ถ่ายรูปเข้างาน</h3>
+              <p className="text-base text-slate-500 font-medium mb-8 leading-relaxed">
+                ต้องถ่ายรูปเซลฟี่เพื่อเข้างานก่อน<br/>จึงจะมองเห็นกระดานออเดอร์ได้ครับ 📸
+              </p>
+              <button 
+                onClick={() => { setCameraAction('in'); setShowCameraModal(true); }} 
+                className="w-full max-w-xs py-5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black shadow-lg shadow-emerald-500/30 active:scale-95 transition-all text-lg cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Camera size={20}/> ถ่ายรูปเข้างาน
+              </button>
+          </div>
+        ) : orders.length === 0 && !searchQuery ? (
           <div className="flex flex-col items-center justify-center h-full bg-white/30 backdrop-blur-md rounded-3xl border border-white/40 shadow-xl animate-in fade-in duration-500 m-2">
             <div
               className="w-28 h-28 bg-white/50 text-blue-600 rounded-full flex items-center justify-center mb-8 shadow-inner border border-white/60"
@@ -2866,6 +3003,78 @@ showToast(
           animation: wiggle 2s ease-in-out infinite;
         }
       `}</style>
+
+      {/* 🌟 Camera Modal for Attendance */}
+      {showCameraModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-[160]">
+          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col relative border border-white/20">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white">
+              <div className="flex items-center gap-3">
+                <div className={`w-12 h-12 ${cameraAction === 'in' ? 'bg-emerald-100 text-emerald-500' : 'bg-rose-100 text-rose-500'} rounded-full flex items-center justify-center shadow-inner`}>
+                  <Camera size={24} />
+                </div>
+                <h3 className="text-2xl font-black text-slate-800 tracking-tight">
+                  {cameraAction === 'in' ? 'ถ่ายรูปเข้างาน' : 'ถ่ายรูปออกงาน'}
+                </h3>
+              </div>
+              <button onClick={() => setShowCameraModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 active:scale-90">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6 flex flex-col items-center gap-4 bg-slate-50/50">
+              <div className="w-full aspect-square bg-slate-200 rounded-2xl overflow-hidden flex items-center justify-center border border-slate-300 shadow-inner">
+                {photoPreview ? (
+                  <Image src={photoPreview} alt="Selfie preview" width={500} height={500} className="object-cover w-full h-full" />
+                ) : (
+                  <div className="text-slate-400 text-center">
+                    <Camera size={60} className="mb-2 mx-auto" />
+                    <p className="font-bold">รอรูปภาพ...</p>
+                  </div>
+                )}
+              </div>
+              
+              <input 
+                type="file" 
+                accept="image/*" 
+                capture="user" 
+                id="selfie-camera" 
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setPhotoFile(file);
+                    // setPhotoPreview(URL.createObjectURL(file)); // Removed to prevent previewing uploaded files
+                  }
+                }}
+              />
+
+              <label htmlFor="selfie-camera" className={`w-full text-center py-4 rounded-2xl text-lg font-black transition-all shadow-sm active:scale-95 cursor-pointer ${photoFile ? 'bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-200' : 'bg-white hover:bg-slate-50 border border-slate-200'}`}>
+                {photoFile ? '📸 ถ่ายรูปใหม่อีกครั้ง' : '📸 เปิดกล้องเพื่อถ่ายรูป'}
+              </label>
+
+              <div className="flex w-full gap-3 mt-2">
+                <button onClick={() => {setShowCameraModal(false); setPhotoFile(null); setPhotoPreview(null);}} className="flex-1 py-4 bg-slate-200 text-slate-600 rounded-2xl font-bold">
+                  ยกเลิก
+                </button>
+                <button 
+                  onClick={submitAttendance} 
+                  disabled={!photoFile || isProcessingAttendance}
+                  className="flex-1 py-4 bg-emerald-500 text-white rounded-2xl font-black disabled:bg-slate-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isProcessingAttendance ? (
+                    <Loader2 size={20} className="animate-spin" />
+                  ) : (
+                    cameraAction === 'in' ? 'ยืนยันเข้างาน' : 'ยืนยันออกงาน'
+                  )}
+                </button>
+              </div>
+              <p className="text-xs text-slate-400 mt-2 text-center">ระบบจะบันทึกรูปภาพ เวลา และคำนวณชั่วโมงทำงานของคุณ</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isGalleryOpen && (
         <SharedGallery
           branchId={currentBranchId}

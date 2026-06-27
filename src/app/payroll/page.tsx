@@ -193,11 +193,18 @@ export default function PayrollPage() {
   }, [selectedDate, fetchRecords]);
 
   const calculatedTotal = useMemo(() => {
-    if (editForm.manual_total !== null) return editForm.manual_total;
+    if (!editingRecord) return 0;
+    if (editForm.manual_total !== null) {
+      return editForm.manual_total;
+    }
     const basePay = ((editForm.total_minutes || 0) / 60) * editForm.hourlyRate;
-    const total = basePay + (editForm.gas_allowance || 0) - (editForm.accumulated_savings || 0);
+
+    const isKitchen = editingRecord.profiles?.role === 'kitchen';
+    const gas = isKitchen ? 0 : (editForm.gas_allowance || 0);
+
+    const total = basePay + gas - (editForm.accumulated_savings || 0);
     return Math.max(0, total);
-  }, [editForm]);
+  }, [editForm, editingRecord]);
 
   const openEditModal = (record: AttendanceRecord) => {
     let rate = 40;
@@ -213,7 +220,8 @@ export default function PayrollPage() {
     if ((record.base_pay || 0) > 0 && liveMinutes > 0) {
       rate = (record.base_pay / liveMinutes) * 60;
     }
-
+    
+    const isKitchen = record.profiles?.role === 'kitchen';
     const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
     const autoGas = getAutoGasAllowance(currentOrders);
     const proposedGas = (record.payment_status === 'จ่ายแล้ว' || (record.gas_allowance && record.gas_allowance > 0)) 
@@ -223,8 +231,8 @@ export default function PayrollPage() {
     setEditForm({
       hourlyRate: Math.round(rate),
       total_minutes: liveMinutes,
-      order_count: currentOrders,
-      gas_allowance: proposedGas, 
+      order_count: isKitchen ? 0 : currentOrders,
+      gas_allowance: isKitchen ? 0 : proposedGas, 
       diligence_bonus: record.diligence_bonus || 0,
       accumulated_savings: record.accumulated_savings || 0, 
       manual_total: record.total_pay || null,
@@ -284,28 +292,30 @@ export default function PayrollPage() {
     e.preventDefault();
     if (!editingRecord) return;
     setIsSaving(true);
-
+    
+    const isKitchen = editingRecord.profiles?.role === 'kitchen';
     const basePay = ((editForm.total_minutes || 0) / 60) * editForm.hourlyRate;
     const finalTotal = editForm.manual_total !== null ? editForm.manual_total : calculatedTotal;
 
-    const { data, error } = await supabase
-      .from('rider_attendance')
-      .update({
-        // 🌟 เซฟเวลาใหม่กลับไป (แปลงกลับเป็น UTC)
+    const updateData = {
         check_in: new Date(editForm.check_in).toISOString(),
         check_out: editForm.check_out ? new Date(editForm.check_out).toISOString() : null,
         total_minutes: editForm.total_minutes,
-        order_count: editForm.order_count,
+        order_count: isKitchen ? 0 : editForm.order_count,
         base_pay: basePay,
-        gas_allowance: editForm.gas_allowance,
+        gas_allowance: isKitchen ? 0 : editForm.gas_allowance,
         diligence_bonus: editForm.diligence_bonus,
         accumulated_savings: editForm.accumulated_savings, 
         total_pay: finalTotal,
         payment_status: editForm.payment_status,
         payment_slip_url: editForm.payment_slip_url
-      })
+    };
+
+    const { data, error } = await supabase
+      .from('rider_attendance')
+      .update(updateData)
       .eq('id', editingRecord.id)
-      .select('*, profiles(username)')
+      .select('*, profiles(username, role)')
       .single();
 
     setIsSaving(false);
@@ -319,7 +329,17 @@ export default function PayrollPage() {
         profiles: Array.isArray(data.profiles) ? data.profiles[0] : data.profiles
       } as AttendanceRecord;
 
-      setRecords(prev => prev.map(r => r.id === editingRecord.id ? formattedData : r));
+      setRecords(prev => prev.map(r => {
+        if (r.id === editingRecord.id) {
+          const updatedRecord = { ...r, ...formattedData };
+          // After saving, if status is paid, the definitive order count is the one saved.
+          if (updatedRecord.payment_status === 'จ่ายแล้ว') {
+            updatedRecord.real_time_order_count = updatedRecord.order_count;
+          }
+          return updatedRecord;
+        }
+        return r;
+      }));
       setEditingRecord(null);
       showToast('บันทึกยอดเงินและสถานะสำเร็จ! 💰');
     }

@@ -1315,12 +1315,12 @@ export default function RiderPage() {
                 <input 
                   type="file" 
                   accept="image/*" 
-                  capture="environment" 
+                  capture="user" 
                   className="hidden" 
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
                       setPhotoFile(e.target.files[0]);
-                      setPhotoPreview(URL.createObjectURL(e.target.files[0]));
+                      // setPhotoPreview(URL.createObjectURL(e.target.files[0])); // Removed to prevent previewing uploaded files
                     }
                   }} 
                 />
