@@ -541,8 +541,10 @@ const unlockOrder = (orderId: string) => {
                 : order
             );
           }
-          // ถ้าไม่มี (อาจจะเกิดจาก INSERT event หาย) ให้เพิ่มเข้าไปใหม่
+          // ถ้าไม่มี (อาจจะเกิดจาก INSERT event หาย) ให้เพิ่มเข้าไปใหม่ พร้อมเล่นเสียงและแจ้งเตือน
           else {
+            playNotificationSound();
+            showToast(`🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`);
             return [payload.new as Order, ...prevOrders];
           }
         });
