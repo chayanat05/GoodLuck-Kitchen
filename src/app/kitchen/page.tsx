@@ -4,9 +4,11 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { 
   ArrowLeft, Calendar, Loader2, Trophy, PiggyBank,
-  Clock, ChefHat, Banknote, CalendarDays, Utensils
+  Clock, ChefHat, Banknote, CalendarDays, Utensils, Camera, X, LogOut
 } from "lucide-react";
 import { User as SupabaseUser } from "@supabase/supabase-js";
+import Swal from "sweetalert2";
+import { toast } from "sonner";
 
 type TimeRange = "today" | "shift1" | "shift2" | "yesterday" | "7days" | "30days" | "cycle" | "custom" | "all";
 
@@ -14,6 +16,8 @@ interface AttendanceRecord {
   id: string;
   check_in: string;
   check_out: string | null;
+  check_in_image: string | null;
+  check_out_image: string | null;
   total_minutes: number;
   base_pay: number;
   diligence_bonus: number;
@@ -27,7 +31,24 @@ interface OrderRecord {
   status: string;
 }
 
-// 🌟 เพิ่มฟังก์ชันแปลงวันที่ ป้องกันบัค Timezone
+interface Branch {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+}
+
+// Helper function to show alerts
+const showAlert = (title: string, message: string, icon: "success" | "error" | "warning" | "info" = "info") => {
+  if (icon === "success") {
+    toast.success(title, { description: message });
+  } else if (icon === "error") {
+    toast.error(title, { description: message });
+  } else {
+    Swal.fire({ title, text: message, icon, confirmButtonColor: "#3b82f6", confirmButtonText: "รับทราบ" });
+  }
+};
+
 const getLocalYMD = (date: Date) => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -44,16 +65,27 @@ const getInitialBizDate = (businessDayStart: string = "07:00") => {
   return getLocalYMD(now);
 };
 
+const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const R = 6371; 
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
 export default function KitchenDashboardPage() {
   const router = useRouter();
-  const [, setCurrentUser] = useState<SupabaseUser | null>(null);
+  const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [userName, setUserName] = useState("");
   const [userBranchId, setUserBranchId] = useState("");
+  const [userRole, setUserRole] = useState("");
 
   const [attendances, setAttendances] = useState<AttendanceRecord[]>([]);
   const [orders, setOrders] = useState<OrderRecord[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   
   const [timeRange, setTimeRange] = useState<TimeRange>("today");
   const [businessDayStart, setBusinessDayStart] = useState<string>("07:00");
@@ -67,7 +99,16 @@ export default function KitchenDashboardPage() {
 
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
 
-  // อัปเดตเวลาสดทุก 1 นาที
+  // State for photo check-in
+  const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [cameraAction, setCameraAction] = useState<'in' | 'out'>('in');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [isProcessingAttendance, setIsProcessingAttendance] = useState(false);
+  
+  const activeShift = useMemo(() => attendances.find(a => !a.check_out), [attendances]);
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
@@ -86,6 +127,11 @@ export default function KitchenDashboardPage() {
     setCurrentUser(session.user);
     setUserName(profile.username || "แม่ครัว");
     setUserBranchId(profile.branch_id || "");
+    setUserRole(profile.role);
+
+    // Fetch all branches for distance calculation
+    const { data: bData } = await supabase.from("branches").select("id, name, lat, lng").order("created_at", { ascending: true });
+    if (bData) setBranches(bData as Branch[]);
 
     const { data: settings } = await supabase.from("store_settings").select("*").eq("id", 1).single();
     if (settings) {
@@ -100,17 +146,15 @@ export default function KitchenDashboardPage() {
       if (settings.shift2_end) setShift2End(settings.shift2_end);
     }
 
-    // 🌟 เพิ่ม .limit(5000) ป้องกันข้อมูลในอดีตหาย
     const { data: attData } = await supabase
-      .from("rider_attendance")
+      .from("kitchen_attendance")
       .select("*")
-      .eq("rider_id", session.user.id)
+      .eq("kitchen_id", session.user.id)
       .order("check_in", { ascending: false })
       .limit(5000);
     if (attData) setAttendances(attData as AttendanceRecord[]);
 
     if (profile.branch_id) {
-      // 🌟 เพิ่ม .not("is_deleted") และ .limit(5000)
       const { data: orderData } = await supabase
         .from("orders")
         .select("id, created_at, status")
@@ -128,8 +172,97 @@ export default function KitchenDashboardPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+  
+  // GPS Location Effect
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      const watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          setMyLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+        },
+        (error) => {
+          console.error("GPS Error:", error);
+          setMyLocation(null);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+      return () => navigator.geolocation.clearWatch(watchId);
+    }
+  }, []);
 
-  // 🌟 ฟังก์ชันหาช่วงเวลา (Business Day Logic) สมบูรณ์แบบ
+  const submitAttendance = async () => {
+    if (!photoFile || !currentUser) return;
+
+    const isSuper = userRole === "superadmin" || userRole === "admin";
+    if (!isSuper) {
+      if (!myLocation) {
+        showAlert("ไม่พบพิกัด GPS", "กำลังค้นหาตำแหน่งของคุณ กรุณารอสักครู่...", "warning");
+        return;
+      }
+
+      let minDistance = Infinity;
+      branches.forEach(b => {
+        if (b.lat && b.lng) {
+          const dist = getDistanceFromLatLonInKm(myLocation.lat, myLocation.lng, b.lat, b.lng) * 1000;
+          if (dist < minDistance) {
+            minDistance = dist;
+          }
+        }
+      });
+
+      if (minDistance > 50) {
+        showAlert("อยู่ไกลเกินไป ❌", `ต้องอยู่ในรัศมี 50 เมตรจากร้านเพื่อตอกบัตร (ตอนนี้อยู่ห่าง ${Math.round(minDistance)} เมตร)`, "error");
+        return;
+      }
+    }
+
+    setIsProcessingAttendance(true);
+    try {
+      const fileExt = photoFile.name.split('.').pop() || 'jpg';
+      const fileName = `attendance-${Date.now()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage.from('rider-applications').upload(fileName, photoFile);
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage.from('rider-applications').getPublicUrl(fileName);
+      const imageUrl = urlData.publicUrl;
+
+      if (cameraAction === 'in') {
+        const { error } = await supabase.from('kitchen_attendance').insert([{
+          kitchen_id: currentUser.id,
+          check_in_image: imageUrl
+        }]);
+        if (error) throw error;
+        showAlert("เข้างานสำเร็จ!", "ตอกบัตรเข้างานเรียบร้อย", "success");
+      } else {
+        if (!activeShift) return;
+        const now = new Date();
+        const checkInDate = new Date(activeShift.check_in);
+        const minutes = Math.floor((now.getTime() - checkInDate.getTime()) / 60000);
+        
+        const { error } = await supabase.from('kitchen_attendance').update({
+          check_out: now.toISOString(),
+          total_minutes: minutes,
+          check_out_image: imageUrl
+        }).eq('id', activeShift.id);
+        if (error) throw error;
+        showAlert("เลิกงานสำเร็จ!", "ตอกบัตรออกงานเรียบร้อย", "success");
+      }
+      
+      setShowCameraModal(false);
+      setPhotoFile(null);
+      setPhotoPreview(null);
+      await fetchData(); // Refresh all data
+    } catch (err) {
+      console.error(err);
+      showAlert("เกิดข้อผิดพลาด", "ไม่สามารถบันทึกข้อมูลตอกบัตรได้", "error");
+    } finally {
+      setIsProcessingAttendance(false);
+    }
+  };
+
   const getDateRange = () => {
     const now = new Date();
     let startDate = new Date(0); 
@@ -193,7 +326,6 @@ export default function KitchenDashboardPage() {
 
   const { startDate, endDate } = getDateRange();
 
-  // กรองเวลาเข้างาน
   const filteredAttendances = useMemo(() => {
     return attendances.filter(a => {
       const checkInDate = new Date(a.check_in);
@@ -201,19 +333,16 @@ export default function KitchenDashboardPage() {
     });
   }, [attendances, startDate, endDate]);
 
-  // คำนวณสถิติ
   const stats = useMemo(() => {
     let totalMins = 0;
     let totalPay = 0;
 
     filteredAttendances.forEach(a => {
       if (!a.check_out) {
-        // กำลังทำงาน (คำนวณสด)
         const checkInTime = new Date(a.check_in).getTime();
         const mins = Math.max(0, Math.floor((currentTime.getTime() - checkInTime) / 60000));
         totalMins += mins;
         
-        // สมมติเรทครัว 40 บาท/ชม. (ถ้าไม่เคยตั้งค่า base_pay)
         let rate = 40;
         if ((a.base_pay || 0) > 0 && (a.total_minutes || 0) > 0) rate = (a.base_pay / a.total_minutes) * 60;
         totalPay += (mins / 60) * rate;
@@ -223,7 +352,6 @@ export default function KitchenDashboardPage() {
       }
     });
 
-    // นับออเดอร์ร้านที่เสร็จแล้ว ในช่วงเวลาที่เลือก
     let completedOrders = 0;
     orders.forEach(o => {
       const orderDate = new Date(o.created_at);
@@ -242,7 +370,6 @@ export default function KitchenDashboardPage() {
     };
   }, [filteredAttendances, orders, currentTime, startDate, endDate]);
 
-  // คำนวณสะสมรอบบิล (โบนัส/เงินเก็บ ไม่สน Time Filter)
   const cycleStats = useMemo(() => {
     const now = new Date();
     const cStart = new Date(now);
@@ -262,8 +389,6 @@ export default function KitchenDashboardPage() {
     return { mBonus, mSavings };
   }, [attendances]);
 
-  const activeShift = attendances.find(a => !a.check_out);
-
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-400 space-y-4">
@@ -275,6 +400,63 @@ export default function KitchenDashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans pb-20">
+       {showCameraModal && (
+        <div className="fixed inset-0 bg-slate-900/90 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-4xl p-6 w-full max-w-sm flex flex-col items-center shadow-2xl animate-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-black mb-2 text-slate-800">
+              {cameraAction === 'in' ? '📸 ถ่ายรูปเข้างาน' : '📸 ถ่ายรูปเลิกงาน'}
+            </h3>
+            <p className="text-xs text-slate-500 mb-6 text-center">ต้องถ่ายรูปเซลฟี่กับหน้าร้านเพื่อยืนยันตัวตนเข้าระบบ</p>
+            
+            {photoPreview ? (
+               <div className="relative w-full aspect-square rounded-3xl overflow-hidden mb-6 shadow-md border-4 border-slate-100">
+                <img src={photoPreview} className="object-cover w-full h-full" alt="Preview" />
+                <button onClick={() => { setPhotoFile(null); setPhotoPreview(null); }} className="absolute top-3 right-3 bg-rose-500/90 backdrop-blur-md text-white p-2.5 rounded-full shadow-lg hover:bg-rose-600 transition-colors cursor-pointer">
+                  <X size={18} strokeWidth={3}/>
+                </button>
+              </div>
+            ) : (
+              <label className="w-full aspect-square bg-slate-50 border-2 border-dashed border-slate-300 rounded-3xl flex flex-col items-center justify-center mb-6 cursor-pointer hover:bg-slate-100 hover:border-blue-400 transition-all group">
+                <div className="w-20 h-20 bg-white rounded-full shadow-sm flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                  <Camera size={36} className="text-blue-500" />
+                </div>
+                <span className="font-black text-slate-600 text-lg">แตะเพื่อถ่ายรูป</span>
+                <span className="text-[10px] text-slate-400 mt-1 uppercase tracking-widest font-bold">เปิดกล้องมือถือ</span>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  capture="user" 
+                  className="hidden" 
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      const file = e.target.files[0];
+                      setPhotoFile(file);
+                      setPhotoPreview(URL.createObjectURL(file));
+                    }
+                  }}
+                />
+              </label>
+            )}
+
+            <div className="flex gap-3 w-full">
+              <button 
+                onClick={() => {setShowCameraModal(false); setPhotoFile(null); setPhotoPreview(null);}} 
+                className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold transition-colors active:scale-95 cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button 
+                disabled={!photoFile || isProcessingAttendance} 
+                onClick={submitAttendance}
+                className="flex-1 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black disabled:bg-slate-300 transition-colors shadow-lg shadow-blue-500/30 flex justify-center items-center active:scale-95 cursor-pointer"
+              >
+                {isProcessingAttendance ? <Loader2 className="animate-spin" size={20}/> : 'ยืนยัน'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4 shrink-0">
@@ -331,7 +513,6 @@ export default function KitchenDashboardPage() {
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6 animate-in fade-in duration-500 slide-in-from-bottom-4">
         
-        {/* Profile Card */}
         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 flex items-center">
           <div className="w-14 h-14 bg-linear-to-br from-orange-400 to-red-500 text-white rounded-2xl flex items-center justify-center text-2xl font-black shadow-inner mr-4 uppercase">
             {userName.charAt(0)}
@@ -343,9 +524,17 @@ export default function KitchenDashboardPage() {
               {activeShift ? 'กำลังเข้างาน (ทำอาหารอยู่)' : 'ออฟไลน์ (เลิกงานแล้ว)'}
             </div>
           </div>
+           {activeShift ? (
+              <button onClick={() => { setCameraAction('out'); setShowCameraModal(true); }} className="px-6 py-3.5 bg-rose-500 hover:bg-rose-600 text-white rounded-2xl text-sm font-black shadow-lg shadow-rose-500/30 active:scale-95 transition-all cursor-pointer flex justify-center items-center gap-2">
+                <LogOut size={16} /> ออกงาน
+              </button>
+            ) : (
+              <button onClick={() => { setCameraAction('in'); setShowCameraModal(true); }} className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl text-sm font-black shadow-lg shadow-emerald-500/30 active:scale-95 transition-all cursor-pointer flex justify-center items-center gap-2">
+                <Clock size={16} /> เข้างาน
+              </button>
+            )}
         </div>
 
-        {/* สถิติหลัก */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 flex flex-col justify-between hover:shadow-md transition-shadow relative overflow-hidden">
             <div className="absolute -right-4 -top-4 bg-emerald-50 w-24 h-24 rounded-full flex items-end justify-start p-5">
@@ -389,7 +578,6 @@ export default function KitchenDashboardPage() {
           </div>
         </div>
 
-        {/* ยอดสะสมรายเดือน */}
         <div className="bg-white rounded-4xl p-6 shadow-sm border border-slate-200">
           <h2 className="text-sm font-black text-slate-700 flex items-center gap-2 mb-4 shrink-0">
             <CalendarDays size={18} className="text-indigo-500" /> สะสมรอบบิลปัจจุบัน (26 - 25)
@@ -412,7 +600,6 @@ export default function KitchenDashboardPage() {
           </div>
         </div>
 
-        {/* ล็อกตอกบัตร */}
         <div>
           <h3 className="font-black text-slate-700 mb-3 px-1 text-sm flex items-center justify-between">
             ประวัติการเข้างาน (ช่วงเวลาที่เลือก)
@@ -439,7 +626,9 @@ export default function KitchenDashboardPage() {
                         {isWorking ? ' ปัจจุบัน' : ` ${new Date(a.check_out!).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`}
                       </div>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right flex items-center gap-2">
+                       {a.check_in_image && <img src={a.check_in_image} alt="Check in" className="w-10 h-10 rounded-md object-cover" />}
+                       {a.check_out_image && <img src={a.check_out_image} alt="Check out" className="w-10 h-10 rounded-md object-cover" />}
                       {isWorking ? (
                         <div className="text-sm font-black text-emerald-600">
                           {Math.floor((currentTime.getTime() - new Date(a.check_in).getTime()) / 60000)} นาที

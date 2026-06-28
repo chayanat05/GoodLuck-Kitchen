@@ -474,15 +474,19 @@ const unlockOrder = (orderId: string) => {
       
       // Fetch attendance status for kitchen staff
       if (profile.role === 'kitchen') {
-        const { data: attData } = await supabase
-          .from("kitchen_attendance")
+        const { data: attData, error: attError } = await supabase
+          .from("rider_attendance")
           .select("id, check_in, check_out")
-          .eq("user_id", session.user.id)
+          .eq("rider_id", session.user.id)
           .is("check_out", null)
-          .order("check_in", { ascending: false })
-          .limit(1)
-          .single();
-        setActiveAttendance(attData || null);
+          .order("check_in", { ascending: false });
+
+        if (attError) {
+          console.error("Error fetching kitchen attendance:", attError);
+          setActiveAttendance(null);
+        } else {
+          setActiveAttendance(attData && attData.length > 0 ? attData[0] : null);
+        }
       }
 
       setCurrentUser(session.user);
@@ -520,76 +524,29 @@ const unlockOrder = (orderId: string) => {
   }
 )
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
-        console.log(
-    "UPDATE EVENT",
-    payload.old.status,
-    "→",
-    payload.new.status
-);
-        console.log("REALTIME PAYLOAD", {
-  order: payload.new.order_number,
-  old: payload.old,
-  new: payload.new,
-});
+        console.log(`[REALTIME] UPDATE event for order #${payload.new.order_number}, status: ${payload.new.status}`);
+        setOrders(prevOrders => {
+          // ถ้าอัปเดตแล้วโดนลบหรือ archive ก็เอาออกจากลิสต์
+          if (payload.new.is_archived || payload.new.is_deleted) {
+            return prevOrders.filter(order => order.id !== payload.new.id);
+          }
 
-console.log("STATUS CHANGE", {
-  order: payload.new.order_number,
-  oldStatus: payload.old.status,
-  newStatus: payload.new.status,
-});
-          setOrders(prev => {
-            const isArchivedOrDeleted = payload.new.is_archived || payload.new.is_deleted;
-            
-            if (isArchivedOrDeleted) {
-              return prev.filter(o => o.id !== payload.new.id);
-            }
+          const orderExists = prevOrders.some(order => order.id === payload.new.id);
 
-            const currentOrder = prev.find(o => o.id === payload.new.id);
-          if (
-              currentOrder &&
-              currentOrder.status === payload.new.status &&
-              currentOrder.sort_index === payload.new.sort_index
-            ) {
-              return prev;
-        }
-
-const exists = !!currentOrder;
-            let newOrders = [];
-            if (!exists) {
-              newOrders = [payload.new as Order, ...prev];
-            } else {
-              newOrders = prev.map(o => {
-
-  if (o.id !== payload.new.id) return o;
-
-  // ถ้าไม่มีอะไรเปลี่ยนจริง ไม่ต้องอัปเดต
-  if (
-    o.status === payload.new.status &&
-    o.sort_index === payload.new.sort_index &&
-    o.rider_id === payload.new.rider_id &&
-    o.image_url === payload.new.image_url &&
-    o.slip_image === payload.new.slip_image
-  ) {
-    return o;
-  }
-
-  return {
-    ...o,
-    ...(payload.new as Order),
-  };
-
-});
-            }
-
-            return newOrders.sort((a, b) => {
-              const sortA = a.sort_index ?? 0;
-              const sortB = b.sort_index ?? 0;
-              if (sortA !== sortB) return sortA - sortB;
-              return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
-            });
-          });
-        }
-      )
+          // ถ้ามีออเดอร์นี้อยู่แล้ว ให้อัปเดตข้อมูล
+          if (orderExists) {
+            return prevOrders.map(order =>
+              order.id === payload.new.id
+                ? { ...order, ...payload.new }
+                : order
+            );
+          }
+          // ถ้าไม่มี (อาจจะเกิดจาก INSERT event หาย) ให้เพิ่มเข้าไปใหม่
+          else {
+            return [payload.new as Order, ...prevOrders];
+          }
+        });
+      })
       .on("postgres_changes", { event: "DELETE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
         
           setOrders(prev => prev.filter(o => o.id !== payload.old.id));
@@ -698,9 +655,8 @@ const exists = !!currentOrder;
 
       // 2. Insert or Update DB
       if (cameraAction === 'in') {
-        const { data, error } = await supabase.from('kitchen_attendance').insert([{
-          user_id: currentUser.id,
-          branch_id: currentBranchId,
+        const { data, error } = await supabase.from('rider_attendance').insert([{
+          rider_id: currentUser.id,
           check_in_image: imageUrl
         }]).select().single();
 
@@ -713,7 +669,7 @@ const exists = !!currentOrder;
         const checkInDate = new Date(activeAttendance.check_in);
         const minutes = Math.floor((now.getTime() - checkInDate.getTime()) / 60000);
         
-        const { error } = await supabase.from('kitchen_attendance').update({
+        const { error } = await supabase.from('rider_attendance').update({
           check_out: now.toISOString(),
           total_minutes: minutes,
           check_out_image: imageUrl
@@ -729,15 +685,7 @@ const exists = !!currentOrder;
       setPhotoPreview(null);
     } catch (err: unknown) {
       console.error(err);
-      if (err instanceof Error && err.message.includes("relation \"public.kitchen_attendance\" does not exist")) {
-        showAlert(
-            "เกิดข้อผิดพลาด ฐานข้อมูล",
-            "ไม่พบตาราง 'kitchen_attendance' สำหรับเก็บข้อมูลการถ่ายรูปของแม่ครัว กรุณาแจ้งผู้พัฒนาเพื่อสร้างตารางใน Supabase ครับ",
-            "error"
-        );
-      } else {
-        showAlert("เกิดข้อผิดพลาด", "ไม่สามารถบันทึกข้อมูลการถ่ายรูปได้", "error");
-      }
+      showAlert("เกิดข้อผิดพลาด", "ไม่สามารถบันทึกข้อมูลการถ่ายรูปได้", "error");
     } finally {
       setIsProcessingAttendance(false);
     }
