@@ -1091,7 +1091,7 @@ const unlockOrder = (orderId: string) => {
       finalOrderNumber = finalNumToUse;
       orderData.order_number = finalOrderNumber;
 
-      const { data, error } = await supabase.from("orders").insert([{ ...orderData, branch_id: currentBranchId, status: "New" }]).select();
+      const { data, error } = await supabase.from("orders").insert([{ ...orderData, branch_id: currentBranchId, status: "ออเดอร์ใหม่" }]).select();
       if (error) console.error("Error inserting order:", error);
       
       if (data && data.length > 0) {
@@ -1378,7 +1378,7 @@ const unlockOrder = (orderId: string) => {
     });
   };
 
-  const pendingOrders = useMemo(() => orders.filter((o) => ["New", "กำลังทำ", "รับงาน"].includes(o.status)), [orders]);
+  const pendingOrders = useMemo(() => orders.filter((o) => ["ออเดอร์ใหม่", "กำลังทำ", "รับงาน"].includes(o.status)), [orders]);
 
   const filteredOrders = useMemo(() => {
     const q = debouncedQuery.toLowerCase();
@@ -1953,7 +1953,7 @@ const unlockOrder = (orderId: string) => {
                           ref={provided.innerRef}
                           {...provided.draggableProps}
                           // 🌟 ใช้ currentTime แทน new Date().getTime()
-                            className={`shrink-0 max-h-full flex flex-col transition-all duration-300 ${isCompact ? "w-48 md:w-56" : "w-72 md:w-80"} ${snapshot.isDragging ? "scale-[1.02] rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl" : ""} ${                            ((order.status === "New" || order.status === "กำลังทำ") && Math.floor((currentTime - new Date(order.created_at || 0).getTime()) / 60000) >= 5) ||
+                            className={`shrink-0 max-h-full flex flex-col transition-all duration-300 ${isCompact ? "w-48 md:w-56" : "w-72 md:w-80"} ${snapshot.isDragging ? "scale-[1.02] rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl" : ""} ${                            ((order.status === "ออเดอร์ใหม่" || order.status === "กำลังทำ") && Math.floor((currentTime - new Date(order.created_at || 0).getTime()) / 60000) >= 5) ||
                             (currentUserRole !== "kitchen" && order.status === "รับงาน" && Math.floor((currentTime - new Date(order.created_at || 0).getTime()) / 60000) >= 35)  ? "rounded-3xl animate-border-blink" 
                             : ""
                           }`}
@@ -2592,7 +2592,7 @@ const unlockOrder = (orderId: string) => {
             </div>
 
             <div className="p-6 flex flex-col gap-3 bg-slate-50/50">
-              {["New", "กำลังทำ", "รับงาน", "ส่งแล้ว/เสร็จ"].map((st) => (
+              {["ออเดอร์ใหม่", "กำลังทำ", "รับงาน", "ส่งแล้ว/เสร็จ"].map((st) => (
                 <button
                   key={st}
                   disabled={statusModal.order?.status === st}
@@ -2600,7 +2600,7 @@ const unlockOrder = (orderId: string) => {
                   className={`w-full py-4 rounded-2xl text-base font-black transition-all shadow-sm flex items-center justify-center active:scale-95 ${
                     statusModal.order?.status === st
                       ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
-                      : st === "New"
+                      : st === "ออเดอร์ใหม่"
                         ? "bg-blue-50 hover:bg-blue-500 hover:text-white text-blue-700 border border-blue-200 hover:shadow-lg shadow-blue-500/30"
                         : st === "กำลังทำ"
                           ? "bg-amber-50 hover:bg-amber-500 hover:text-white text-amber-700 border border-amber-200 hover:shadow-lg shadow-amber-500/30"
@@ -2854,7 +2854,7 @@ const unlockOrder = (orderId: string) => {
             </div>
 
             <div className="p-4 md:p-5 shrink-0 bg-white border-t border-slate-100 mt-0 flex flex-col gap-2 shadow-2xl z-20">
-              {selectedViewOrder.status === "New" &&
+              {selectedViewOrder.status === "ออเดอร์ใหม่" &&
                 selectedViewOrder.job_type !== "shopee" && (
                   <button
                     onClick={() => handleStartOrder(selectedViewOrder.id)}

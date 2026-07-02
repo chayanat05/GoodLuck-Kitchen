@@ -11,7 +11,7 @@ export interface Order {
   id: string;
   order_number: string;
   job_type: "ร้าน" | "shopee" | string; 
-  status: "New" | "กำลังทำ" | "รับงาน" | "ส่งแล้ว/เสร็จ" | string;
+  status: "ออเดอร์ใหม่" | "กำลังทำ" | "รับงาน" | "ส่งแล้ว/เสร็จ" | string;
   menu?: string; 
   details: string;
   total_price: number;
@@ -51,7 +51,7 @@ interface OrderProps {
 
 const getCardTheme = (status: string) => {
   switch (status) {
-    case 'New': return { bg: 'bg-blue-600 border-blue-700', text: 'text-white', subText: 'text-blue-100', btnBg: 'bg-white hover:bg-blue-50 text-blue-700', badgeBg: 'bg-white/20 text-white border-white/30' };
+    case 'ออเดอร์ใหม่': return { bg: 'bg-blue-600 border-blue-700', text: 'text-white', subText: 'text-blue-100', btnBg: 'bg-white hover:bg-blue-50 text-blue-700', badgeBg: 'bg-white/20 text-white border-white/30' };
     case 'กำลังทำ': return { bg: 'bg-yellow-400 border-yellow-500', text: 'text-slate-900', subText: 'text-slate-700', btnBg: 'bg-slate-900 hover:bg-slate-800 text-white', badgeBg: 'bg-white/40 text-slate-900 border-slate-900/10' };
     case 'รับงาน': return { bg: 'bg-purple-600 border-purple-700', text: 'text-white', subText: 'text-purple-100', btnBg: 'bg-white hover:bg-purple-50 text-purple-700', badgeBg: 'bg-white/20 text-white border-white/30' };
     case 'ส่งแล้ว/เสร็จ': return { bg: 'bg-emerald-600 border-emerald-700', text: 'text-white', subText: 'text-emerald-100', btnBg: 'bg-white hover:bg-emerald-50 text-emerald-700', badgeBg: 'bg-white/20 text-white border-white/30' };
@@ -139,7 +139,7 @@ function OrderCard({
     return () => clearInterval(interval);
   }, [order.created_at]);
 
-  const isKitchenLate = (order.status === "New" || order.status === "กำลังทำ") && elapsedMinutes >= 5;
+  const isKitchenLate = (order.status === "ออเดอร์ใหม่" || order.status === "กำลังทำ") && elapsedMinutes >= 5;
   const isRiderLate = userRole !== "kitchen" && (order.status === "รับงาน") && elapsedMinutes >= 35;
   
   return (
@@ -185,8 +185,9 @@ function OrderCard({
 
         <div className="flex items-center gap-1 shrink-0 relative" ref={menuRef}>
           {onViewDetails && !isCompact && (
-            <button onClick={(e) => { e.stopPropagation(); onViewDetails(); }} className={`p-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/20 ${theme.text}`} title="ดูรายละเอียด">
+            <button onClick={(e) => { e.stopPropagation(); onViewDetails(); }} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/20 ${theme.text}`} title="ดูรายละเอียดเพิ่มเติม">
               <Eye size={16} strokeWidth={2.5}/>
+              <span className="text-sm font-bold">ดูรายละเอียดเพิ่มเติม</span>
             </button>
           )}
           
@@ -273,7 +274,7 @@ function OrderCard({
           )}
         </div>
 
-        {order.status === "New" && onStart && (
+        {order.status === "ออเดอร์ใหม่" && onStart && (
   <button
     disabled={isUpdating}
     onClick={() => {
