@@ -24,6 +24,7 @@ export default function TrashPage({ params }: { params: Promise<{ board_home: st
   const [isLoading, setIsLoading] = useState(true);
   const [currentBranchId, setCurrentBranchId] = useState<string>("");
   const [adminName, setAdminName] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const fetchDeletedOrders = async (branchId: string) => {
     setIsLoading(true);
@@ -103,18 +104,32 @@ export default function TrashPage({ params }: { params: Promise<{ board_home: st
     });
   };
 
+  const filteredDeletedOrders = deletedOrders.filter(order =>
+    order.order_number.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="min-h-screen bg-slate-50 p-6 font-sans">
       <div className="max-w-5xl mx-auto">
-        <div className="flex items-center gap-4 mb-8">
-          <button onClick={() => router.back()} className="p-3 bg-white shadow-sm border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors"><ChevronLeft size={20}/></button>
-          <div>
-            <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2"><Trash2 className="text-rose-500"/> ถังขยะ (Recycle Bin)</h1>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">ออเดอร์ที่ถูกลบไปแล้ว สามารถกู้คืนได้ที่นี่</p>
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-8">
+          <div className="flex items-center gap-4 w-full">
+            <button onClick={() => router.back()} className="p-3 bg-white shadow-sm border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors"><ChevronLeft size={20}/></button>
+            <div>
+              <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2"><Trash2 className="text-rose-500"/> ถังขยะ (Recycle Bin)</h1>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">ออเดอร์ที่ถูกลบไปแล้ว สามารถกู้คืนได้ที่นี่</p>
+            </div>
+          </div>
+          <div className="relative w-full md:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16}/>
+            <input 
+              type="text" placeholder="ค้นหาด้วยเลขออเดอร์..." 
+              value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 rounded-2xl border border-slate-200 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 shadow-sm"
+            />
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden p-2">
           {isLoading ? (
             <div className="p-20 text-center text-slate-400 font-bold">กำลังโหลดข้อมูล...</div>
           ) : deletedOrders.length === 0 ? (
@@ -122,13 +137,15 @@ export default function TrashPage({ params }: { params: Promise<{ board_home: st
               <CheckCircle2 size={48} className="mb-4 text-emerald-400 opacity-50"/>
               <p className="font-black text-lg">ถังขยะว่างเปล่า</p>
             </div>
+          ) : filteredDeletedOrders.length === 0 ? (
+            <div className="p-20 text-center text-slate-400 font-bold">ไม่พบออเดอร์ที่ค้นหา</div>
           ) : (
             <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-100 text-xs uppercase font-black text-slate-500 tracking-wider">
                 <tr><th className="p-5">เลขออเดอร์</th><th className="p-5">ประเภท</th><th className="p-5">เวลาที่ลบ</th><th className="p-5 text-right">จัดการ</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-bold text-sm">
-                {deletedOrders.map(order => (
+                {filteredDeletedOrders.map(order => (
                   <tr key={order.id} className="hover:bg-slate-50 transition-colors">
                     <td className="p-5 text-slate-800">{order.order_number}</td>
                     <td className="p-5"><span className="px-2 py-1 bg-slate-100 rounded-md text-xs">{order.job_type}</span></td>

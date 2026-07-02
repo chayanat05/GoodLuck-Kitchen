@@ -1319,8 +1319,9 @@ export default function RiderPage() {
                   className="hidden" 
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
-                      setPhotoFile(e.target.files[0]);
-                      // setPhotoPreview(URL.createObjectURL(e.target.files[0])); // Removed to prevent previewing uploaded files
+                      const file = e.target.files[0];
+                      setPhotoFile(file);
+                      setPhotoPreview(URL.createObjectURL(file));
                     }
                   }} 
                 />

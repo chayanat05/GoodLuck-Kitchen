@@ -61,7 +61,11 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
   const SHOP_LAT = 16.24813;
   const SHOP_LNG = 103.242206;
-  const NOTIFICATION_SOUND_URL = "/audio-shop.mp3";
+  const NEW_ORDER_SOUND_URL = "/audio-shop.mp3"; // เสียงแจ้งเตือนออเดอร์ใหม่
+  const EDIT_ORDER_SOUND_URL = "/editorder.mp3"; // เสียงแจ้งเตือนออเดอร์แก้ไข
+  // Removed: const NOTIFICATION_SOUND_URL = "/audio-shop.mp3";
+
+  // --- Type Interfaces ---
 
   // --- Type Interfaces ---
   interface RiderLocation {
@@ -93,6 +97,13 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     };
   }
 
+  interface Branch {
+    id: string;
+    name: string;
+    lat: number;
+    lng: number;
+  }
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [currentBranchId, setCurrentBranchId] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState<boolean>(false);
@@ -119,16 +130,24 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [unifiedResults, setUnifiedResults] = useState<UnifiedSearchResult[]>([]);
   const [isGalleryOpen, setIsGalleryOpen] = useState<boolean>(false);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const newOrderAudioRef = useRef<HTMLAudioElement | null>(null);
+  const editOrderAudioRef = useRef<HTMLAudioElement | null>(null);
   
   const [ridersLoc, setRidersLoc] = useState<RiderLocation[]>([]);
 
-  // State for Attendance System
+  // State for Attendance System & Location
   const [activeAttendance, setActiveAttendance] = useState<ActiveAttendance | null>(null);
   const [showCameraModal, setShowCameraModal] = useState(false);
   const [cameraAction, setCameraAction] = useState<'in' | 'out'>('in');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [isProcessingAttendance, setIsProcessingAttendance] = useState(false);
+  const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [gpsEnabled, setGpsEnabled] = useState<boolean | null>(null);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const lastGpsUpdateRef = useRef<number>(0);
+
 
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -181,7 +200,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
 
   const dbTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const googleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const notificationAudio = useRef<HTMLAudioElement | null>(null);
+  const updatingOrdersRef = useRef(new Set<string>());
   const defaultMapCenter = useMemo(() => ({ lat: SHOP_LAT, lng: SHOP_LNG }), []);
   const [mapLibraries] = useState<"places"[]>(["places"]);
   const { isLoaded } = useJsApiLoader({
@@ -228,13 +247,46 @@ const unlockOrder = (orderId: string) => {
     return R * c;
   };
   
-  const showToast = useCallback((msg: string) => {
-    if (msg.includes('❌') || msg.includes('เกิดข้อผิดพลาด')) {
-      toast.error(msg);
-    } else if (msg.includes('🔔')) {
-      toast.info(msg);
+  const showAlert = (title: string, message: string, icon: "success" | "error" | "warning" | "info" = "info") => {
+    if (icon === "success") {
+      toast.success(title, { description: message });
+    } else if (icon === "error") {
+      toast.error(title, { description: message });
     } else {
-      toast.success(msg);
+      Swal.fire({ title, text: message, icon, confirmButtonColor: "#3b82f6", confirmButtonText: "รับทราบ" });
+    }
+  };
+
+  const showToast = useCallback((msg: string) => {
+    const isEdit = msg.includes('แก้ไข') || msg.includes('✏️');
+    const options = isEdit
+      ? {
+          duration: 8000, // เพิ่มเวลาแสดงผลเป็น 8 วินาที
+          style: { fontSize: "1.25rem" },
+        }
+      : {};
+    if (msg.includes('❌') || msg.includes('เกิดข้อผิดพลาด')) {
+      toast.error(msg, options);
+    } else if (msg.includes('🔔')) {
+      toast.info(msg, options);
+    } else {
+      toast.success(msg, options);
+    }
+  }, []);
+
+  const playSound = useCallback(async (type: 'new' | 'edit') => {
+    const audioRef = type === 'new' ? newOrderAudioRef : editOrderAudioRef;
+    if (audioRef.current) {
+      // The user must interact with the document first for this to work.
+      try {
+        audioRef.current.currentTime = 0;
+        await audioRef.current.play();
+      } catch (error) {
+        console.warn(`Could not play ${type} order sound automatically:`, error);
+        // If playback fails, it's likely due to browser policy.
+        // A gentle nudge to the user can help them enable audio.
+        toast.info("คลิกที่หน้าจอเพื่อเปิดใช้งานเสียงแจ้งเตือน", { duration: 5000 });
+      }
     }
   }, []);
 
@@ -296,7 +348,8 @@ const unlockOrder = (orderId: string) => {
     const { data, error } = await supabase
       .from("profiles")
       .select("id, username, last_lat, last_lng, last_seen")
-      .not("last_lat", "is", null);
+      .not("last_lat", "is", null)
+      .neq('role', 'kitchen');
 
     if (error) console.error(error);
     if (data) setRidersLoc(data as RiderLocation[]);
@@ -353,63 +406,47 @@ const unlockOrder = (orderId: string) => {
     };
   }, []);
 
-  const playNotificationSound = async () => {
-    try {
-      if (!notificationAudio.current) {
-        notificationAudio.current = new Audio(NOTIFICATION_SOUND_URL);
-        notificationAudio.current.preload = "auto";
-      }
-
-      notificationAudio.current.pause();
-      notificationAudio.current.currentTime = 0;
-      notificationAudio.current.volume = 1;
-
-      await notificationAudio.current.play();
-    } catch (err) {
-      console.error("Notification sound error:", err);
-    }
-  };
-
   useEffect(() => {
-    if (!notificationAudio.current) {
-      notificationAudio.current = new Audio(NOTIFICATION_SOUND_URL);
-      notificationAudio.current.preload = "auto";
-    }
+    // Initialize audio elements on the client side
+    newOrderAudioRef.current = new Audio(NEW_ORDER_SOUND_URL);
+    newOrderAudioRef.current.volume = 1;
+    editOrderAudioRef.current = new Audio(EDIT_ORDER_SOUND_URL);
+    editOrderAudioRef.current.volume = 1;
 
+    // This function attempts to "unlock" the audio context by playing and pausing
+    // the audio on the first user interaction. This is a common workaround for
+    // browser autoplay policies that block sound until a user gesture.
     const unlockAudio = () => {
-      if (notificationAudio.current) {
-        notificationAudio.current.volume = 0;
-        
-        const playPromise = notificationAudio.current.play();
-        if (playPromise !== undefined) {
-          playPromise
-            .then(() => {
-              if (notificationAudio.current) {
-                notificationAudio.current.pause();
-                notificationAudio.current.currentTime = 0;
-                notificationAudio.current.volume = 1;
-              }
-            })
-            .catch((error) => {
-              console.warn("Audio unlock failed:", error);
-              if (notificationAudio.current) {
-                notificationAudio.current.volume = 1;
-              }
-            });
-        }
-        
-        document.removeEventListener("pointerdown", unlockAudio);
-      }
+        const playAndPause = (audioElement: HTMLAudioElement | null) => {
+            if (audioElement && audioElement.paused) {
+                const playPromise = audioElement.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        audioElement.pause();
+                        audioElement.currentTime = 0;
+                    }).catch(() => {
+                        // Autoplay was prevented, no need to log an error.
+                    });
+                }
+            }
+        };
+        playAndPause(newOrderAudioRef.current);
+        playAndPause(editOrderAudioRef.current);
+      
+        // Remove the listeners after the first interaction
+        document.body.removeEventListener('click', unlockAudio);
+        document.body.removeEventListener('touchstart', unlockAudio);
+        document.body.removeEventListener('keydown', unlockAudio);
     };
 
-    document.addEventListener("pointerdown", unlockAudio, {
-      once: true,
-    });
-    
+    document.body.addEventListener('click', unlockAudio);
+    document.body.addEventListener('touchstart', unlockAudio);
+    document.body.addEventListener('keydown', unlockAudio);
+
     return () => {
-      document.removeEventListener("pointerdown", unlockAudio);
-      document.removeEventListener("touchstart", unlockAudio);
-      document.removeEventListener("click", unlockAudio);
+      document.body.removeEventListener('click', unlockAudio);
+      document.body.removeEventListener('touchstart', unlockAudio);
+      document.body.removeEventListener('keydown', unlockAudio);
     };
   }, []);
 
@@ -511,7 +548,7 @@ const unlockOrder = (orderId: string) => {
   (payload) => {
     if (!payload.new.is_archived && !payload.new.is_deleted) {
 
-      playNotificationSound();
+      playSound('new');
 
       showToast(`🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`);
 
@@ -524,26 +561,32 @@ const unlockOrder = (orderId: string) => {
   }
 )
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
-        console.log(`[REALTIME] UPDATE event for order #${payload.new.order_number}, status: ${payload.new.status}`);
+        console.log(`[REALTIME] UPDATE event for order #${payload.new.order_number}`);
         setOrders(prevOrders => {
-          // ถ้าอัปเดตแล้วโดนลบหรือ archive ก็เอาออกจากลิสต์
           if (payload.new.is_archived || payload.new.is_deleted) {
             return prevOrders.filter(order => order.id !== payload.new.id);
           }
 
-          const orderExists = prevOrders.some(order => order.id === payload.new.id);
+          // 🌟 ดึงข้อมูลออเดอร์เก่า "จากหน้าจอเรา" (State) แทนที่จะใช้จาก payload.old
+          const existingOrder = prevOrders.find(order => order.id === payload.new.id);
 
-          // ถ้ามีออเดอร์นี้อยู่แล้ว ให้อัปเดตข้อมูล
-          if (orderExists) {
+          if (existingOrder) {
+            // 🌟 เช็กว่าเมนูเปลี่ยนไปไหม โดยเทียบกับของที่โชว์อยู่บนจอ
+            const hasMenuChanged = existingOrder.menu !== payload.new.menu;
+
+            if (hasMenuChanged) {
+                playSound('edit');
+                showToast(`✏️ แก้ไขเมนูออเดอร์ที่ ${payload.new.order_number} แล้ว`);
+            }
+
             return prevOrders.map(order =>
               order.id === payload.new.id
                 ? { ...order, ...payload.new }
                 : order
             );
-          }
-          // ถ้าไม่มี (อาจจะเกิดจาก INSERT event หาย) ให้เพิ่มเข้าไปใหม่ พร้อมเล่นเสียงและแจ้งเตือน
+          } 
           else {
-            playNotificationSound();
+            playSound('new');
             showToast(`🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`);
             return [payload.new as Order, ...prevOrders];
           }
@@ -571,7 +614,7 @@ const unlockOrder = (orderId: string) => {
       supabase.removeChannel(orderChannel);
       supabase.removeChannel(syncChannel);
     };
-  }, [fetchOrdersAndLocations, showToast, currentBranchId]);
+  }, [fetchOrdersAndLocations, showToast, currentBranchId, playSound]);
 
   useEffect(() => {
     if (showRiderMap && currentBranchId) {
@@ -616,6 +659,73 @@ const unlockOrder = (orderId: string) => {
     }, 300);
     return () => clearTimeout(t);
   }, [searchQuery]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    if (!navigator.geolocation) {
+      setGpsEnabled(false);
+      setLocationError("เบราว์เซอร์ไม่รองรับ GPS");
+      return;
+    }
+
+    const initLocation = () => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setGpsEnabled(true);
+          setLocationError(null);
+          setMyLocation({ lat: position.coords.latitude, lng: position.coords.longitude });
+        },
+        (error) => {
+          console.error("GPS Init Error:", error);
+          setGpsEnabled(false);
+          handleLocationError(error);
+        },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+      );
+    };
+
+    const handleLocationError = (error: GeolocationPositionError) => {
+      let msg = "กรุณาเปิด GPS";
+      switch(error.code) {
+        case error.PERMISSION_DENIED: msg = "คุณไม่อนุญาตให้ใช้ GPS กรุณาเปิดการตั้งค่า Safari/เบราว์เซอร์"; break;
+        case error.POSITION_UNAVAILABLE: msg = "ข้อมูลพิกัดไม่พร้อมใช้งานในขณะนี้"; break;
+        case error.TIMEOUT: msg = "หมดเวลาค้นหาพิกัด (ลองเปิดแอปใหม่)"; break;
+      }
+      setLocationError(msg);
+      if(error.code !== error.PERMISSION_DENIED) {
+        setMyLocation(null); 
+      }
+    };
+
+    initLocation(); 
+
+    const watchId = navigator.geolocation.watchPosition(
+      async (position) => {
+        if (position.coords.accuracy > 150) {
+          console.warn(`[GPS] Ignore low accuracy: ${position.coords.accuracy}m`);
+          return;
+        }
+
+        setGpsEnabled(true);
+        setLocationError(null);
+        setMyLocation({ lat: position.coords.latitude, lng: position.coords.longitude });
+      },
+      (error) => {
+        console.error("GPS Watch Error:", error);
+        if(error.code === error.PERMISSION_DENIED) {
+          setGpsEnabled(false);
+        }
+        handleLocationError(error);
+      },
+      { 
+        enableHighAccuracy: true, 
+        maximumAge: 0,
+        timeout: 15000 
+      }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [currentUser]);
 
 
   // ---------------------------------------------------------------------------
@@ -923,6 +1033,9 @@ const unlockOrder = (orderId: string) => {
     const isEdit = !!editingId;
 
     if (isEdit) {
+      // 🌟 1. ดึงออเดอร์เก่ามาเทียบก่อนว่า "เมนูโดนแก้ไหม?"
+      const oldOrder = orders.find(o => o.id === editingId);
+      const isMenuChanged = oldOrder && oldOrder.menu !== orderData.menu;
       // 🌟 Optimistic UI for edit
       setOrders(prev => prev.map((o) => (o.id === editingId ? { ...o, ...orderData } as Order : o)));
       
@@ -930,14 +1043,23 @@ const unlockOrder = (orderId: string) => {
       if (error) {
         console.warn("Error updating order, might be false positive:", error);
       } else {
-        showToast("อัปเดตข้อมูลสำเร็จ! 📝");
-        supabase.from("activity_logs").insert([{
+        // 🌟 2. ให้แจ้งเตือนหน้าจอของ "คนแก้" (เครื่องแอดมิน) เฉพาะตอนแก้เมนูเท่านั้น
+        if (isMenuChanged) {
+            playSound('edit');
+            showToast(`✏️ แก้ไขเมนูออเดอร์ #${finalOrderNumber} แล้ว 📝`);
+        }
+
+        const { error: logError } = await supabase.from("activity_logs").insert([{
           branch_id: currentBranchId,
           user_name: adminName,
           action: "EDIT_ORDER",
           details: `แก้ไขข้อมูลออเดอร์ #${finalOrderNumber}`
         }]);
+        if (logError) {
+          console.error("Failed to log order edit:", logError);
+        }
       }
+    } else if (filesToUpload.length > 0) {
     } else {
       let finalNumToUse = orderData.order_number;
       let isDuplicate = true;
@@ -977,12 +1099,15 @@ const unlockOrder = (orderId: string) => {
         setOrders(prev => [data[0] as Order, ...prev]);
         showToast("สร้างออเดอร์สำเร็จ! 🚀");
         
-        supabase.from("activity_logs").insert([{
+        const { error: logError } = await supabase.from("activity_logs").insert([{
           branch_id: currentBranchId,
           user_name: adminName,
           action: "CREATE_ORDER",
           details: `สร้างออเดอร์ใหม่ #${finalOrderNumber}`
         }]);
+        if (logError) {
+          console.error("Failed to log order creation:", logError);
+        }
 
         notifyRoles(
           ['kitchen', 'rider', 'admin', 'superadmin'], 
@@ -1016,166 +1141,160 @@ const unlockOrder = (orderId: string) => {
 
   // 🌟 1. เปลี่ยนสถานะผ่าน Modal
   const executeStatusChange = async (newStatus: string) => {
-  if (!statusModal.order) return;
+    if (!statusModal.order) return;
 
-  const targetOrder = statusModal.order;
+    const targetOrder = statusModal.order;
+    if (updatingOrdersRef.current.has(targetOrder.id)) return;
 
-  if (updatingOrders.has(targetOrder.id)) return;
+    try {
+      updatingOrdersRef.current.add(targetOrder.id);
+      lockOrder(targetOrder.id);
 
-  lockOrder(targetOrder.id);
+      setStatusModal({ isOpen: false, order: null });
 
-  try {
+      const updateData: { status: string; end_time?: string } = {
+        status: newStatus,
+      };
 
-    setStatusModal({ isOpen: false, order: null });
+      if (
+        newStatus === "ส่งแล้ว/เสร็จ" &&
+        targetOrder.job_type === "shopee"
+      ) {
+        updateData.end_time = new Date().toISOString();
+      }
 
-    const updateData: { status: string; end_time?: string } = {
-      status: newStatus,
-    };
+      const { error } = await supabase
+        .from("orders")
+        .update(updateData)
+        .eq("id", targetOrder.id);
 
-    if (
-      newStatus === "ส่งแล้ว/เสร็จ" &&
-      targetOrder.job_type === "shopee"
-    ) {
-      updateData.end_time = new Date().toISOString();
+      if (!error) {
+        showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`);
+      } else {
+        fetchOrdersAndLocations();
+      }
+
+      await supabase.from("activity_logs").insert([{
+        branch_id: currentBranchId,
+        user_name: adminName,
+        action: "CHANGE_STATUS",
+        details: `ปรับสถานะออเดอร์ #${targetOrder.order_number} เป็น "${newStatus}"`
+      }]);
+
+      notifyRoles(
+        ['rider','admin','superadmin','kitchen'],
+        "🔄 อัปเดตสถานะออเดอร์",
+        `ออเดอร์ #${targetOrder.order_number} ถูกเปลี่ยนเป็น: ${newStatus}`,
+        `/board/${branchSlug}`
+      );
+    } finally {
+      updatingOrdersRef.current.delete(targetOrder.id);
+      unlockOrder(targetOrder.id);
     }
-
-    const { error } = await supabase
-      .from("orders")
-      .update(updateData)
-      .eq("id", targetOrder.id);
-
-    if (!error) {
-
-      showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`);
-
-    } else {
-
-      fetchOrdersAndLocations();
-
-    }
-
-    await supabase.from("activity_logs").insert([{
-      branch_id: currentBranchId,
-      user_name: adminName,
-      action: "CHANGE_STATUS",
-      details: `ปรับสถานะออเดอร์ #${targetOrder.order_number} เป็น "${newStatus}"`
-    }]);
-
-    notifyRoles(
-      ['rider','admin','superadmin','kitchen'],
-      "🔄 อัปเดตสถานะออเดอร์",
-      `ออเดอร์ #${targetOrder.order_number} ถูกเปลี่ยนเป็น: ${newStatus}`,
-      `/board/${branchSlug}`
-    );
-
-  } finally {
-
-    unlockOrder(targetOrder.id);
-
-  }
-};
+  };
 
   // 🌟 2. เริ่มทำอาหาร
   const handleStartOrder = async (orderId: string) => {
-  if (updatingOrders.has(orderId)) return;
+    if (updatingOrdersRef.current.has(orderId)) return;
 
-lockOrder(orderId);
+    try {
+      updatingOrdersRef.current.add(orderId);
+      lockOrder(orderId);
 
-  try {
-    const targetOrder = orders.find(o => o.id === orderId);
-    if (!targetOrder) return;
+      const targetOrder = orders.find(o => o.id === orderId);
+      if (!targetOrder) return;
 
-    const { error } = await supabase
-      .from("orders")
-      .update({
-        status: "กำลังทำ"
-      })
-      .eq("id", orderId);
+      const { error } = await supabase
+        .from("orders")
+        .update({
+          status: "กำลังทำ"
+        })
+        .eq("id", orderId);
 
-    if (!error) {
-      
-    } else {
-      fetchOrdersAndLocations();
+      if (!error) {
+        
+      } else {
+        fetchOrdersAndLocations();
+      }
+      showToast("ครัวเริ่มทำอาหารแล้ว! 🍳");
+      const orderNum = targetOrder.order_number || "ล่าสุด";
+
+      await supabase.from("activity_logs").insert([{
+        branch_id: currentBranchId,
+        user_name: adminName,
+        action: "CHANGE_STATUS",
+        details: `เริ่มทำอาหารออเดอร์ #${orderNum} (สถานะ: กำลังทำ)`
+      }]);
+
+      await notifyRoles(
+        ['rider', 'admin', 'superadmin'],
+        "🍳 ครัวกำลังทำอาหาร",
+        `ออเดอร์ #${orderNum} เริ่มปรุงแล้ว`,
+        `/board/${branchSlug}`
+      );
+    } finally {
+      updatingOrdersRef.current.delete(orderId);
+      unlockOrder(orderId);
     }
-  showToast("ครัวเริ่มทำอาหารแล้ว! 🍳");
-    const orderNum = targetOrder.order_number || "ล่าสุด";
-
-    await supabase.from("activity_logs").insert([{
-      branch_id: currentBranchId,
-      user_name: adminName,
-      action: "CHANGE_STATUS",
-      details: `เริ่มทำอาหารออเดอร์ #${orderNum} (สถานะ: กำลังทำ)`
-    }]);
-
-    await notifyRoles(
-      ['rider', 'admin', 'superadmin'],
-      "🍳 ครัวกำลังทำอาหาร",
-      `ออเดอร์ #${orderNum} เริ่มปรุงแล้ว`,
-      `/board/${branchSlug}`
-    );
-
-  } finally {
-    unlockOrder(orderId);
-  }
-};
+  };
 
   // 🌟 3. ทำอาหารเสร็จ
   const handleFinishOrder = async (orderId: string) => {
-    if (updatingOrders.has(orderId)) return;
+    if (updatingOrdersRef.current.has(orderId)) return;
 
-lockOrder(orderId);
+    try {
+      updatingOrdersRef.current.add(orderId);
+      lockOrder(orderId);
 
-try {
-  const targetOrder = orders.find((o) => o.id === orderId);
-  if (!targetOrder) return;
+      const targetOrder = orders.find((o) => o.id === orderId);
+      if (!targetOrder) return;
 
-  const isShopee = targetOrder.job_type === "shopee";
-  const nextStatus = isShopee ? "ส่งแล้ว/เสร็จ" : "รับงาน";
+      const isShopee = targetOrder.job_type === "shopee";
+      const nextStatus = isShopee ? "ส่งแล้ว/เสร็จ" : "รับงาน";
 
-  const updateData: { status: string; end_time?: string } = {
-    status: nextStatus,
+      const updateData: { status: string; end_time?: string } = {
+        status: nextStatus,
+      };
+
+      if (isShopee) {
+        updateData.end_time = new Date().toISOString();
+      }
+
+      const { error } = await supabase
+        .from("orders")
+        .update(updateData)
+        .eq("id", orderId);
+
+      if (!error) {
+        
+      } else {
+        fetchOrdersAndLocations();
+      }
+      showToast(
+        isShopee
+          ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦"
+          : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵"
+      );
+      const orderNum = targetOrder.order_number || "ล่าสุด";
+
+      await supabase.from("activity_logs").insert([{
+        branch_id: currentBranchId,
+        user_name: adminName,
+        action: "CHANGE_STATUS",
+        details: `ทำอาหารออเดอร์ #${orderNum} เสร็จแล้ว (สถานะ: ${nextStatus})`
+      }]);
+
+      await notifyRoles(
+        ['rider', 'admin', 'superadmin'],
+        "📦 อาหารพร้อมส่ง!",
+        `ออเดอร์ #${orderNum} เสร็จแล้ว ไรเดอร์มารับได้เลย`,
+        `/board/${branchSlug}`
+      );
+    } finally {
+      updatingOrdersRef.current.delete(orderId);
+      unlockOrder(orderId);
+    }
   };
-
-  if (isShopee) {
-    updateData.end_time = new Date().toISOString();
-  }
-
-  const { error } = await supabase
-    .from("orders")
-    .update(updateData)
-    .eq("id", orderId);
-
-  if (!error) {
-
-    
-  } else {
-    fetchOrdersAndLocations();
-  }
-showToast(
-      isShopee
-        ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦"
-        : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵"
-    );
-  const orderNum = targetOrder.order_number || "ล่าสุด";
-
-  await supabase.from("activity_logs").insert([{
-    branch_id: currentBranchId,
-    user_name: adminName,
-    action: "CHANGE_STATUS",
-    details: `ทำอาหารออเดอร์ #${orderNum} เสร็จแล้ว (สถานะ: ${nextStatus})`
-  }]);
-
-  await notifyRoles(
-    ['rider', 'admin', 'superadmin'],
-    "📦 อาหารพร้อมส่ง!",
-    `ออเดอร์ #${orderNum} เสร็จแล้ว ไรเดอร์มารับได้เลย`,
-    `/board/${branchSlug}`
-  );
-  
-} finally {
-  unlockOrder(orderId);
-}
-};
 
   const handleLogoutRequest = () => {
     Swal.fire({
@@ -1206,7 +1325,7 @@ showToast(
       confirmButtonText: "ย้ายลงถังขยะ",
       cancelButtonText: "ยกเลิก",
       reverseButtons: true,
-    }).then((result) => {
+    }).then(async (result) => {
       if (result.isConfirmed) {
         // ✨ Optimistic Update: ซ่อนทันที
         setOrders((prev) => prev.filter((order) => order.id !== id));
@@ -1218,12 +1337,15 @@ showToast(
             if (error) console.warn("Supabase return error but update likely succeeded:", error);
           });
 
-        supabase.from("activity_logs").insert([{
+        const { error: logError } = await supabase.from("activity_logs").insert([{
           branch_id: currentBranchId,
           user_name: adminName,
           action: "DELETE_ORDER",
           details: `ย้ายออเดอร์ #${orderNumber} ลงถังขยะ`
         }]);
+        if (logError) {
+          console.error("Failed to log order deletion:", logError);
+        }
 
         showToast("ย้ายออเดอร์ลงถังขยะแล้ว 🗑️");
       }
@@ -1639,27 +1761,7 @@ showToast(
                   zoom={13}
                   options={{ disableDefaultUI: true, zoomControl: true, mapTypeId: "satellite" }}
                 >
-                  <MarkerF
-                    position={{ lat: SHOP_LAT, lng: SHOP_LNG }}
-                    icon={{
-                      url: "http://maps.google.com/mapfiles/ms/icons/red-dot.png",
-                    }}
-                    label={{
-                      text: "ร้านของเรา",
-                      color: "#b91c1c",
-                      className:
-                        "bg-white/90 px-2 py-0.5 rounded-full shadow-sm text-xs font-black mt-8 border border-red-200",
-                    }}
-                    onClick={() =>
-                      setSelectedRiderMapInfo({
-                        id: "shop",
-                        username: "ร้านของเรา",
-                        last_lat: SHOP_LAT,
-                        last_lng: SHOP_LNG,
-                        last_seen: null,
-                      })
-                    }
-                  />
+                  {/* Shop marker removed as requested */}
 
                   {ridersLoc.map(
                     (rider) =>
@@ -1699,33 +1801,43 @@ showToast(
                           <div className="font-bold text-base text-slate-800 mb-1">
                             {selectedRiderMapInfo.username}
                           </div>
-                          {selectedRiderMapInfo.id !== "shop" && (
-                            <div
-                              className={`text-sm font-bold px-2 py-0.5 rounded-full inline-block ${
-                                ((lastSeen) => {
-                                  if (!lastSeen) return false;
-                                  const diffMins =
-                                    (new Date().getTime() -
-                                      new Date(lastSeen).getTime()) /
-                                    60000;
-                                  return diffMins < 5;
-                                })(selectedRiderMapInfo.last_seen)
-                                  ? "bg-green-100 text-green-700"
-                                  : "bg-slate-100 text-slate-500"
-                              }`}
-                            >
-                              {((lastSeen) => {
-                                if (!lastSeen) return false;
-                                const diffMins =
-                                  (new Date().getTime() -
-                                    new Date(lastSeen).getTime()) /
-                                  60000;
-                                return diffMins < 5;
-                              })(selectedRiderMapInfo.last_seen)
-                                ? "🟢 ออนไลน์"
-                                : "⚫️ ออฟไลน์"}
-                            </div>
-                          )}
+                          {selectedRiderMapInfo.id !== "shop" &&
+                            (() => {
+                              const isOnline =
+                                selectedRiderMapInfo.last_seen &&
+                                (new Date().getTime() -
+                                  new Date(
+                                    selectedRiderMapInfo.last_seen,
+                                  ).getTime()) /
+                                  60000 <
+                                  5;
+                              return (
+                                <div className="flex flex-col items-center gap-1">
+                                  <div
+                                    className={`text-sm font-bold px-2 py-0.5 rounded-full inline-block ${
+                                      isOnline
+                                        ? "bg-green-100 text-green-700"
+                                        : "bg-slate-100 text-slate-500"
+                                    }`}
+                                  >
+                                    {isOnline ? "🟢 ออนไลน์" : "⚫️ ออฟไลน์"}
+                                  </div>
+                                  {!isOnline &&
+                                    selectedRiderMapInfo.last_seen && (
+                                      <div className="text-xs text-slate-500 font-medium mt-1">
+                                        {new Date(
+                                          selectedRiderMapInfo.last_seen,
+                                        ).toLocaleTimeString("th-TH", {
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                          hour12: false,
+                                        })}{" "}
+                                        น.
+                                      </div>
+                                    )}
+                                </div>
+                              );
+                            })()}
                         </div>
                       </InfoWindowF>
                     )}
@@ -2956,7 +3068,7 @@ showToast(
 
       {/* 🌟 Camera Modal for Attendance */}
       {showCameraModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-[160]">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-160">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col relative border border-white/20">
             <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white">
               <div className="flex items-center gap-3">
@@ -2975,7 +3087,8 @@ showToast(
             <div className="p-6 flex flex-col items-center gap-4 bg-slate-50/50">
               <div className="w-full aspect-square bg-slate-200 rounded-2xl overflow-hidden flex items-center justify-center border border-slate-300 shadow-inner">
                 {photoPreview ? (
-                  <Image src={photoPreview} alt="Selfie preview" width={500} height={500} className="object-cover w-full h-full" />
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={photoPreview} alt="Selfie preview" className="object-cover w-full h-full" />
                 ) : (
                   <div className="text-slate-400 text-center">
                     <Camera size={60} className="mb-2 mx-auto" />
@@ -2994,7 +3107,7 @@ showToast(
                   const file = e.target.files?.[0];
                   if (file) {
                     setPhotoFile(file);
-                    // setPhotoPreview(URL.createObjectURL(file)); // Removed to prevent previewing uploaded files
+                    setPhotoPreview(URL.createObjectURL(file));
                   }
                 }}
               />
