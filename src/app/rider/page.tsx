@@ -1,3 +1,4 @@
+// rider/page
 "use client";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { supabase } from "../../lib/supabase";
@@ -32,7 +33,7 @@ import {
   Loader2
 } from "lucide-react";
 import { Order } from "../../components/OrderCard";
-import { User as SupabaseUser } from "@supabase/supabase-js";
+import { User as SupabaseUser, RealtimeChannel } from "@supabase/supabase-js";
 import DashboardView from "./DashboardView";
 import Image from "next/image";
 import Link from "next/link";
@@ -67,6 +68,16 @@ interface ActiveAttendance {
 }
 
 type RiderOrder = Order & { branch_id?: string | null };
+
+interface SupabaseRealtimePayload<T> {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE' | 'TRUNCATE';
+  schema: 'public';
+  table: string;
+  commit_timestamp: string;
+  errors: unknown[]; 
+  old: T | null; 
+  new: T | null; 
+}
 
 export default function RiderPage() {
   useFCM();
@@ -190,12 +201,11 @@ export default function RiderPage() {
       .is("rider_id", null)
       .or("job_type.is.null,job_type.neq.shopee")
       .or("is_archived.is.null,is_archived.eq.false") 
-      .in("status", ["New", "กำลังทำ", "รับงาน"])
+      .in("status", ["New", "ออเดอร์ใหม่", "กำลังทำ", "รับงาน"])
       .order("created_at", { ascending: false });
 
     const jobs1 = availableJobs || [];
     const jobs2 = myJobs || [];
-
     const combined = [...jobs1, ...jobs2];
     const uniqueOrders = Array.from(new Map(combined.map((item) => [item.id, item])).values());
     const activeOrders = uniqueOrders.filter((order) => order.is_deleted !== true);
@@ -310,15 +320,111 @@ export default function RiderPage() {
     };
   }, [fetchOrdersAndBranches]);
 
+  const handleRealtimeUpdate = useCallback((payload: SupabaseRealtimePayload<RiderOrder>) => {
+    const { eventType, new: newRecord, old: oldRecord, table } = payload;
+    
+    if (table !== 'orders' || !currentUser) return;
+    
+    switch (eventType) {
+      case 'INSERT': {
+        const newOrder = newRecord as RiderOrder;
+        const isAvailableForMe = 
+          newOrder.rider_id === null &&
+          !newOrder.is_deleted &&
+          !newOrder.is_archived &&
+          ["New", "ออเดอร์ใหม่", "กำลังทำ", "รับงาน"].includes(newOrder.status) &&
+          (myBranchId === "all" || newOrder.branch_id === myBranchId);
+
+        if (isAvailableForMe) {
+          setOrders(prevOrders => {
+            if (prevOrders.some(o => o.id === newOrder.id)) return prevOrders;
+            // Keep the list sorted by creation time
+            return [...prevOrders, newOrder].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+          });
+          toast.info("มีงานใหม่เข้า! 🛵", { description: `ออเดอร์ #${newOrder.order_number}` });
+        }
+        break;
+      }
+
+      case 'UPDATE': {
+        const updatedOrder = newRecord as RiderOrder;
+
+        const isMyJob = updatedOrder.rider_id === currentUser.id && !updatedOrder.is_archived && !updatedOrder.is_deleted;
+        const isAvailableJob = 
+          updatedOrder.rider_id === null &&
+          !updatedOrder.is_deleted &&
+          !updatedOrder.is_archived &&
+          ["New", "ออเดอร์ใหม่", "กำลังทำ", "รับงาน"].includes(updatedOrder.status) &&
+          (myBranchId === "all" || updatedOrder.branch_id === myBranchId);
+        
+        const shouldBeVisible = isMyJob || isAvailableJob;
+
+        setOrders(prevOrders => {
+          const existingOrderIndex = prevOrders.findIndex(o => o.id === updatedOrder.id);
+
+          if (shouldBeVisible) {
+            if (existingOrderIndex !== -1) {
+              // Order exists, update it
+              const newOrders = [...prevOrders];
+              newOrders[existingOrderIndex] = updatedOrder;
+              return newOrders;
+            } else {
+              // Order is new to this rider (e.g., just assigned), add it
+              return [updatedOrder, ...prevOrders].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            }
+          } else {
+            // Order should no longer be visible (e.g., completed, archived, taken by another rider)
+            if (existingOrderIndex !== -1) {
+              return prevOrders.filter(o => o.id !== updatedOrder.id);
+            }
+          }
+          return prevOrders; // No change
+        });
+        break;
+      }
+
+      case 'DELETE': {
+        const deletedOrder = oldRecord as RiderOrder;
+        if(deletedOrder.id) {
+          setOrders(prevOrders => prevOrders.filter(o => o.id !== deletedOrder.id));
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }, [currentUser, myBranchId]);
+
+
   useEffect(() => {
     if (!currentUser) return;
-    const riderChannel = supabase
-      .channel("public:orders:rider_realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
-        fetchOrdersAndBranches(currentUser.id);
-      })
+    
+    const riderChannel: RealtimeChannel = supabase.channel("orders-channel");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (riderChannel as any)
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, handleRealtimeUpdate)
       .subscribe();
-    return () => { supabase.removeChannel(riderChannel); };
+      
+    return () => { 
+      supabase.removeChannel(riderChannel); 
+    };
+  }, [currentUser, handleRealtimeUpdate]);
+
+  // 🌟 Auto-sync when app comes to foreground
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && currentUser) {
+        console.log("App is visible, auto-syncing orders...");
+        fetchOrdersAndBranches(currentUser.id);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [currentUser, fetchOrdersAndBranches]);
 
   useEffect(() => {
@@ -724,7 +830,7 @@ export default function RiderPage() {
   };
 
   const availableOrders = orders.filter((o) => {
-    if (o.rider_id || !["New", "กำลังทำ", "รับงาน"].includes(o.status)) return false;
+    if (o.rider_id || !["New", "ออเดอร์ใหม่", "กำลังทำ", "รับงาน"].includes(o.status)) return false;
     if (myBranchId === "all") return true;
     return o.branch_id === myBranchId;
   });
@@ -749,7 +855,7 @@ export default function RiderPage() {
   }, [completedOrders, cutOffHour]);
 
   const getRiderStatusDisplay = (status: string) => {
-    if (status === "New") return { text: "ออเดอร์เข้าใหม่", color: "bg-blue-500/20 text-blue-300 border-blue-400/30" };
+    if (status === "New" || status === "ออเดอร์ใหม่") return { text: "ออเดอร์เข้าใหม่", color: "bg-blue-500/20 text-blue-300 border-blue-400/30" };
     if (status === "กำลังทำ") return { text: "ครัวกำลังทำอาหาร", color: "bg-amber-500/20 text-amber-300 border-amber-400/30", icon: <ChefHat size={12} className="mr-1" /> };
     if (status === "รับงาน") return { text: "ของเสร็จแล้ว! ไปรับได้เลย", color: "bg-emerald-500/20 text-emerald-300 border-emerald-400/30 shadow-sm animate-pulse", icon: <PackageCheck size={12} className="mr-1" /> };
     return { text: status, color: "bg-slate-700/50 text-slate-300 border-slate-500/50" };

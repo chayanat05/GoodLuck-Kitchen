@@ -1,4 +1,4 @@
-// trash
+// board_home
 "use client";
 import { useState, useEffect, useRef, useMemo, useCallback, use } from "react";
 import Link from "next/link";
