@@ -110,7 +110,7 @@ export default function BranchSelectorPage() {
     const { data: ordersData } = await supabase
       .from("orders")
       .select("branch_id, is_deleted")
-      .in("status", ["New", "กำลังทำ", "รับงาน"])
+      .in("status", ["ออเดอร์ใหม่", "กำลังทำ", "รับงาน"])
       .or("is_archived.is.null,is_archived.eq.false");
 
     const activeOrders = ordersData?.filter(o => o.is_deleted !== true) || [];
