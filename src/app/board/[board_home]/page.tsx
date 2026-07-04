@@ -538,63 +538,28 @@ const unlockOrder = (orderId: string) => {
     const orderChannel = supabase
       .channel(`orders-${currentBranchId}`)
       .on(
-  "postgres_changes",
-  {
-    event: "INSERT",
-    schema: "public",
-    table: "orders",
-    filter: `branch_id=eq.${currentBranchId}`,
-  },
-  (payload) => {
-    if (!payload.new.is_archived && !payload.new.is_deleted) {
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "orders",
+          filter: `branch_id=eq.${currentBranchId}`,
+        },
+        (payload) => {
+          console.log("[REALTIME] Change received!", payload);
 
-      playSound('new');
-
-      showToast(`🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`);
-
-      setOrders(prev => {
-        if (prev.some(o => o.id === payload.new.id)) return prev;
-        return [payload.new as Order, ...prev];
-      });
-
-    }
-  }
-)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
-        console.log(`[REALTIME] UPDATE event for order #${payload.new.order_number}`);
-        setOrders(prevOrders => {
-          if (payload.new.is_archived || payload.new.is_deleted) {
-            return prevOrders.filter(order => order.id !== payload.new.id);
-          }
-
-          // 🌟 ดึงข้อมูลออเดอร์เก่า "จากหน้าจอเรา" (State) แทนที่จะใช้จาก payload.old
-          const existingOrder = prevOrders.find(order => order.id === payload.new.id);
-
-          if (existingOrder) {
-            // 🌟 เช็กว่าเมนูเปลี่ยนไปไหม โดยเทียบกับของที่โชว์อยู่บนจอ
-            const hasMenuChanged = existingOrder.menu !== payload.new.menu;
-
-            if (hasMenuChanged) {
-                playSound('edit');
-                showToast(`✏️ แก้ไขเมนูออเดอร์ที่ ${payload.new.order_number} แล้ว`);
-            }
-
-            return prevOrders.map(order =>
-              order.id === payload.new.id
-                ? { ...order, ...payload.new }
-                : order
-            );
-          } 
-          else {
-            playSound('new');
+          if (payload.eventType === "INSERT") {
+            playSound("new");
             showToast(`🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`);
-            return [payload.new as Order, ...prevOrders];
+          } else if (payload.eventType === "UPDATE") {
+            // Simple notification for any update.
+            // A more complex check could be done here if needed, but requires careful state management.
+            showToast(`🔄 ออเดอร์ #${payload.new.order_number} มีการอัปเดต`);
           }
-        });
-      })
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "orders", filter: `branch_id=eq.${currentBranchId}` }, (payload) => {
-        
-          setOrders(prev => prev.filter(o => o.id !== payload.old.id));
+
+          // Refetch all orders to ensure the UI is in sync.
+          // This is simpler and more robust than manually updating the state.
+          fetchOrdersAndLocations();
         }
       )
       .subscribe();
@@ -1163,6 +1128,11 @@ const unlockOrder = (orderId: string) => {
         updateData.end_time = new Date().toISOString();
       }
 
+      // ✨ [เพิ่มโค้ดส่วนนี้] อัปเดตหน้าจอทันที (Optimistic Update)
+      setOrders(prev => prev.map(o => 
+        o.id === targetOrder.id ? { ...o, ...updateData } : o
+      ));
+
       const { error } = await supabase
         .from("orders")
         .update(updateData)
@@ -1203,6 +1173,11 @@ const unlockOrder = (orderId: string) => {
 
       const targetOrder = orders.find(o => o.id === orderId);
       if (!targetOrder) return;
+
+      // ✨ [เพิ่มโค้ดส่วนนี้] อัปเดตหน้าจอทันที
+      setOrders(prev => prev.map(o => 
+        o.id === orderId ? { ...o, status: "กำลังทำ" } : o
+      ));
 
       const { error } = await supabase
         .from("orders")
