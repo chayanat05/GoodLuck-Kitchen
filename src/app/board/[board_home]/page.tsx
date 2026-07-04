@@ -1128,9 +1128,9 @@ const unlockOrder = (orderId: string) => {
         updateData.end_time = new Date().toISOString();
       }
 
-      // ✨ [เพิ่มโค้ดส่วนนี้] อัปเดตหน้าจอทันที (Optimistic Update)
+      // 🌟 1. อัปเดตหน้าจอทันที
       setOrders(prev => prev.map(o => 
-        o.id === targetOrder.id ? { ...o, ...updateData } : o
+        o.id === targetOrder.id ? { ...o, ...updateData } as Order : o
       ));
 
       const { error } = await supabase
@@ -1138,25 +1138,29 @@ const unlockOrder = (orderId: string) => {
         .update(updateData)
         .eq("id", targetOrder.id);
 
+      // 🌟 2. แจ้งเตือนเฉพาะตอนที่ Database บันทึกสำเร็จ
       if (!error) {
         showToast(`เปลี่ยนสถานะเป็น "${newStatus}" แล้ว! 🔄`);
+        
+        await supabase.from("activity_logs").insert([{
+          branch_id: currentBranchId,
+          user_name: adminName,
+          action: "CHANGE_STATUS",
+          details: `ปรับสถานะออเดอร์ #${targetOrder.order_number} เป็น "${newStatus}"`
+        }]);
+
+        notifyRoles(
+          ['rider','admin','superadmin','kitchen'],
+          "🔄 อัปเดตสถานะออเดอร์",
+          `ออเดอร์ #${targetOrder.order_number} ถูกเปลี่ยนเป็น: ${newStatus}`,
+          `/board/${branchSlug}`
+        );
       } else {
-        fetchOrdersAndLocations();
+        console.error("Update failed:", error);
+        toast.error("❌ เปลี่ยนสถานะไม่สำเร็จ (อาจติดสิทธิ์การเข้าถึง)");
+        fetchOrdersAndLocations(); // ดึงข้อมูลเก่ากลับมาถ้า error
       }
 
-      await supabase.from("activity_logs").insert([{
-        branch_id: currentBranchId,
-        user_name: adminName,
-        action: "CHANGE_STATUS",
-        details: `ปรับสถานะออเดอร์ #${targetOrder.order_number} เป็น "${newStatus}"`
-      }]);
-
-      notifyRoles(
-        ['rider','admin','superadmin','kitchen'],
-        "🔄 อัปเดตสถานะออเดอร์",
-        `ออเดอร์ #${targetOrder.order_number} ถูกเปลี่ยนเป็น: ${newStatus}`,
-        `/board/${branchSlug}`
-      );
     } finally {
       updatingOrdersRef.current.delete(targetOrder.id);
       unlockOrder(targetOrder.id);
@@ -1174,9 +1178,9 @@ const unlockOrder = (orderId: string) => {
       const targetOrder = orders.find(o => o.id === orderId);
       if (!targetOrder) return;
 
-      // ✨ [เพิ่มโค้ดส่วนนี้] อัปเดตหน้าจอทันที
+      // 🌟 1. อัปเดตหน้าจอทันที
       setOrders(prev => prev.map(o => 
-        o.id === orderId ? { ...o, status: "กำลังทำ" } : o
+        o.id === orderId ? { ...o, status: "กำลังทำ" } as Order : o
       ));
 
       const { error } = await supabase
@@ -1186,27 +1190,29 @@ const unlockOrder = (orderId: string) => {
         })
         .eq("id", orderId);
 
+      // 🌟 2. แจ้งเตือนเฉพาะตอนที่ Database บันทึกสำเร็จ
       if (!error) {
-        
+        showToast("ครัวเริ่มทำอาหารแล้ว! 🍳");
+        const orderNum = targetOrder.order_number || "ล่าสุด";
+
+        await supabase.from("activity_logs").insert([{
+          branch_id: currentBranchId,
+          user_name: adminName,
+          action: "CHANGE_STATUS",
+          details: `เริ่มทำอาหารออเดอร์ #${orderNum} (สถานะ: กำลังทำ)`
+        }]);
+
+        await notifyRoles(
+          ['rider', 'admin', 'superadmin'],
+          "🍳 ครัวกำลังทำอาหาร",
+          `ออเดอร์ #${orderNum} เริ่มปรุงแล้ว`,
+          `/board/${branchSlug}`
+        );
       } else {
-        fetchOrdersAndLocations();
+        console.error("Update failed:", error);
+        toast.error("❌ เปลี่ยนสถานะไม่สำเร็จ (อาจติดสิทธิ์การเข้าถึง)");
+        fetchOrdersAndLocations(); // ดึงข้อมูลเก่ากลับมาถ้า error
       }
-      showToast("ครัวเริ่มทำอาหารแล้ว! 🍳");
-      const orderNum = targetOrder.order_number || "ล่าสุด";
-
-      await supabase.from("activity_logs").insert([{
-        branch_id: currentBranchId,
-        user_name: adminName,
-        action: "CHANGE_STATUS",
-        details: `เริ่มทำอาหารออเดอร์ #${orderNum} (สถานะ: กำลังทำ)`
-      }]);
-
-      await notifyRoles(
-        ['rider', 'admin', 'superadmin'],
-        "🍳 ครัวกำลังทำอาหาร",
-        `ออเดอร์ #${orderNum} เริ่มปรุงแล้ว`,
-        `/board/${branchSlug}`
-      );
     } finally {
       updatingOrdersRef.current.delete(orderId);
       unlockOrder(orderId);
@@ -1235,36 +1241,43 @@ const unlockOrder = (orderId: string) => {
         updateData.end_time = new Date().toISOString();
       }
 
+      // 🌟 1. อัปเดตหน้าจอทันที
+      setOrders(prev => prev.map(o => 
+        o.id === orderId ? { ...o, ...updateData } as Order : o
+      ));
+
       const { error } = await supabase
         .from("orders")
         .update(updateData)
         .eq("id", orderId);
 
+      // 🌟 2. แจ้งเตือนเฉพาะตอนที่ Database บันทึกสำเร็จ
       if (!error) {
-        
+        showToast(
+          isShopee
+            ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦"
+            : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵"
+        );
+        const orderNum = targetOrder.order_number || "ล่าสุด";
+
+        await supabase.from("activity_logs").insert([{
+          branch_id: currentBranchId,
+          user_name: adminName,
+          action: "CHANGE_STATUS",
+          details: `ทำอาหารออเดอร์ #${orderNum} เสร็จแล้ว (สถานะ: ${nextStatus})`
+        }]);
+
+        await notifyRoles(
+          ['rider', 'admin', 'superadmin'],
+          "📦 อาหารพร้อมส่ง!",
+          `ออเดอร์ #${orderNum} เสร็จแล้ว ไรเดอร์มารับได้เลย`,
+          `/board/${branchSlug}`
+        );
       } else {
-        fetchOrdersAndLocations();
+        console.error("Update failed:", error);
+        toast.error("❌ เปลี่ยนสถานะไม่สำเร็จ (อาจติดสิทธิ์การเข้าถึง)");
+        fetchOrdersAndLocations(); // ดึงข้อมูลเก่ากลับมาถ้า error
       }
-      showToast(
-        isShopee
-          ? "ส่งมอบให้ขนส่ง Shopee สำเร็จ! 📦"
-          : "อาหารเสร็จแล้ว รอไรเดอร์มารับ! 🛵"
-      );
-      const orderNum = targetOrder.order_number || "ล่าสุด";
-
-      await supabase.from("activity_logs").insert([{
-        branch_id: currentBranchId,
-        user_name: adminName,
-        action: "CHANGE_STATUS",
-        details: `ทำอาหารออเดอร์ #${orderNum} เสร็จแล้ว (สถานะ: ${nextStatus})`
-      }]);
-
-      await notifyRoles(
-        ['rider', 'admin', 'superadmin'],
-        "📦 อาหารพร้อมส่ง!",
-        `ออเดอร์ #${orderNum} เสร็จแล้ว ไรเดอร์มารับได้เลย`,
-        `/board/${branchSlug}`
-      );
     } finally {
       updatingOrdersRef.current.delete(orderId);
       unlockOrder(orderId);

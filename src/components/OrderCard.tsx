@@ -286,7 +286,9 @@ function OrderCard({
         {order.status === "ออเดอร์ใหม่" && onStart && (
   <button
     disabled={isUpdating}
-    onClick={() => {
+    onPointerDown={(e) => e.stopPropagation()}
+    onClick={(e) => {
+      e.stopPropagation();
       if (isUpdating) return;
       onStart(order.id);
     }}
@@ -314,7 +316,9 @@ function OrderCard({
         {order.status === "กำลังทำ" && onFinish && (
   <button
     disabled={isUpdating}
-    onClick={() => {
+    onPointerDown={(e) => e.stopPropagation()}
+    onClick={(e) => {
+      e.stopPropagation();
       if (isUpdating) return;
       onFinish(order.id);
     }}
