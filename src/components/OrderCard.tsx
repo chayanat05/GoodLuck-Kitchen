@@ -155,14 +155,63 @@ function OrderCard({
     >
       
       {/* 📍 ส่วนที่ 1: หัวการ์ด (Fixed) */}
-      <div {...dragHandleProps} className={`shrink-0 flex justify-between items-start ${isCompact ? 'mb-2' : 'mb-3'} gap-2 border-b border-white/10 pb-2 ${dragHandleProps ? 'cursor-grab active:cursor-grabbing' : ''}`}>
-        <div className="flex flex-wrap gap-2 items-center pointer-events-none">
-          <span className={`${isCompact ? 'text-base px-2 py-1' : 'text-lg px-2.5 py-1'} font-black rounded-lg bg-white/90 text-slate-800 tracking-wider shadow-sm`}>
-            {isShopee ? (String(order.order_number).startsWith('#') ? order.order_number : `#${order.order_number}`) : order.order_number}
-          </span>
+      <div {...dragHandleProps} className={`shrink-0 flex flex-col gap-2 ${isCompact ? 'mb-2' : 'mb-3'} border-b border-white/10 pb-2 ${dragHandleProps ? 'cursor-grab active:cursor-grabbing' : ''}`}>
+        
+        {/* แถวบน: ฝั่งซ้าย (เลขออเดอร์ + ประเภทร้าน) | ฝั่งขวา (ปุ่มแอคชั่น) */}
+        <div className="flex justify-between items-center w-full">
           
+          <div className="flex items-center gap-2">
+            <span className={`${isCompact ? 'text-base px-2 py-1' : 'text-lg px-2.5 py-1'} font-black rounded-lg bg-white/90 text-slate-800 tracking-wider shadow-sm pointer-events-none shrink-0`}>
+              {isShopee ? (String(order.order_number).startsWith('#') ? order.order_number : `#${order.order_number}`) : order.order_number}
+            </span>
+            {/* 🌟 ย้ายป้ายประเภทร้านมาอยู่ข้างเลขออเดอร์ตรงนี้ */}
+            <span className={`text-[10px] md:text-xs font-black px-1.5 py-0.5 rounded-md uppercase tracking-wider border ${theme.badgeBg}`}>
+              {order.job_type}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0 relative" ref={menuRef}>
+            {onViewDetails && !isCompact && (
+              <button onClick={(e) => { e.stopPropagation(); onViewDetails(); }} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/20 ${theme.text}`} title="ดูเพิ่มเติม">
+                <Eye size={16} strokeWidth={2.5}/>
+                <span className="text-xs md:text-sm font-bold">ดูเพิ่มเติม</span>
+              </button>
+            )}
+            
+            {(userRole === 'admin' || userRole === 'superadmin') && (
+              <>
+                <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(!isMenuOpen); }} className={`p-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/20 ${theme.text} ${isMenuOpen ? 'bg-white/20' : ''}`} title="เมนูเพิ่มเติม">
+                  <MoreVertical size={16} strokeWidth={2.5} />
+                </button>
+
+                {isMenuOpen && (
+                  <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200 origin-top-right flex flex-col">
+                    {onChangeStatusRequest && (
+                      <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onChangeStatusRequest(order); }} className="w-full text-left px-4 py-3 text-base font-bold text-blue-600 hover:bg-blue-50 flex items-center gap-2 transition-colors border-b border-slate-50">
+                        <ArrowRightLeft size={16} /> เปลี่ยนสถานะออเดอร์
+                      </button>
+                    )}
+                    {onEdit && (
+                      <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onEdit(order); }} className="w-full text-left px-4 py-3 text-base font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors border-b border-slate-50">
+                        <Edit2 size={16} /> แก้ไขข้อมูลออเดอร์
+                      </button>
+                    )}
+                    {onDelete && (
+                      <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onDelete(order.id); }} className="w-full text-left px-4 py-3 text-base font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-2 transition-colors">
+                        <Trash2 size={16} /> ลบออเดอร์นี้
+                      </button>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* แถวล่าง: เหลือแค่เวลาจับเวลา กับ สถานะ */}
+        <div className="flex flex-row flex-wrap gap-1.5 items-center pointer-events-none">
           {order.status !== 'ส่งแล้ว/เสร็จ' && (
-            <div className={`flex items-center gap-1 px-2 py-0.5 rounded-lg font-black text-[10px] shadow-sm animate-in fade-in ${
+            <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md font-black text-[10px] md:text-xs shadow-sm animate-in fade-in ${
               isKitchenLate || isRiderLate 
               ? "bg-rose-500 text-white animate-pulse" 
               : elapsedMinutes >= (order.status === "รับงาน" ? 30 : 4)
@@ -175,49 +224,9 @@ function OrderCard({
             </div>
           )}
 
-          <span className={`text-sm font-black ${isCompact ? 'px-1.5 py-0.5' : 'px-2.5 py-1'} rounded-md uppercase tracking-wider border ${theme.badgeBg}`}>
-            {order.job_type}
-          </span>
-          <span className={`text-sm font-black ${isCompact ? 'px-1.5 py-0.5' : 'px-2.5 py-1'} rounded-md uppercase tracking-wider border ${theme.badgeBg}`}>
+          <span className={`text-[10px] md:text-xs font-black px-1.5 py-0.5 rounded-md uppercase tracking-wider border ${theme.badgeBg}`}>
             {order.status === 'รับงาน' ? 'ทำอาหารเสร็จแล้ว' : order.status}
           </span>
-        </div>
-
-        <div className="flex items-center gap-1 shrink-0 relative" ref={menuRef}>
-          {onViewDetails && !isCompact && (
-            <button onClick={(e) => { e.stopPropagation(); onViewDetails(); }} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/20 ${theme.text}`} title="ดูรายละเอียดเพิ่มเติม">
-              <Eye size={16} strokeWidth={2.5}/>
-              <span className="text-sm font-bold">ดูรายละเอียดเพิ่มเติม</span>
-            </button>
-          )}
-          
-          {(userRole === 'admin' || userRole === 'superadmin') && (
-            <>
-              <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(!isMenuOpen); }} className={`p-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/20 ${theme.text} ${isMenuOpen ? 'bg-white/20' : ''}`} title="เมนูเพิ่มเติม">
-                <MoreVertical size={16} strokeWidth={2.5} />
-              </button>
-
-              {isMenuOpen && (
-                <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200 origin-top-right flex flex-col">
-                  {onChangeStatusRequest && (
-                    <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onChangeStatusRequest(order); }} className="w-full text-left px-4 py-3 text-base font-bold text-blue-600 hover:bg-blue-50 flex items-center gap-2 transition-colors border-b border-slate-50">
-                      <ArrowRightLeft size={16} /> เปลี่ยนสถานะออเดอร์
-                    </button>
-                  )}
-                  {onEdit && (
-                    <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onEdit(order); }} className="w-full text-left px-4 py-3 text-base font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors border-b border-slate-50">
-                      <Edit2 size={16} /> แก้ไขข้อมูลออเดอร์
-                    </button>
-                  )}
-                  {onDelete && (
-                    <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onDelete(order.id); }} className="w-full text-left px-4 py-3 text-base font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-2 transition-colors">
-                      <Trash2 size={16} /> ลบออเดอร์นี้
-                    </button>
-                  )}
-                </div>
-              )}
-            </>
-          )}
         </div>
       </div>
 
