@@ -192,8 +192,7 @@ export default function RiderPage() {
       .from("orders")
       .select("*")
       .eq("rider_id", userId)
-      .or("is_archived.is.null,is_archived.eq.false") 
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: true });
 
     const { data: availableJobs } = await supabase
       .from("orders")
@@ -201,8 +200,7 @@ export default function RiderPage() {
       .is("rider_id", null)
       .or("job_type.is.null,job_type.neq.shopee")
       .or("is_archived.is.null,is_archived.eq.false") 
-      .in("status", ["New", "ออเดอร์ใหม่", "กำลังทำ", "รับงาน"])
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: true });
 
     const jobs1 = availableJobs || [];
     const jobs2 = myJobs || [];
@@ -339,7 +337,7 @@ export default function RiderPage() {
           setOrders(prevOrders => {
             if (prevOrders.some(o => o.id === newOrder.id)) return prevOrders;
             // Keep the list sorted by creation time
-            return [...prevOrders, newOrder].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            return [...prevOrders, newOrder].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
           });
           toast.info("มีงานใหม่เข้า! 🛵", { description: `ออเดอร์ #${newOrder.order_number}` });
         }
@@ -370,7 +368,7 @@ export default function RiderPage() {
               return newOrders;
             } else {
               // Order is new to this rider (e.g., just assigned), add it
-              return [updatedOrder, ...prevOrders].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+              return [updatedOrder, ...prevOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
             }
           } else {
             // Order should no longer be visible (e.g., completed, archived, taken by another rider)
