@@ -998,34 +998,29 @@ const unlockOrder = (orderId: string) => {
     const isEdit = !!editingId;
 
     if (isEdit) {
-      // 🌟 1. ดึงออเดอร์เก่ามาเทียบก่อนว่า "เมนูโดนแก้ไหม?"
+      // Logic for editing an existing order
       const oldOrder = orders.find(o => o.id === editingId);
       const isMenuChanged = oldOrder && oldOrder.menu !== orderData.menu;
-      // 🌟 Optimistic UI for edit
       setOrders(prev => prev.map((o) => (o.id === editingId ? { ...o, ...orderData } as Order : o)));
       
       const { error } = await supabase.from("orders").update(orderData).eq("id", editingId);
       if (error) {
         console.warn("Error updating order, might be false positive:", error);
       } else {
-        // 🌟 2. ให้แจ้งเตือนหน้าจอของ "คนแก้" (เครื่องแอดมิน) เฉพาะตอนแก้เมนูเท่านั้น
         if (isMenuChanged) {
             playSound('edit');
             showToast(`✏️ แก้ไขเมนูออเดอร์ #${finalOrderNumber} แล้ว 📝`);
         }
-
         const { error: logError } = await supabase.from("activity_logs").insert([{
           branch_id: currentBranchId,
           user_name: adminName,
           action: "EDIT_ORDER",
           details: `แก้ไขข้อมูลออเดอร์ #${finalOrderNumber}`
         }]);
-        if (logError) {
-          console.error("Failed to log order edit:", logError);
-        }
+        if (logError) console.error("Failed to log order edit:", logError);
       }
-    } else if (filesToUpload.length > 0) {
     } else {
+      // Logic for creating a new order
       let finalNumToUse = orderData.order_number;
       let isDuplicate = true;
       let attempts = 0;
@@ -1057,7 +1052,13 @@ const unlockOrder = (orderId: string) => {
       orderData.order_number = finalOrderNumber;
 
       const { data, error } = await supabase.from("orders").insert([{ ...orderData, branch_id: currentBranchId, status: "ออเดอร์ใหม่" }]).select();
-      if (error) console.error("Error inserting order:", error);
+      
+      if (error) {
+        console.error("Error inserting order:", error);
+        showAlert("เกิดข้อผิดพลาด", "ไม่สามารถสร้างออเดอร์ได้", "error");
+        setIsUploading(false);
+        return;
+      }
       
       if (data && data.length > 0) {
         targetId = data[0].id;
@@ -1070,9 +1071,7 @@ const unlockOrder = (orderId: string) => {
           action: "CREATE_ORDER",
           details: `สร้างออเดอร์ใหม่ #${finalOrderNumber}`
         }]);
-        if (logError) {
-          console.error("Failed to log order creation:", logError);
-        }
+        if (logError) console.error("Failed to log order creation:", logError);
 
         notifyRoles(
           ['kitchen', 'rider', 'admin', 'superadmin'], 
@@ -1083,12 +1082,7 @@ const unlockOrder = (orderId: string) => {
       }
     }
 
-    setIsUploading(false);
-    setIsModalOpen(false);
-    setImageFiles([]);
-    setImagePreviews([]);
-    setExistingImages([]);
-
+    // This part now runs for both new and edited orders if there are images.
     if (filesToUpload.length > 0 && targetId) {
       const uploadedUrls: string[] = [];
       for (const file of filesToUpload) {
@@ -1099,9 +1093,22 @@ const unlockOrder = (orderId: string) => {
         const finalUrls = [...currentExisting, ...uploadedUrls].join(",");
         await supabase.from("orders").update({ image_url: finalUrls }).eq("id", targetId);
         showToast("อัปโหลดรูปภาพทั้งหมดเสร็จสิ้น! 📸");
-        fetchOrdersAndLocations();
+        // We only fetch all orders again if it's a new order with images,
+        // edits are handled optimistically.
+        if (!isEdit) {
+          fetchOrdersAndLocations();
+        } else {
+          // Optimistically update the single edited order's image_url
+          setOrders(prev => prev.map(o => o.id === targetId ? { ...o, image_url: finalUrls } as Order : o));
+        }
       }
     }
+    
+    setIsUploading(false);
+    setIsModalOpen(false);
+    setImageFiles([]);
+    setImagePreviews([]);
+    setExistingImages([]);
   };
 
   // 🌟 1. เปลี่ยนสถานะผ่าน Modal
