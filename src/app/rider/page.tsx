@@ -697,6 +697,8 @@ export default function RiderPage() {
       .select();
       
     if (data && data.length > 0) {
+      setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...data[0] } : o));
+
       showAlert("จองงานสำเร็จ!", "งานอยู่ในความดูแลของคุณแล้วครับ 🎉", "success");
       fetchOrdersAndBranches(currentUser.id);
 
@@ -724,7 +726,9 @@ export default function RiderPage() {
       "ยืนยันการดำเนินการ", confirmMsg,
       async () => {
         // ✨ 1. อัปเดตหน้าจอทันที (Optimistic UI) ให้การ์ดเด้งไปประวัติเลย ลื่นไหลสุดๆ
-        setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: nextStatus } : o));
+        setOrders(prev => prev.map(o => 
+          o.id === order.id ? { ...o, status: nextStatus, end_time: updateData.end_time || o.end_time } : o
+        ));
 
         const updateData: { status: string; end_time?: string } = { status: nextStatus };
         if (nextStatus === "ส่งแล้ว/เสร็จ") updateData.end_time = new Date().toISOString();
@@ -779,9 +783,9 @@ export default function RiderPage() {
     if (
       order.address && 
       (order.address.startsWith("http") || 
-       order.address.includes("maps.") || 
-       order.address.includes("goo.gl") || 
-       order.address.includes("share.google"))
+      order.address.includes("maps.") || 
+      order.address.includes("goo.gl") || 
+      order.address.includes("share.google"))
     ) {
       // ถ้าลูกค้าลืมใส่ https:// ให้เติมให้เพื่อไม่ให้เบราว์เซอร์เอ๋อ
       const finalUrl = order.address.startsWith("http") ? order.address : `https://${order.address}`;
