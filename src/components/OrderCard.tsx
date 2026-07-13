@@ -4,7 +4,6 @@ import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, Mor
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { motion } from "framer-motion";
 import Image from 'next/image';
-import { DraggableProvidedDragHandleProps } from "@hello-pangea/dnd"; 
 
 export interface Order {
   slip_image?: string | null;
@@ -38,7 +37,6 @@ interface OrderProps {
   isCompact?: boolean;
   isUpdating?: boolean;
   userRole?: string; 
-  dragHandleProps?: DraggableProvidedDragHandleProps | null;
   onEdit?: (order: Order) => void; 
   onStart?: (id: string) => void;  
   onFinish?: (id: string) => void; 
@@ -64,7 +62,6 @@ function OrderCard({
     isCompact,
     isUpdating,
     userRole,
-    dragHandleProps,
     onEdit,
     onStart,
     onFinish,
@@ -167,7 +164,7 @@ function OrderCard({
     >
       
       {/* 📍 ส่วนที่ 1: หัวการ์ด (Fixed) */}
-      <div {...dragHandleProps} className={`shrink-0 flex flex-col gap-2 ${isCompact ? 'mb-2' : 'mb-3'} border-b border-white/10 pb-2 ${dragHandleProps ? 'cursor-grab active:cursor-grabbing' : ''}`}>
+      <div className={`shrink-0 flex flex-col gap-2 ${isCompact ? 'mb-2' : 'mb-3'} border-b border-white/10 pb-2`}>
         
         {/* แถวบน: ฝั่งซ้าย (เลขออเดอร์ + ประเภทร้าน) | ฝั่งขวา (ปุ่มแอคชั่น) */}
         <div className="flex justify-between items-center w-full">

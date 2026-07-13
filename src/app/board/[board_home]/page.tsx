@@ -4,12 +4,6 @@ import { useState, useEffect, useRef, useMemo, useCallback, use } from "react";
 import Link from "next/link";
 import OrderCard, { Order } from "@/components/OrderCard";
 import SharedGallery from "@/components/SharedGallery";
-import {
-  DragDropContext,
-  Droppable,
-  Draggable,
-  DropResult,
-} from "@hello-pangea/dnd";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import {
@@ -1347,32 +1341,6 @@ const unlockOrder = (orderId: string) => {
     });
   };
 
- const onDragEnd = (result: DropResult) => {
-    if (!result.destination) return;
-
-    // 🌟 1. ดักจับบั๊ก: ป้องกันการลากจัดเรียงในขณะที่กำลังพิมพ์ค้นหา
-    if (searchQuery.trim() !== "") {
-      showToast("⚠️ ไม่สามารถจัดเรียงออเดอร์ได้ในขณะที่ใช้งานช่องค้นหา");
-      return;
-    }
-
-    setOrders(prev => {
-      const items = Array.from(prev);
-      const [reorderedItem] = items.splice(result.source.index, 1);
-      items.splice(result.destination!.index, 0, reorderedItem);
-      
-      const changedItems = items.filter((item, index) => item.sort_index !== index);
-      changedItems.forEach((item) => {
-        const newIndex = items.findIndex(i => i.id === item.id);
-        supabase.from("orders").update({ sort_index: newIndex }).eq("id", item.id).then(({ error }) => {
-            if (error) console.warn("Error updating sort index:", error);
-        });
-      });
-      
-      return items.map((item, index) => ({...item, sort_index: index}));
-    });
-  };
-
   const pendingOrders = useMemo(() => orders.filter((o) => ["ออเดอร์ใหม่", "กำลังทำ", "รับงาน"].includes(o.status)), [orders]);
 
   const filteredOrders = useMemo(() => {
@@ -1909,21 +1877,14 @@ const unlockOrder = (orderId: string) => {
             )}
           </div>
         ) : (
-          <DragDropContext onDragEnd={onDragEnd}>
-            <Droppable droppableId="all-orders" direction="horizontal">
-              {(provided) => (
-                <div
-                  ref={(el) => {
-                    provided.innerRef(el);
-                    scrollContainerRef.current = el;
-                  }}
-                  {...provided.droppableProps}
+                    <div
+                  ref={scrollContainerRef}
                   className={`flex-1 overflow-x-auto overflow-y-auto thin-scrollbar pb-6 pt-2 px-2 flex items-start gap-4 md:gap-5 ${isDraggingBoard ? "cursor-grabbing select-none" : "cursor-grab"}`}
                   onMouseDown={(e) => {
   const target = e.target as HTMLElement;
   
   // ป้องกันการลากกระดาน ถ้าผู้ใช้ตั้งใจจะคลิกปุ่ม พิมพ์ข้อความ ดูรูปภาพ หรือจับหัวการ์ดเพื่อสลับตำแหน่ง
-  if (target.closest('button, a, input, textarea, select, img, [data-rbd-drag-handle-context-id]')) {
+  if (target.closest('button, a, input, textarea, select, img')) {
     return;
   }
 
@@ -1942,19 +1903,10 @@ const unlockOrder = (orderId: string) => {
                   }}
                 >
                   {filteredOrders.map((order, index) => (
-                    <Draggable
-                      key={order.id}
-                      draggableId={order.id}
-                      index={index}
-                      // 🌟 ล็อกไม่ให้ลากตอนค้นหา
-                      isDragDisabled={currentUserRole === "kitchen" || searchQuery.trim() !== ""}
-                    >
-                      {(provided, snapshot) => (
                         <div
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
+                          key={order.id}
                           // 🌟 ใช้ currentTime แทน new Date().getTime()
-                            className={`shrink-0 flex flex-col transition-all duration-300 ${isCompact ? "w-48 md:w-56" : "w-72 md:w-80"} ${snapshot.isDragging ? "scale-[1.02] rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl" : ""} ${                            ((order.status === "ออเดอร์ใหม่" || order.status === "กำลังทำ") && Math.floor((currentTime - new Date(order.created_at || 0).getTime()) / 60000) >= 5) ||
+                            className={`shrink-0 flex flex-col transition-all duration-300 ${isCompact ? "w-48 md:w-56" : "w-72 md:w-80"} ${                            ((order.status === "ออเดอร์ใหม่" || order.status === "กำลังทำ") && Math.floor((currentTime - new Date(order.created_at || 0).getTime()) / 60000) >= 5) ||
                             (currentUserRole !== "kitchen" && order.status === "รับงาน" && Math.floor((currentTime - new Date(order.created_at || 0).getTime()) / 60000) >= 35)  ? "rounded-3xl animate-border-blink" 
                             : ""
                           }`}
@@ -1964,7 +1916,6 @@ const unlockOrder = (orderId: string) => {
                             isCompact={isCompact}
                             isUpdating={updatingOrders.has(order.id)}
                             userRole={currentUserRole}
-                            dragHandleProps={provided.dragHandleProps}
                             onEdit={openEditModal}
                             onStart={handleStartOrder}
                             onFinish={handleFinishOrder}
@@ -2017,14 +1968,8 @@ const unlockOrder = (orderId: string) => {
                             }}
                           />
                         </div>
-                      )}
-                    </Draggable>
                   ))}
-                  {provided.placeholder}
                 </div>
-              )}
-            </Droppable>
-          </DragDropContext>
         )}
       </div>
 
