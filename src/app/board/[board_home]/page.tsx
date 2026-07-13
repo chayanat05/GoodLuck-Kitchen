@@ -1976,6 +1976,11 @@ const unlockOrder = (orderId: string) => {
 
                             // 🌟 NEW: ฟังก์ชันรับไฟล์สลิปที่โดนลากมาหยอดใส่การ์ด
                             onSlipDrop={async (orderId, file) => {
+                              const targetOrder = orders.find(o => o.id === orderId);
+                              if (targetOrder?.payment_method !== 'โอน') {
+                                toast.error("อัปโหลดสลิปได้เฉพาะการชำระเงินแบบ 'โอน' เท่านั้น");
+                                return;
+                              }
                               const loadingToast = toast.loading("กำลังอัปโหลดสลิป...");
                               const fileExt = file.name.split(".").pop();
                               const fileName = `slip-quick-${Date.now()}.${fileExt}`;
@@ -1992,7 +1997,6 @@ const unlockOrder = (orderId: string) => {
                               const { data } = supabase.storage.from("order-images").getPublicUrl(filePath);
                               const newSlipUrl = data.publicUrl;
 
-                              const targetOrder = orders.find(o => o.id === orderId);
                               const updatedSlips = targetOrder?.slip_image ? `${targetOrder.slip_image},${newSlipUrl}` : newSlipUrl;
 
                               // อัปเดตหน้าจอทันที

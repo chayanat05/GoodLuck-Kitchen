@@ -127,6 +127,16 @@ function OrderCard({
     }
   };
 
+  const handlePaste = (e: React.ClipboardEvent) => {
+    if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+      const file = e.clipboardData.files[0];
+      if (file.type.startsWith('image/') && onSlipDrop) {
+        e.preventDefault();
+        onSlipDrop(order.id, file);
+      }
+    }
+  };
+
   useEffect(() => {
     const calculateTime = () => {
       const startTime = new Date(order.created_at).getTime();
@@ -150,6 +160,8 @@ function OrderCard({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      onPaste={handlePaste}
+      tabIndex={0}
       // 🌟 ใช้ max-h-full เพื่อให้การ์ดยืดได้สุดความสูงของบอร์ด และมีปุ่มค้างด้านล่างเสมอ
       className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-3xl shadow-xl border-b-8 relative transition-all duration-300 flex flex-col w-full min-h-56 ${theme.bg} ${isDragOver ? 'ring-4 ring-white scale-[1.01]' : '' }`}
     >
@@ -396,6 +408,18 @@ function OrderCard({
       ))}
     </div>
   </div>
+)}
+
+{/* 🌟 NEW: แจ้งเตือนว่ายังไม่ได้อัพสลิป */}
+{(userRole === 'admin' || userRole === 'superadmin') &&
+  order.payment_method === 'โอน' &&
+  !order.slip_image && (
+    <div className="mt-2 text-center py-2 px-3 bg-rose-100 text-rose-600 rounded-xl border border-rose-200 shadow-inner">
+      <span className="text-sm font-bold flex items-center justify-center gap-1.5">
+        <AlertCircle size={14} />
+        ยังไม่อัพสลิป
+      </span>
+    </div>
 )}
 
         {isShopee && order.status === 'รับงาน' && (
