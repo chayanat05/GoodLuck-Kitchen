@@ -163,7 +163,7 @@ function OrderCard({
       onPaste={handlePaste}
       tabIndex={0}
       // 🌟 ใช้ max-h-full เพื่อให้การ์ดยืดได้สุดความสูงของบอร์ด และมีปุ่มค้างด้านล่างเสมอ
-      className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-3xl shadow-xl border-b-8 relative transition-all duration-300 flex flex-col w-full min-h-56 ${theme.bg} ${isDragOver ? 'ring-4 ring-white scale-[1.01]' : '' }`}
+      className={`select-none ${isCompact ? 'p-1.5' : 'p-2'} rounded-3xl shadow-xl border-b-8 relative transition-all duration-300 flex flex-col w-full min-h-56 ${theme.bg} ${isDragOver ? 'ring-4 ring-white scale-[1.01]' : '' }`}
     >
       
       {/* 📍 ส่วนที่ 1: หัวการ์ด (Fixed) */}

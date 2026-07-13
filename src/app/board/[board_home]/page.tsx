@@ -554,7 +554,7 @@ const unlockOrder = (orderId: string) => {
           } else if (payload.eventType === "UPDATE") {
             // Simple notification for any update.
             // A more complex check could be done here if needed, but requires careful state management.
-            showToast(`🔄 ออเดอร์ #${payload.new.order_number} มีการอัปเดต`);
+            // showToast(`🔄 ออเดอร์ #${payload.new.order_number} มีการอัปเดต`);
           }
 
           // Refetch all orders to ensure the UI is in sync.
@@ -1920,11 +1920,17 @@ const unlockOrder = (orderId: string) => {
                   {...provided.droppableProps}
                   className={`flex-1 overflow-x-auto overflow-y-auto thin-scrollbar pb-6 pt-2 px-2 flex items-start gap-4 md:gap-5 ${isDraggingBoard ? "cursor-grabbing select-none" : "cursor-grab"}`}
                   onMouseDown={(e) => {
-                    if (e.target !== scrollContainerRef.current) return;
-                    setIsDraggingBoard(true);
-                    setStartDragX(e.pageX - (scrollContainerRef.current?.offsetLeft || 0));
-                    setScrollDragLeft(scrollContainerRef.current?.scrollLeft || 0);
-                  }}
+  const target = e.target as HTMLElement;
+  
+  // ป้องกันการลากกระดาน ถ้าผู้ใช้ตั้งใจจะคลิกปุ่ม พิมพ์ข้อความ ดูรูปภาพ หรือจับหัวการ์ดเพื่อสลับตำแหน่ง
+  if (target.closest('button, a, input, textarea, select, img, [data-rbd-drag-handle-context-id]')) {
+    return;
+  }
+
+  setIsDraggingBoard(true);
+  setStartDragX(e.pageX - (scrollContainerRef.current?.offsetLeft || 0));
+  setScrollDragLeft(scrollContainerRef.current?.scrollLeft || 0);
+}}
                   onMouseLeave={() => setIsDraggingBoard(false)}
                   onMouseUp={() => setIsDraggingBoard(false)}
                   onMouseMove={(e) => {
