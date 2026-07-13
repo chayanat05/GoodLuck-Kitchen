@@ -151,7 +151,7 @@ function OrderCard({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       // 🌟 ใช้ max-h-full เพื่อให้การ์ดยืดได้สุดความสูงของบอร์ด และมีปุ่มค้างด้านล่างเสมอ
-      className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-3xl shadow-xl border-b-8 relative transition-all duration-300 flex flex-col w-full max-h-full min-h-56 ${theme.bg} ${isDragOver ? 'ring-4 ring-white scale-[1.01]' : '' }`}
+      className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-3xl shadow-xl border-b-8 relative transition-all duration-300 flex flex-col w-full min-h-56 ${theme.bg} ${isDragOver ? 'ring-4 ring-white scale-[1.01]' : '' }`}
     >
       
       {/* 📍 ส่วนที่ 1: หัวการ์ด (Fixed) */}
@@ -231,7 +231,7 @@ function OrderCard({
       </div>
 
       {/* 📍 ส่วนที่ 2: เนื้อหาตรงกลาง (Scroll ได้! เมนูยาว/สลิปยาวจะไม่ดันปุ่มให้ตกขอบ) */}
-      <div className="flex-1 overflow-y-auto thin-scrollbar flex flex-col pr-1 gap-2 pb-2">
+      <div className="flex-1 flex flex-col pr-1 gap-2 pb-2">
         {order.menu && (
           <div className={`${isCompact ? 'text-base' : 'text-lg md:text-xl'} font-black whitespace-pre-line leading-relaxed shrink-0 ${theme.text}`}>
             {order.menu}
@@ -362,8 +362,8 @@ function OrderCard({
         )}
 
         {/* สลิป */}
-{order.slip_image && (
-  <div className="max-h-80 overflow-y-auto mt-2 pt-2 border-t border-white/10">
+{(userRole === 'admin' || userRole === 'superadmin') && order.slip_image && (
+  <div className="mt-2 pt-2 border-t border-white/10">
     <div className="text-sm font-black uppercase text-white/90 mb-3 flex items-center gap-1.5">
       <ImageIcon size={16} />
       หลักฐานการโอน (สลิป)

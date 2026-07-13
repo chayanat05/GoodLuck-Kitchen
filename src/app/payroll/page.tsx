@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { 
   ArrowLeft, Banknote, Calendar, Loader2, CheckCircle2, AlertTriangle, 
   Search, Edit3, X, Save, Clock, Package, DollarSign, Fuel, Trophy, User, ImagePlus, Check,
-  Trash2, Image as ImageIcon, PiggyBank, Plus, Minus, Camera
+  Trash2, Image as ImageIcon, PiggyBank, Plus, Minus, Camera, Download
 } from "lucide-react";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import Image from "next/image";
@@ -377,6 +377,202 @@ export default function PayrollPage() {
     return records.filter(r => r.profiles?.username?.toLowerCase().includes(query));
   }, [records, searchQuery]);
 
+  const handleExportMonthly = async (riderId: string, username: string) => {
+    showToast("กำลังเตรียมข้อมูล Export...", "success");
+
+    // 1. Determine the month from selectedDate
+    const year = new Date(selectedDate).getFullYear();
+    const month = new Date(selectedDate).getMonth();
+
+    // 2. Get business day start time
+    const { data: settings } = await supabase.from('store_settings').select('business_day_start').eq('id', 1).single();
+    const bizTime = settings?.business_day_start || '07:00';
+    const [bizHour, bizMin] = bizTime.split(':').map(Number);
+    const thailandOffset = 7 * 60 * 60 * 1000;
+
+    // 3. Calculate date range for the entire month
+    const startOfMonthUTC = new Date(Date.UTC(year, month, 1, bizHour, bizMin, 0, 0));
+    const endOfMonthUTC = new Date(Date.UTC(year, month + 1, 1, bizHour, bizMin, 0, 0));
+    
+    const startOfMonth = new Date(startOfMonthUTC.getTime() - thailandOffset);
+    const endOfMonth = new Date(endOfMonthUTC.getTime() - thailandOffset);
+
+    // 4. Fetch all attendance records for the month for this rider
+    const { data: monthlyRecords, error } = await supabase
+        .from('rider_attendance')
+        .select('*')
+        .eq('rider_id', riderId)
+        .gte('check_in', startOfMonth.toISOString())
+        .lt('check_in', endOfMonth.toISOString())
+        .order('check_in', { ascending: true });
+
+    if (error || !monthlyRecords || monthlyRecords.length === 0) {
+        console.error(error);
+        showToast("ไม่พบข้อมูลสำหรับ Export ในเดือนที่เลือก", "error");
+        return;
+    }
+
+    // 5. Process data and create CSV
+    // Summary calculations
+    const totalPay = monthlyRecords.reduce((acc, r) => acc + (r.total_pay || 0), 0);
+    const totalOrders = monthlyRecords.reduce((acc, r) => acc + (r.order_count || 0), 0);
+    const totalMinutes = monthlyRecords.reduce((acc, r) => acc + (r.total_minutes || 0), 0);
+    const totalHours = (totalMinutes / 60).toFixed(2);
+    const totalGas = monthlyRecords.reduce((acc, r) => acc + (r.gas_allowance || 0), 0);
+    const totalBonus = monthlyRecords.reduce((acc, r) => acc + (r.diligence_bonus || 0), 0);
+    const totalSavings = monthlyRecords.reduce((acc, r) => acc + (r.accumulated_savings || 0), 0);
+    
+    const monthName = new Date(year, month).toLocaleString('th-TH', { month: 'long', year: 'numeric' });
+
+    // CSV Headers and content
+    const dailyHeaders = [
+        "วันที่",
+        "เวลาเข้างาน",
+        "เวลาออกงาน",
+        "เวลารวม (นาที)",
+        "จำนวนออเดอร์",
+        "ค่าแรง",
+        "ค่าน้ำมัน",
+        "โบนัส",
+        "เงินสะสม",
+        "ยอดจ่ายสุทธิ",
+        "สถานะ"
+    ];
+
+    const dailyData = monthlyRecords.map(r => [
+        new Date(r.check_in).toLocaleDateString('th-TH'),
+        new Date(r.check_in).toLocaleTimeString('th-TH'),
+        r.check_out ? new Date(r.check_out).toLocaleTimeString('th-TH') : '-',
+        r.total_minutes || 0,
+        r.order_count || 0,
+        r.base_pay || 0,
+        r.gas_allowance || 0,
+        r.diligence_bonus || 0,
+        r.accumulated_savings || 0,
+        r.total_pay || 0,
+        r.payment_status
+    ]);
+
+    const csvRows = [];
+    csvRows.push(`"รายงานสำหรับ:", "${username}"`);
+    csvRows.push(`"เดือน:", "${monthName}"`);
+    csvRows.push(''); // Empty line
+
+    csvRows.push(`"สรุปยอดรวม"`);
+    csvRows.push(`"ยอดจ่ายรวม:", "${totalPay.toFixed(2)}"`);
+    csvRows.push(`"ออเดอร์รวม:", "${totalOrders}"`);
+    csvRows.push(`"ชั่วโมงทำงานรวม:", "${totalHours}"`);
+    csvRows.push(`"ค่าน้ำมันรวม:", "${totalGas.toFixed(2)}"`);
+    csvRows.push(`"โบนัสรวม:", "${totalBonus.toFixed(2)}"`);
+    csvRows.push(`"เงินสะสมรวม:", "${totalSavings.toFixed(2)}"`);
+    csvRows.push(''); // Empty line
+
+    csvRows.push(dailyHeaders.join(','));
+    dailyData.forEach(row => {
+        csvRows.push(row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','));
+    });
+
+    const csvContent = csvRows.join('\n');
+
+    // 6. Trigger download
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    if (link.download !== undefined) {
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", `monthly_report_${username}_${year + 543}_${month + 1}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+    showToast("Export รายงานเดือนสำเร็จ!", "success");
+  };
+
+  const handleExportCSV = () => {
+    if (filteredRecords.length === 0) {
+      showToast("ไม่มีข้อมูลให้ Export", "error");
+      return;
+    }
+
+    const headers = [
+      "ชื่อผู้ใช้",
+      "เวลาเข้างาน",
+      "เวลาออกงาน",
+      "เวลารวม (นาที)",
+      "จำนวนออเดอร์",
+      "ค่าแรงพื้นฐาน",
+      "ค่าน้ำมัน",
+      "โบนัสขยัน",
+      "เงินเก็บสะสม",
+      "ยอดจ่ายสุทธิ",
+      "สถานะการจ่ายเงิน",
+      "ลิงค์สลิป",
+      "รูปรอยืนยันเข้างาน",
+      "รูปรอยืนยันออกงาน"
+    ];
+
+    const data = filteredRecords.map(record => {
+      const isWorking = !record.check_out;
+      
+      let displayMinutes = record.total_minutes || 0;
+      if (isWorking) {
+        const checkInTime = new Date(record.check_in).getTime();
+        displayMinutes = Math.floor((new Date().getTime() - checkInTime) / 60000);
+      }
+
+      let currentRate = 40;
+      if ((record.base_pay || 0) > 0 && (record.total_minutes || 0) > 0) {
+        currentRate = (record.base_pay / record.total_minutes) * 60;
+      }
+      const displayBasePay = (displayMinutes / 60) * currentRate;
+
+      const showOrderAndGas = record.profiles?.role !== 'kitchen';
+      const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
+      const autoGas = getAutoGasAllowance(currentOrders);
+      const displayGas = (record.payment_status === 'จ่ายแล้ว' || (record.gas_allowance && record.gas_allowance > 0)) ? record.gas_allowance : autoGas;
+
+      const displayTotal = isWorking 
+        ? Math.max(0, displayBasePay + (showOrderAndGas ? displayGas : 0) - (record.accumulated_savings || 0))
+        : (record.total_pay || 0);
+
+      return [
+        record.profiles?.username || 'N/A',
+        record.check_in ? new Date(record.check_in).toLocaleString('th-TH') : 'N/A',
+        record.check_out ? new Date(record.check_out).toLocaleString('th-TH') : 'N/A',
+        displayMinutes,
+        currentOrders,
+        displayBasePay.toFixed(2),
+        showOrderAndGas ? displayGas : 0,
+        record.diligence_bonus || 0,
+        record.accumulated_savings || 0,
+        displayTotal.toFixed(2),
+        record.payment_status || 'รอชำระ',
+        record.payment_slip_url || 'N/A',
+        record.check_in_image || 'N/A',
+        record.check_out_image || 'N/A'
+      ];
+    });
+
+    const csvContent = [
+      headers.join(','),
+      ...data.map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' }); // \uFEFF for BOM to support Excel
+    const link = document.createElement("a");
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", `payroll_${selectedDate}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+    showToast("Export ข้อมูลสำเร็จ!", "success");
+  };
+
   return (
     <div className="min-h-screen pb-12 transition-all duration-500 bg-slate-50 font-sans">
       
@@ -428,6 +624,12 @@ export default function PayrollPage() {
               onChange={(e) => setSelectedDate(e.target.value)}
               className="w-full md:w-auto p-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-indigo-700 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
             />
+            <button
+                onClick={handleExportCSV}
+                className="p-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-600 outline-none hover:bg-slate-50 active:scale-95 shadow-sm transition-all flex items-center gap-2"
+            >
+                <Download size={16} /> Export
+            </button>
           </div>
         </div>
 
@@ -587,16 +789,25 @@ export default function PayrollPage() {
                     <div className="flex items-center gap-1.5"><PiggyBank size={14} className="text-indigo-500"/> สะสมวันนี้: <span className="text-indigo-600">฿{(record.accumulated_savings || 0).toLocaleString()}</span></div>
                   </div>
 
-                  <button 
-                    onClick={() => openEditModal(record)}
-                    className={`w-full py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer relative z-10 
-                      ${isWorking ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 
-                        isPaid ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 
-                        'bg-slate-900 text-white hover:bg-blue-600 hover:shadow-lg hover:shadow-blue-500/30'}`}
-                  >
-                    <Edit3 size={16} /> 
-                    {isWorking ? 'บังคับจ่าย / ปรับเงิน' : isPaid ? 'แนบสลิป / แก้ไข' : 'จัดการยอดเงิน'}
-                  </button>
+                  <div className="flex items-stretch gap-2 relative z-10">
+                    <button 
+                      onClick={() => openEditModal(record)}
+                      className={`flex-grow py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer
+                        ${isWorking ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 
+                          isPaid ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 
+                          'bg-slate-900 text-white hover:bg-blue-600 hover:shadow-lg hover:shadow-blue-500/30'}`}
+                    >
+                      <Edit3 size={16} /> 
+                      {isWorking ? 'บังคับจ่าย / ปรับเงิน' : isPaid ? 'แนบสลิป / แก้ไข' : 'จัดการยอดเงิน'}
+                    </button>
+                    <button
+                      onClick={() => handleExportMonthly(record.rider_id, record.profiles?.username || 'unknown')}
+                      title="Export รายงานรายเดือน"
+                      className="flex-shrink-0 px-3 bg-white border border-slate-200 text-slate-500 rounded-xl hover:bg-slate-50 active:scale-95 transition-all flex items-center justify-center"
+                    >
+                        <Download size={18} />
+                    </button>
+                  </div>
                 </div>
               )
             })}

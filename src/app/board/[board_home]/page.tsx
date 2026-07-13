@@ -1918,7 +1918,7 @@ const unlockOrder = (orderId: string) => {
                     scrollContainerRef.current = el;
                   }}
                   {...provided.droppableProps}
-                  className={`flex-1 overflow-x-auto overflow-y-hidden thin-scrollbar pb-6 pt-2 px-2 flex items-start gap-4 md:gap-5 ${isDraggingBoard ? "cursor-grabbing select-none" : "cursor-grab"}`}
+                  className={`flex-1 overflow-x-auto overflow-y-auto thin-scrollbar pb-6 pt-2 px-2 flex items-start gap-4 md:gap-5 ${isDraggingBoard ? "cursor-grabbing select-none" : "cursor-grab"}`}
                   onMouseDown={(e) => {
                     if (e.target !== scrollContainerRef.current) return;
                     setIsDraggingBoard(true);
@@ -1948,7 +1948,7 @@ const unlockOrder = (orderId: string) => {
                           ref={provided.innerRef}
                           {...provided.draggableProps}
                           // 🌟 ใช้ currentTime แทน new Date().getTime()
-                            className={`shrink-0 max-h-full flex flex-col transition-all duration-300 ${isCompact ? "w-48 md:w-56" : "w-72 md:w-80"} ${snapshot.isDragging ? "scale-[1.02] rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl" : ""} ${                            ((order.status === "ออเดอร์ใหม่" || order.status === "กำลังทำ") && Math.floor((currentTime - new Date(order.created_at || 0).getTime()) / 60000) >= 5) ||
+                            className={`shrink-0 flex flex-col transition-all duration-300 ${isCompact ? "w-48 md:w-56" : "w-72 md:w-80"} ${snapshot.isDragging ? "scale-[1.02] rotate-2 shadow-2xl z-50 ring-4 ring-blue-500/30 rounded-3xl" : ""} ${                            ((order.status === "ออเดอร์ใหม่" || order.status === "กำลังทำ") && Math.floor((currentTime - new Date(order.created_at || 0).getTime()) / 60000) >= 5) ||
                             (currentUserRole !== "kitchen" && order.status === "รับงาน" && Math.floor((currentTime - new Date(order.created_at || 0).getTime()) / 60000) >= 35)  ? "rounded-3xl animate-border-blink" 
                             : ""
                           }`}
