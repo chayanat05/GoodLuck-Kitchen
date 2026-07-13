@@ -130,15 +130,21 @@ export default function PayrollPage() {
 
     const [year, month, day] = dateStr.split('-').map(Number);
     
-    const startOfDay = new Date(year, month - 1, day, bizHour, bizMin, 0, 0);
-    const endOfDay = new Date(year, month - 1, day + 1, bizHour, bizMin, 0, 0);
-    endOfDay.setMilliseconds(endOfDay.getMilliseconds() - 1);
+    // Create UTC dates to avoid server's local timezone interference, then adjust for Thailand's timezone (UTC+7).
+    // This makes the query robust regardless of the server's location.
+    const thailandOffset = 7 * 60 * 60 * 1000; // 7 hours in milliseconds
+    
+    const startOfDayUTC = new Date(Date.UTC(year, month - 1, day, bizHour, bizMin, 0, 0));
+    const endOfDayUTC = new Date(Date.UTC(year, month - 1, day + 1, bizHour, bizMin, 0, 0));
+    
+    const startOfDayThailand = new Date(startOfDayUTC.getTime() - thailandOffset);
+    const endOfDayThailand = new Date(endOfDayUTC.getTime() - thailandOffset);
 
     const { data, error } = await supabase
       .from('rider_attendance')
       .select('*, profiles(username, role)') // 🌟 ดึงฟิลด์ภาพตอกบัตรมาด้วยผ่าน *
-      .gte('check_in', startOfDay.toISOString())
-      .lte('check_in', endOfDay.toISOString())
+      .gte('check_in', startOfDayThailand.toISOString())
+      .lt('check_in', endOfDayThailand.toISOString()) // Use .lt for a clean, exclusive end date
       .order('check_in', { ascending: false });
 
     if (error) {
@@ -163,7 +169,7 @@ export default function PayrollPage() {
           if (riderOrders) {
             count = riderOrders.filter(o => {
               const d = new Date(o.end_time || o.created_at);
-              return d >= startOfDay && d < endOfDay;
+              return d.getTime() >= startOfDayThailand.getTime() && d.getTime() < endOfDayThailand.getTime();
             }).length;
           }
 
