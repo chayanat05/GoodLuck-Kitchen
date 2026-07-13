@@ -110,8 +110,10 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [bgColor, setBgColor] = useState<string>("#1e293b");
   const [bgImage, setBgImage] = useState<string>("");
   const [bgOption, setBgOption] = useState<"cover" | "contain" | "repeat">("cover");
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [isCompact, setIsCompact] = useState<boolean>(false);
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -136,10 +138,15 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [isProcessingAttendance, setIsProcessingAttendance] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [locationError, setLocationError] = useState<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [gpsEnabled, setGpsEnabled] = useState<boolean | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [branches, setBranches] = useState<Branch[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const lastGpsUpdateRef = useRef<number>(0);
 
 
@@ -1432,49 +1439,7 @@ const unlockOrder = (orderId: string) => {
           </div>
 
           <div className="flex flex-col sm:flex-row items-center w-full lg:w-auto gap-2">
-            <div className="relative w-full sm:w-56">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Search size={14} className="text-slate-400" />
-              </div>
-              <input
-                type="text"
-                placeholder="ค้นหาออเดอร์, สถานที่..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:bg-white focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 transition-all font-medium shadow-inner"
-              />
-            </div>
-
-            {currentUserRole === 'superadmin' && (
-              <button
-                onClick={async () => {
-                  const newVal = !isEmergencyMode;
-                  setIsEmergencyMode(newVal);
-                  await supabase.from("store_settings").update({ emergency_reveal_contacts: newVal }).eq("id", 1);
-                  showToast(newVal ? "เปิดโหมดฉุกเฉิน: แอดมินทุกคนเห็นลิ้งก์แล้ว! 🚨" : "ปิดโหมดฉุกเฉิน: ล็อกลิ้งก์ตามปกติ 🔒");
-                }}
-                className={`w-full sm:w-auto px-3 py-1.5 text-sm font-bold rounded-xl border transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95 ${
-                  isEmergencyMode 
-                    ? "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100" 
-                    : "bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200"
-                }`}
-              >
-                {isEmergencyMode ? "🚨 ปิดโหมดฉุกเฉิน" : "🔒 เปิดโหมดฉุกเฉิน"}
-              </button>
-            )}
             
-            <button
-              onClick={() => setIsCompact(!isCompact)}
-              className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 text-sm font-bold rounded-xl hover:bg-slate-200 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
-            >
-              {isCompact ? (
-                <Expand size={14} className="text-blue-500" />
-              ) : (
-                <Shrink size={14} className="text-blue-500" />
-              )}
-              {isCompact ? "ขยายการ์ด" : "ย่อการ์ด"}
-            </button>
-
             {(currentUserRole === "admin" || currentUserRole === 'superadmin' || currentUserRole === 'kitchen') && (
               <button
                 onClick={() => setShowRiderMap(true)}
@@ -1902,7 +1867,7 @@ const unlockOrder = (orderId: string) => {
                     scrollContainerRef.current.scrollLeft = scrollDragLeft - walk;
                   }}
                 >
-                  {filteredOrders.map((order, index) => (
+                  {filteredOrders.map((order, _index) => (
                         <div
                           key={order.id}
                           // 🌟 ใช้ currentTime แทน new Date().getTime()
