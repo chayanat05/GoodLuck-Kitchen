@@ -99,6 +99,8 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   }
 
   const [orders, setOrders] = useState<Order[]>([]);
+  const [halfPriceOrdersTotal, setHalfPriceOrdersTotal] = useState<number>(0);
+  const [halfPriceOrdersPending, setHalfPriceOrdersPending] = useState<number>(0);
   const [currentBranchId, setCurrentBranchId] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
@@ -325,6 +327,16 @@ const unlockOrder = (orderId: string) => {
     }))
   );
       setOrders(activeOrders as Order[]);
+
+      const halfPriceOrders = activeOrders.filter(
+        (order) => order.payment_method === "คนละครึ่ง"
+      );
+      setHalfPriceOrdersTotal(halfPriceOrders.length);
+      setHalfPriceOrdersPending(
+        halfPriceOrders.filter((o) =>
+          ["ออเดอร์ใหม่", "กำลังทำ", "รับงาน"].includes(o.status)
+        ).length
+      );
     }
 
     const { data: menuData } = await supabase
@@ -1436,6 +1448,26 @@ const unlockOrder = (orderId: string) => {
                 </span>
               </span>
             </h1>
+
+            {/* NEW: คนละครึ่ง summary */}
+            {(halfPriceOrdersTotal > 0 || halfPriceOrdersPending > 0) && (
+              <div className="flex items-center gap-2 text-sm md:text-base text-cyan-700 font-bold bg-cyan-50 border border-cyan-200 rounded-xl px-3 py-1.5 shadow-sm ml-0 lg:ml-4">
+                คนละครึ่ง:{" "}
+                <span className="text-cyan-600 font-black">
+                  {halfPriceOrdersTotal}
+                </span>{" "}
+                {halfPriceOrdersPending > 0 && (
+                  <span className="text-slate-500 font-normal ml-1">
+                    (ค้าง:{" "}
+                    <span className="text-cyan-600 font-black animate-pulse">
+                      {halfPriceOrdersPending}
+                    </span>
+                    )
+                  </span>
+                )}
+              </div>
+            )}
+
           </div>
 
           <div className="flex flex-col sm:flex-row items-center w-full lg:w-auto gap-2">
