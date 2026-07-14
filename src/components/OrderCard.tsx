@@ -410,7 +410,8 @@ function OrderCard({
 {/* 🌟 NEW: แจ้งเตือนว่ายังไม่ได้อัพสลิป */}
 {(userRole === 'admin' || userRole === 'superadmin') &&
   order.payment_method === 'โอน' &&
-  !order.slip_image && (
+  !order.slip_image &&
+  order.job_type !== 'shopee' && (
     <div className="mt-2 text-center py-2 px-3 bg-rose-100 text-rose-600 rounded-xl border border-rose-200 shadow-inner">
       <span className="text-sm font-bold flex items-center justify-center gap-1.5">
         <AlertCircle size={14} />

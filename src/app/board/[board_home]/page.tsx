@@ -1931,6 +1931,10 @@ const unlockOrder = (orderId: string) => {
                             // 🌟 NEW: ฟังก์ชันรับไฟล์สลิปที่โดนลากมาหยอดใส่การ์ด
                             onSlipDrop={async (orderId, file) => {
                               const targetOrder = orders.find(o => o.id === orderId);
+                              if (targetOrder?.job_type === 'shopee') {
+                                toast.error("งาน Shopee ไม่ต้องอัปโหลดสลิป");
+                                return;
+                              }
                               if (targetOrder?.payment_method !== 'โอน') {
                                 toast.error("อัปโหลดสลิปได้เฉพาะการชำระเงินแบบ 'โอน' เท่านั้น");
                                 return;
