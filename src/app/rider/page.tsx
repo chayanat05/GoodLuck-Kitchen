@@ -700,7 +700,6 @@ export default function RiderPage() {
       setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...data[0] } : o));
 
       showAlert("จองงานสำเร็จ!", "งานอยู่ในความดูแลของคุณแล้วครับ 🎉", "success");
-      fetchOrdersAndBranches(currentUser.id);
 
       notifyRoles(
         ['admin', 'superadmin', 'kitchen'], 
