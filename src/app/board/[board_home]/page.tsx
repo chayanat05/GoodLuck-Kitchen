@@ -40,6 +40,9 @@ import {
   History,
   Trash2,
   Camera,
+  Users,
+  UserX,
+  UserPlus,
   Loader2,
   Clock,
 } from "lucide-react";
@@ -98,6 +101,11 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
     lng: number;
   }
 
+  interface RiderProfile {
+    id: string;
+    username: string;
+  }
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [halfPriceOrdersTotal, setHalfPriceOrdersTotal] = useState<number>(0);
   const [halfPriceOrdersPending, setHalfPriceOrdersPending] = useState<number>(0);
@@ -108,11 +116,17 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [currentUserRole, setCurrentUserRole] = useState<string>("kitchen");
   const [allBranchMenus, setAllBranchMenus] = useState<BranchMenu[]>([]);
   const [contactSources, setContactSources] = useState<ContactSource[]>([]);
+  
+  // Rider Assignment Modal State
+  const [riderModalOrder, setRiderModalOrder] = useState<Order | null>(null);
+  const [availableRiders, setAvailableRiders] = useState<RiderProfile[]>([]);
+  const [isRiderModalLoading, setIsRiderModalLoading] = useState(false);
+  const [riderModalSearch, setRiderModalSearch] = useState("");
+
   const [isEmergencyMode, setIsEmergencyMode] = useState<boolean>(false);
   const [bgColor, setBgColor] = useState<string>("#1e293b");
   const [bgImage, setBgImage] = useState<string>("");
   const [bgOption, setBgOption] = useState<"cover" | "contain" | "repeat">("cover");
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -1304,6 +1318,116 @@ const unlockOrder = (orderId: string) => {
     }
   };
 
+    const handleUnassignRider = async (orderId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order) return;
+
+    Swal.fire({
+      title: 'ดึงงานออกจากไรเดอร์?',
+      text: `คุณต้องการดึงออเดอร์ #${order.order_number} ออกจาก ${order.rider_name} ใช่หรือไม่?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#eab308',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: 'ใช่, ดึงงาน',
+      cancelButtonText: 'ยกเลิก'
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        // Optimistic update
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, rider_id: null, rider_name: null, status: 'รับงาน' } as Order : o));
+
+        const { error } = await supabase.from('orders').update({
+          rider_id: null,
+          rider_name: null,
+          status: 'รับงาน' // Reset status to 'รับงาน'
+        }).eq('id', orderId);
+
+        if (error) {
+          toast.error('เกิดข้อผิดพลาดในการดึงงาน');
+          fetchOrdersAndLocations(); // Revert
+        } else {
+          toast.success(`ดึงงาน #${order.order_number} สำเร็จแล้ว`);
+          await supabase.from("activity_logs").insert([{
+            branch_id: currentBranchId,
+            user_name: adminName,
+            action: "UNASSIGN_RIDER",
+            details: `ดึงงานออเดอร์ #${order.order_number} จาก ${order.rider_name}`
+          }]);
+        }
+      }
+    });
+  };
+
+  const handleOpenRiderModal = async (order: Order) => {
+    setRiderModalOrder(order);
+    setIsRiderModalLoading(true);
+
+    const { data: riders, error } = await supabase
+      .from('profiles')
+      .select('id, username')
+      .eq('role', 'rider')
+      .order('username', { ascending: true });
+
+    if (error || !riders) {
+      toast.error("ไม่สามารถโหลดรายชื่อไรเดอร์ได้");
+      setRiderModalOrder(null);
+    } else {
+      setAvailableRiders(riders as RiderProfile[]);
+    }
+    setIsRiderModalLoading(false);
+  };
+
+  const handleSelectRider = async (selectedRider: RiderProfile) => {
+    if (!riderModalOrder || !selectedRider) return;
+
+    const orderToUpdate = riderModalOrder;
+    const oldRiderName = orderToUpdate.rider_name;
+    const isAssigningNew = !oldRiderName; // Check if it's a new assignment or a change
+
+    // Close modal and reset state
+    setRiderModalOrder(null);
+    setAvailableRiders([]);
+    setRiderModalSearch("");
+
+    // Optimistic Update
+    setOrders(prev => prev.map(o =>
+      o.id === orderToUpdate.id
+        ? { ...o, rider_id: selectedRider.id, rider_name: selectedRider.username, status: 'รับงาน' } as Order // Keep status as 'รับงาน'
+        : o
+    ));
+
+    const { error: updateError } = await supabase.from('orders').update({
+      rider_id: selectedRider.id,
+      rider_name: selectedRider.username,
+      status: 'รับงาน' // Ensure status is 'รับงาน'
+    }).eq('id', orderToUpdate.id);
+
+    if (updateError) {
+      toast.error(`เกิดข้อผิดพลาดในการ${isAssigningNew ? 'มอบหมาย' : 'เปลี่ยน'}คนขับ`);
+      fetchOrdersAndLocations(); // Revert on error
+    } else {
+      toast.success(`${isAssigningNew ? 'มอบหมาย' : 'เปลี่ยน'}คนขับเป็น ${selectedRider.username} สำเร็จ!`);
+      
+      // Log activity
+      await supabase.from("activity_logs").insert([{
+        branch_id: currentBranchId,
+        user_name: adminName,
+        action: isAssigningNew ? "ASSIGN_RIDER" : "CHANGE_RIDER",
+        details: isAssigningNew
+          ? `มอบหมายออเดอร์ #${orderToUpdate.order_number} ให้ ${selectedRider.username}`
+          : `เปลี่ยนคนขับออเดอร์ #${orderToUpdate.order_number} จาก ${oldRiderName || 'ไม่มี'} เป็น ${selectedRider.username}`
+      }]);
+
+      // Notify new rider
+      await notifyRoles(
+        [selectedRider.username], 
+        "✨ คุณได้รับมอบหมายงานใหม่!",
+        `แอดมินได้โอนงานออเดอร์ #${orderToUpdate.order_number} ให้คุณ`,
+        `/rider`
+      );
+    }
+  };
+
   const handleLogoutRequest = () => {
     Swal.fire({
       title: "ต้องการออกจากระบบ?",
@@ -1471,6 +1595,16 @@ const unlockOrder = (orderId: string) => {
           </div>
 
           <div className="flex flex-col sm:flex-row items-center w-full lg:w-auto gap-2">
+            <div className="relative w-full sm:w-auto">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="ค้นหาบิล, ที่อยู่, ไรเดอร์..."
+                className="w-full sm:w-48 md:w-64 bg-slate-50 border-slate-200 border rounded-xl py-1.5 pl-9 pr-3 text-sm font-medium text-slate-700 transition-all duration-300 focus:bg-white focus:shadow-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              />
+            </div>
             
             {(currentUserRole === "admin" || currentUserRole === 'superadmin' || currentUserRole === 'kitchen') && (
               <button
@@ -1927,6 +2061,9 @@ const unlockOrder = (orderId: string) => {
                             onChangeStatusRequest={(orderInfo) =>
                               setStatusModal({ isOpen: true, order: orderInfo })
                             }
+                            onUnassignRider={handleUnassignRider}
+                            onChangeRider={handleOpenRiderModal}
+                            onAssignRider={handleOpenRiderModal}
 
                             // 🌟 NEW: ฟังก์ชันรับไฟล์สลิปที่โดนลากมาหยอดใส่การ์ด
                             onSlipDrop={async (orderId, file) => {
@@ -3096,6 +3233,77 @@ const unlockOrder = (orderId: string) => {
           userRole={currentUserRole}
           onClose={() => setIsGalleryOpen(false)}
         />
+      )}
+
+      {/* Rider Selection Modal */}
+      {riderModalOrder && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300 z-[200]">
+          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col max-h-[80vh]">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white sticky top-0 z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-indigo-100 text-indigo-500 rounded-full flex items-center justify-center shadow-inner">
+                  <Users size={24} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800 tracking-tight">
+                    {riderModalOrder.rider_id ? 'เปลี่ยนคนขับ' : 'มอบหมายงาน'}
+                  </h3>
+                  <p className="text-slate-500 font-bold text-sm">สำหรับออเดอร์ #{riderModalOrder.order_number}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setRiderModalOrder(null)}
+                className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 active:scale-90"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-4 border-b border-slate-100">
+              <div className="relative">
+                <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="ค้นหาชื่อไรเดอร์..."
+                  value={riderModalSearch}
+                  onChange={(e) => setRiderModalSearch(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-11 pr-4 text-base font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto thin-scrollbar bg-slate-50/50">
+              {isRiderModalLoading ? (
+                <div className="flex items-center justify-center p-10 text-slate-500 font-bold">
+                  <Loader2 size={24} className="animate-spin mr-2" /> กำลังโหลด...
+                </div>
+              ) : (
+                <div className="p-4 flex flex-col gap-2">
+                  {availableRiders
+                    .filter(r => r.username.toLowerCase().includes(riderModalSearch.toLowerCase()))
+                    .map(rider => (
+                      <button
+                        key={rider.id}
+                        onClick={() => handleSelectRider(rider)}
+                        className="w-full text-left p-4 bg-white hover:bg-indigo-50 border border-slate-100 hover:border-indigo-200 rounded-2xl flex items-center gap-4 transition-all duration-200 active:scale-95 shadow-sm group"
+                      >
+                        <div className="w-10 h-10 bg-slate-100 group-hover:bg-indigo-100 rounded-full flex items-center justify-center font-black text-indigo-800 text-lg transition-colors">
+                          {rider.username.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="font-bold text-lg text-slate-700 group-hover:text-indigo-800 transition-colors">{rider.username}</span>
+                      </button>
+                    ))
+                  }
+                  {availableRiders.filter(r => r.username.toLowerCase().includes(riderModalSearch.toLowerCase())).length === 0 && (
+                      <div className="text-center p-10 text-slate-500 font-bold">
+                        <p>ไม่พบไรเดอร์ที่คุณค้นหา</p>
+                      </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

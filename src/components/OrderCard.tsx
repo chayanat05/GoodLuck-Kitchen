@@ -1,6 +1,6 @@
 // OrderCard.tsx
 'use client'
-import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, MoreVertical, CheckCircle2, AlertCircle, XCircle, Trash2, ArrowRightLeft, Store, ImageIcon } from "lucide-react";
+import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, MoreVertical, CheckCircle2, AlertCircle, XCircle, Trash2, ArrowRightLeft, Store, ImageIcon, UserX, Users, UserPlus } from "lucide-react";
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { motion } from "framer-motion";
 import Image from 'next/image';
@@ -44,6 +44,9 @@ interface OrderProps {
   onViewImages?: (urls: string[], startIndex: number) => void; 
   onDelete?: (id: string) => void; 
   onChangeStatusRequest?: (order: Order) => void;
+  onUnassignRider?: (orderId: string) => void;
+  onChangeRider?: (order: Order) => void;
+  onAssignRider?: (order: Order) => void;
   onSlipDrop?: (orderId: string, file: File) => void;
 }
 
@@ -69,6 +72,9 @@ function OrderCard({
     onViewImages,
     onDelete,
     onChangeStatusRequest,
+    onUnassignRider,
+    onChangeRider,
+    onAssignRider,
     onSlipDrop
 }: OrderProps) {
   const isShopee = order.job_type === "shopee";
@@ -208,6 +214,19 @@ function OrderCard({
                     {onDelete && (
                       <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onDelete(order.id); }} className="w-full text-left px-4 py-3 text-base font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-2 transition-colors">
                         <Trash2 size={16} /> ลบออเดอร์นี้
+                      </button>
+                    )}
+                    {isLocked && (userRole === 'admin' || userRole === 'superadmin') && (
+                      <div className="border-t border-slate-100 my-1"></div>
+                    )}
+                    {isLocked && onUnassignRider && (userRole === 'admin' || userRole === 'superadmin') && (
+                      <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onUnassignRider(order.id); }} className="w-full text-left px-4 py-3 text-base font-bold text-amber-600 hover:bg-amber-50 flex items-center gap-2 transition-colors">
+                        <UserX size={16} /> ดึงงาน (ปล่อยงาน)
+                      </button>
+                    )}
+                    {isLocked && onChangeRider && (userRole === 'admin' || userRole === 'superadmin') && (
+                      <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); onChangeRider(order); }} className="w-full text-left px-4 py-3 text-base font-bold text-indigo-600 hover:bg-indigo-50 flex items-center gap-2 transition-colors">
+                        <Users size={16} /> เปลี่ยนคนขับ
                       </button>
                     )}
                   </div>
