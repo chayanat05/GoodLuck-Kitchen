@@ -572,7 +572,8 @@ export default function BranchSelectorPage() {
         <div className="lg:col-span-3">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-black text-slate-700 flex items-center gap-2">
-              <Store size={20} className="text-indigo-500" /> สาขาทั้งหมดของร้าน ({branches.length})
+              <Store size={20} className="text-indigo-500" /> 
+              สาขาทั้งหมดของร้าน ({branches.length})
             </h2>
           </div>
 

@@ -45,6 +45,7 @@ import {
   UserPlus,
   Loader2,
   Clock,
+  Globe,
 } from "lucide-react";
 
 import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from '@react-google-maps/api';
@@ -109,6 +110,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [orders, setOrders] = useState<Order[]>([]);
   const [halfPriceOrdersTotal, setHalfPriceOrdersTotal] = useState<number>(0);
   const [halfPriceOrdersPending, setHalfPriceOrdersPending] = useState<number>(0);
+  const [allBranchesTodaysTotal, setAllBranchesTodaysTotal] = useState<number>(0);
   const [currentBranchId, setCurrentBranchId] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
@@ -318,6 +320,25 @@ const unlockOrder = (orderId: string) => {
       console.error('Push Error:', e);
     }
   };
+
+  const fetchAllBranchesTodaysOrders = useCallback(async () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayISO = today.toISOString();
+
+    const { count, error } = await supabase
+      .from('orders')
+      .select('*', { count: 'exact', head: true })
+      .gte('created_at', todayISO)
+      .or('is_archived.is.null,is_archived.eq.false')
+      .or('is_deleted.is.null,is_deleted.eq.false');
+
+    if (error) {
+      console.error("Error fetching all branches' today's orders count:", error);
+    } else if (count !== null) {
+      setAllBranchesTodaysTotal(count);
+    }
+  }, []);
 
   const fetchOrdersAndLocations = useCallback(async () => {
     if (!currentBranchId) return;
@@ -558,6 +579,10 @@ const unlockOrder = (orderId: string) => {
       setCurrentUserRole(profile.role);
       setIsMounted(true);
       fetchOrdersAndLocations();
+      
+      if (profile.role === 'admin' || profile.role === 'superadmin') {
+        fetchAllBranchesTodaysOrders();
+      }
     };
 
     checkAuthAndInit();
@@ -1589,6 +1614,17 @@ const unlockOrder = (orderId: string) => {
                     )
                   </span>
                 )}
+              </div>
+            )}
+
+            {/* All branches today's total for admins */}
+            {(currentUserRole === 'admin' || currentUserRole === 'superadmin') && allBranchesTodaysTotal > 0 && (
+              <div className="flex items-center gap-2 text-sm md:text-base text-rose-700 font-bold bg-rose-50 border border-rose-200 rounded-xl px-3 py-1.5 shadow-sm ml-2">
+                <Globe size={14} className="animate-pulse" />
+                รวมทุกสาขา:{" "}
+                <span className="text-rose-600 font-black">
+                  {allBranchesTodaysTotal}
+                </span>
               </div>
             )}
 
