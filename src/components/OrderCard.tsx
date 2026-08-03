@@ -1,6 +1,6 @@
 // OrderCard.tsx
 'use client'
-import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, MoreVertical, CheckCircle2, AlertCircle, XCircle, Trash2, ArrowRightLeft, Store, ImageIcon, UserX, Users, UserPlus } from "lucide-react";
+import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, MoreVertical, CheckCircle2, AlertCircle, XCircle, Trash2, ArrowRightLeft, Store, ImageIcon, UserX, Users, UserPlus, PlusCircle } from "lucide-react";
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { motion } from "framer-motion";
 import Image from 'next/image';
@@ -48,6 +48,7 @@ interface OrderProps {
   onChangeRider?: (order: Order) => void;
   onAssignRider?: (order: Order) => void;
   onSlipDrop?: (orderId: string, file: File) => void;
+  onCreateOrder?: (order: Order) => void;
 }
 
 const getCardTheme = (status: string) => {
@@ -75,7 +76,8 @@ function OrderCard({
     onUnassignRider,
     onChangeRider,
     onAssignRider,
-    onSlipDrop
+    onSlipDrop,
+    onCreateOrder,
 }: OrderProps) {
   const isShopee = order.job_type === "shopee";
   const isLocked = !!order.rider_id;
@@ -277,6 +279,22 @@ function OrderCard({
         )}
 
         {order.details && <p className={`text-sm font-medium shrink-0 leading-relaxed p-2.5 rounded-xl border border-white/10 bg-black/10 backdrop-blur-sm ${theme.subText}`}>{order.details}</p>}
+
+        {/* 🌟 จุดที่ต้องแทรกเพิ่ม: ปุ่มสร้างออเดอร์ 🌟 */}
+        {onCreateOrder && (
+          <button
+            onClick={(e) => { 
+              e.stopPropagation(); 
+              onCreateOrder(order); 
+            }}
+            className={`mt-1 flex items-center justify-center gap-1.5 w-full py-2 px-3 rounded-xl text-sm font-bold transition-colors border border-white/20 hover:bg-white/20 shadow-sm ${theme.text}`}
+          >
+            <PlusCircle size={16} className="shrink-0" />
+            <span>สร้างออเดอร์เพิ่ม</span>
+          </button>
+        )}
+        {/* 🌟 สิ้นสุดจุดที่เพิ่ม 🌟 */}
+
       </div>
 
       {/* 📍 ส่วนที่ 3: ท้ายการ์ด (Fixed ล็อกติดก้นการ์ดเสมอ!) */}

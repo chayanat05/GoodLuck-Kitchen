@@ -45,6 +45,9 @@ import { useFCM } from "@/hooks/useFCM";
 const SHOP_LAT = 16.24813;
 const SHOP_LNG = 103.242206;
 
+const EXCLUDED_JOB_TYPE = "shopee";
+const ADMIN_ROLES = ["admin", "superadmin"]; // Roles that can see all job types
+
 interface RiderLocation {
   id: string;
   username: string;
@@ -179,8 +182,10 @@ export default function RiderPage() {
     }
   };
 
-  const fetchOrdersAndBranches = useCallback(async (userId: string) => {
+  const fetchOrdersAndBranches = useCallback(async (userId: string, role: string) => {
     if (!userId) return;
+
+    const isSuper = ADMIN_ROLES.includes(role);
 
     const { data: limitData } = await supabase.from("store_settings").select("rider_order_limit").eq("id", 1).single();
     if (limitData && limitData.rider_order_limit) setOrderLimit(limitData.rider_order_limit);
@@ -188,19 +193,27 @@ export default function RiderPage() {
     const { data: bData } = await supabase.from("branches").select("*").order("created_at", { ascending: true });
     if (bData) setBranches(bData as Branch[]);
 
-    const { data: myJobs } = await supabase
+    let myJobsQuery = supabase
       .from("orders")
       .select("*")
-      .eq("rider_id", userId)
-      .order("created_at", { ascending: true });
+      .eq("rider_id", userId);
+    
+    if (!isSuper) {
+        myJobsQuery = myJobsQuery.or(`job_type.is.null,job_type.neq.${EXCLUDED_JOB_TYPE}`);
+    }
+    const { data: myJobs } = await myJobsQuery.order("created_at", { ascending: true });
 
-    const { data: availableJobs } = await supabase
+
+    let availableJobsQuery = supabase
       .from("orders")
       .select("*")
       .is("rider_id", null)
-      .or("job_type.is.null,job_type.neq.shopee")
-      .or("is_archived.is.null,is_archived.eq.false") 
-      .order("created_at", { ascending: true });
+      .or("is_archived.is.null,is_archived.eq.false"); 
+
+    if (!isSuper) {
+        availableJobsQuery = availableJobsQuery.or(`job_type.is.null,job_type.neq.${EXCLUDED_JOB_TYPE}`);
+    }
+    const { data: availableJobs } = await availableJobsQuery.order("created_at", { ascending: true });
 
     const jobs1 = availableJobs || [];
     const jobs2 = myJobs || [];
@@ -296,7 +309,7 @@ export default function RiderPage() {
         setMyBranchId("all"); // 🌟 กำหนดให้เป็น 'all' จะได้ไม่โดนบล็อก
       }
       
-      await fetchOrdersAndBranches(currentUserId);
+      await fetchOrdersAndBranches(currentUserId, profile?.role || "rider");
       setIsCheckingAuth(false);
     };
 
@@ -316,13 +329,15 @@ export default function RiderPage() {
     return () => { 
       supabase.removeChannel(settingsChannel);
     };
-  }, [fetchOrdersAndBranches]);
+  }, [fetchOrdersAndBranches, currentUserRole]); // Added currentUserRole to dependencies
 
-  const handleRealtimeUpdate = useCallback((payload: SupabaseRealtimePayload<RiderOrder>) => {
+  const handleRealtimeUpdate = useCallback((payload: SupabaseRealtimePayload<RiderOrder>, role: string) => {
     const { eventType, new: newRecord, old: oldRecord, table } = payload;
     
     if (table !== 'orders' || !currentUser) return;
     
+    const isSuper = ADMIN_ROLES.includes(role);
+
     switch (eventType) {
       case 'INSERT': {
         const newOrder = newRecord as RiderOrder;
@@ -331,7 +346,8 @@ export default function RiderPage() {
           !newOrder.is_deleted &&
           !newOrder.is_archived &&
           ["New", "ออเดอร์ใหม่", "กำลังทำ", "รับงาน"].includes(newOrder.status) &&
-          (myBranchId === "all" || newOrder.branch_id === myBranchId);
+          (myBranchId === "all" || newOrder.branch_id === myBranchId) &&
+          (isSuper || newOrder.job_type !== EXCLUDED_JOB_TYPE);
 
         if (isAvailableForMe) {
           setOrders(prevOrders => {
@@ -347,13 +363,14 @@ export default function RiderPage() {
       case 'UPDATE': {
         const updatedOrder = newRecord as RiderOrder;
 
-        const isMyJob = updatedOrder.rider_id === currentUser.id && !updatedOrder.is_archived && !updatedOrder.is_deleted;
+        const isMyJob = updatedOrder.rider_id === currentUser.id && !updatedOrder.is_archived && !updatedOrder.is_deleted && (isSuper || updatedOrder.job_type !== EXCLUDED_JOB_TYPE);
         const isAvailableJob = 
           updatedOrder.rider_id === null &&
           !updatedOrder.is_deleted &&
           !updatedOrder.is_archived &&
           ["New", "ออเดอร์ใหม่", "กำลังทำ", "รับงาน"].includes(updatedOrder.status) &&
-          (myBranchId === "all" || updatedOrder.branch_id === myBranchId);
+          (myBranchId === "all" || updatedOrder.branch_id === myBranchId) &&
+          (isSuper || updatedOrder.job_type !== EXCLUDED_JOB_TYPE);
         
         const shouldBeVisible = isMyJob || isAvailableJob;
 
@@ -393,7 +410,6 @@ export default function RiderPage() {
     }
   }, [currentUser, myBranchId]);
 
-
   useEffect(() => {
     if (!currentUser) return;
     
@@ -401,20 +417,20 @@ export default function RiderPage() {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (riderChannel as any)
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, handleRealtimeUpdate)
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, (payload: SupabaseRealtimePayload<RiderOrder>) => handleRealtimeUpdate(payload, currentUserRole))
       .subscribe();
       
     return () => { 
       supabase.removeChannel(riderChannel); 
     };
-  }, [currentUser, handleRealtimeUpdate]);
+  }, [currentUser, handleRealtimeUpdate, currentUserRole]); // Added currentUserRole to dependencies
 
   // 🌟 Auto-sync when app comes to foreground
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && currentUser) {
         console.log("App is visible, auto-syncing orders...");
-        fetchOrdersAndBranches(currentUser.id);
+        fetchOrdersAndBranches(currentUser.id, currentUserRole);
       }
     };
 
@@ -660,13 +676,11 @@ export default function RiderPage() {
       }
 
       let minDistance = Infinity;
-      let nearestName = "";
       branches.forEach(b => {
         if (b.lat && b.lng) {
           const dist = getDistanceFromLatLonInKm(myLocation.lat, myLocation.lng, b.lat, b.lng) * 1000;
           if (dist < minDistance) {
             minDistance = dist;
-            nearestName = b.name;
           }
         }
       });
@@ -709,7 +723,7 @@ export default function RiderPage() {
       );
     } else {
       showAlert("อ๊ะ!", "งานนี้มีเพื่อนไรเดอร์ท่านอื่นกดรับไปก่อนแล้วครับ 😢", "error");
-      fetchOrdersAndBranches(currentUser.id);
+      fetchOrdersAndBranches(currentUser.id, currentUserRole);
     }
   };
 
@@ -724,20 +738,20 @@ export default function RiderPage() {
     showConfirm(
       "ยืนยันการดำเนินการ", confirmMsg,
       async () => {
+        const updateData: { status: string; end_time?: string } = { status: nextStatus };
+        if (nextStatus === "ส่งแล้ว/เสร็จ") updateData.end_time = new Date().toISOString();
+
         // ✨ 1. อัปเดตหน้าจอทันที (Optimistic UI) ให้การ์ดเด้งไปประวัติเลย ลื่นไหลสุดๆ
         setOrders(prev => prev.map(o => 
           o.id === order.id ? { ...o, status: nextStatus, end_time: updateData.end_time || o.end_time } : o
         ));
-
-        const updateData: { status: string; end_time?: string } = { status: nextStatus };
-        if (nextStatus === "ส่งแล้ว/เสร็จ") updateData.end_time = new Date().toISOString();
         
         // 🚨 2. ส่งข้อมูลไปอัปเดตเบื้องหลัง
         const { error } = await supabase.from("orders").update(updateData).eq("id", order.id);
         
         if (error) {
           showAlert("เกิดข้อผิดพลาด", "อัปเดตไม่สำเร็จ", "error");
-          fetchOrdersAndBranches(currentUser!.id); // ถ้าเน็ตหลุด ค่อยโหลดข้อมูลเก่ากลับมาโชว์
+          fetchOrdersAndBranches(currentUser!.id, currentUserRole); // ถ้าเน็ตหลุด ค่อยโหลดข้อมูลเก่ากลับมาโชว์
         } else {
           if (nextStatus === "ส่งแล้ว/เสร็จ") {
             notifyRoles(
@@ -763,7 +777,7 @@ export default function RiderPage() {
         } else {
           showAlert("เรียบร้อย!", "คืนงานให้ระบบกลางแล้ว", "success");
           setActiveTab("available");
-          fetchOrdersAndBranches(currentUser.id);
+          fetchOrdersAndBranches(currentUser.id, currentUserRole);
 
           const orderNum = orders.find(o => o.id === orderId)?.order_number || "ล่าสุด";
           notifyRoles(
@@ -1269,7 +1283,7 @@ export default function RiderPage() {
           <button
             onClick={() => { 
               setActiveTab("available"); 
-              if (currentUser?.id) fetchOrdersAndBranches(currentUser.id); 
+              if (currentUser?.id) fetchOrdersAndBranches(currentUser.id, currentUserRole); 
             }}
             className={`relative flex-1 flex flex-col items-center py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === "available" ? "bg-blue-50 text-blue-600 shadow-inner border border-blue-100" : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"}`}
           >

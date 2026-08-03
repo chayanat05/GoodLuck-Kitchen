@@ -322,14 +322,29 @@ const unlockOrder = (orderId: string) => {
   };
 
   const fetchAllBranchesTodaysOrders = useCallback(async () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayISO = today.toISOString();
+    const { data: settings } = await supabase.from("store_settings").select("business_day_start").eq("id", 1).single();
+    const businessDayStart = settings?.business_day_start || "07:00";
+
+    const now = new Date();
+    const [bizHour, bizMin] = businessDayStart.split(':').map(Number);
+
+    const currentBizDate = new Date(now);
+    if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
+      currentBizDate.setDate(currentBizDate.getDate() - 1);
+    }
+    
+    const y = currentBizDate.getFullYear();
+    const m = currentBizDate.getMonth();
+    const d = currentBizDate.getDate();
+
+    const startDate = new Date(y, m, d, bizHour, bizMin, 0, 0);
+    const endDate = new Date(y, m, d + 1, bizHour, bizMin, 0, 0);
 
     const { count, error } = await supabase
       .from('orders')
       .select('*', { count: 'exact', head: true })
-      .gte('created_at', todayISO)
+      .gte('created_at', startDate.toISOString())
+      .lt('created_at', endDate.toISOString())
       .or('is_archived.is.null,is_archived.eq.false')
       .or('is_deleted.is.null,is_deleted.eq.false');
 
