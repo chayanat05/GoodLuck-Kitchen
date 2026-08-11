@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { 
   ArrowLeft, Banknote, Calendar, Loader2, CheckCircle2, AlertTriangle, 
   Search, Edit3, X, Save, Clock, Package, DollarSign, Fuel, Trophy, User, ImagePlus, Check,
-  Trash2, Image as ImageIcon, PiggyBank, Plus, Minus, Camera, Download
+  Trash2, Image as ImageIcon, PiggyBank, Plus, Minus, Camera, Download, Settings
 } from "lucide-react";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import Image from "next/image";
@@ -30,6 +30,7 @@ interface AttendanceRecord {
   profiles: {
     username: string;
     role?: string;
+    hourly_rate?: number;
   } | null;
   real_time_order_count?: number;
 }
@@ -49,6 +50,12 @@ interface EditForm {
   // 🌟 เพิ่ม 2 บรรทัดนี้
   check_in_time: string;
   check_out_time: string;
+}
+
+interface ProfileForWageEdit {
+  id: string;
+  username: string;
+  hourly_rate: number;
 }
 
 const getAutoGasAllowance = (orders: number): number => {
@@ -82,7 +89,7 @@ export default function PayrollPage() {
     order_count: 0,
     gas_allowance: 0,
     diligence_bonus: 0,
-    accumulated_savings: 0,
+    accumulated_savings: 50,
     manual_total: null,
     payment_status: "รอชำระ",
     payment_slip_url: null,
@@ -101,6 +108,9 @@ export default function PayrollPage() {
   const [viewSlip, setViewSlip] = useState<string | null>(null);
   const [isZoomed, setIsZoomed] = useState(false);
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
+  
+  const [isWageModalOpen, setIsWageModalOpen] = useState(false);
+  const [profilesForWageEdit, setProfilesForWageEdit] = useState<ProfileForWageEdit[]>([]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -142,7 +152,7 @@ export default function PayrollPage() {
 
     const { data, error } = await supabase
       .from('rider_attendance')
-      .select('*, profiles(username, role)') // 🌟 ดึงฟิลด์ภาพตอกบัตรมาด้วยผ่าน *
+      .select('*, profiles(username, role, hourly_rate)') // 🌟 ดึงฟิลด์ภาพตอกบัตรและค่าแรงมาด้วย
       .gte('check_in', startOfDayThailand.toISOString())
       .lt('check_in', endOfDayThailand.toISOString()) // Use .lt for a clean, exclusive end date
       .order('check_in', { ascending: false });
@@ -208,12 +218,14 @@ export default function PayrollPage() {
     const isKitchen = editingRecord.profiles?.role === 'kitchen';
     const gas = isKitchen ? 0 : (editForm.gas_allowance || 0);
 
-    const total = basePay + gas - (editForm.accumulated_savings || 0);
+    // 🌟 เอาเงินสะสมมาหักลบออกจากยอดรวมที่นี่
+    const total = basePay + gas + (editForm.diligence_bonus || 0) - (editForm.accumulated_savings || 0);
     return Math.max(0, total);
   }, [editForm, editingRecord]);
 
   const openEditModal = (record: AttendanceRecord) => {
-    let rate = 40;
+    // Use hourly_rate from profile, fallback to reverse-calculation, then to 40
+    let rate = record.profiles?.hourly_rate || 40;
     
     let liveMinutes = record.total_minutes || 0;
     const isWorking = !record.check_out;
@@ -223,7 +235,8 @@ export default function PayrollPage() {
       liveMinutes = Math.floor((new Date().getTime() - checkInTime) / 60000);
     }
 
-    if ((record.base_pay || 0) > 0 && liveMinutes > 0) {
+    // Only use reverse-calculation if rate from profile is missing
+    if (!record.profiles?.hourly_rate && (record.base_pay || 0) > 0 && liveMinutes > 0) {
       rate = (record.base_pay / liveMinutes) * 60;
     }
     
@@ -240,7 +253,10 @@ export default function PayrollPage() {
       order_count: isKitchen ? 0 : currentOrders,
       gas_allowance: isKitchen ? 0 : proposedGas, 
       diligence_bonus: record.diligence_bonus || 0,
-      accumulated_savings: record.accumulated_savings || 0, 
+      // 🌟 เปลี่ยนการดึงค่า accumulated_savings เป็นแบบนี้
+      accumulated_savings: (record.payment_status === 'จ่ายแล้ว' || record.total_pay > 0) 
+        ? (record.accumulated_savings || 0) 
+        : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? 50 : record.accumulated_savings),
       manual_total: record.total_pay || null,
       payment_status: record.payment_status || "รอชำระ",
       payment_slip_url: record.payment_slip_url || null,
@@ -352,6 +368,55 @@ export default function PayrollPage() {
   };
 
   // 🌟 ฟังก์ชันกดจ่ายเงินด่วน (Quick Action)
+  
+  const openWageModal = async () => {
+    // 1. Fetch all 'rider' and 'kitchen' profiles
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, username, hourly_rate')
+      .in('role', ['rider', 'kitchen'])
+      .order('username', { ascending: true });
+
+    if (error) {
+      console.error(error);
+      showToast("ไม่สามารถดึงรายชื่อพนักงานได้", "error");
+      return;
+    }
+
+    // 2. Set them to state and open modal
+    setProfilesForWageEdit(data.map(p => ({ ...p, hourly_rate: p.hourly_rate || 40 })));
+    setIsWageModalOpen(true);
+  };
+
+  const handleSaveWages = async () => {
+    setIsSaving(true);
+
+    const updatePromises = profilesForWageEdit.map(profile =>
+      supabase
+        .from('profiles')
+        .update({ hourly_rate: profile.hourly_rate })
+        .eq('id', profile.id)
+    );
+
+    try {
+      const results = await Promise.all(updatePromises);
+      const hasError = results.some(res => res.error);
+
+      if (hasError) {
+        showToast("เกิดข้อผิดพลาดในการบันทึกค่าแรงบางรายการ", "error");
+      } else {
+        showToast("บันทึกค่าแรงทั้งหมดสำเร็จ!", "success");
+        setIsWageModalOpen(false);
+        fetchRecords(selectedDate); // Re-fetch data to reflect new rates
+      }
+    } catch (error) {
+      console.error("Error saving wages:", error);
+      showToast("เกิดข้อผิดพลาดรุนแรงในการบันทึก", "error");
+    }
+
+    setIsSaving(false);
+  };
+
   const handleQuickMarkPaid = async (record: AttendanceRecord) => {
     // อัปเดต UI ทันทีให้ดูลื่นไหล (Optimistic Update)
     setRecords(prev => prev.map(r => r.id === record.id ? { ...r, payment_status: "จ่ายแล้ว" } : r));
@@ -376,6 +441,41 @@ export default function PayrollPage() {
     const query = searchQuery.toLowerCase();
     return records.filter(r => r.profiles?.username?.toLowerCase().includes(query));
   }, [records, searchQuery]);
+
+  const totalPayroll = useMemo(() => {
+    return filteredRecords.reduce((total, record) => {
+      const isWorking = !record.check_out;
+      
+      let displayMinutes = record.total_minutes || 0;
+      if (isWorking) {
+        const checkInTime = new Date(record.check_in).getTime();
+        displayMinutes = Math.floor((currentTime.getTime() - checkInTime) / 60000);
+      }
+
+      const showOrderAndGas = record.profiles?.role !== 'kitchen';
+      const currentRate = record.profiles?.hourly_rate || 40;
+      const displayBasePay = (displayMinutes / 60) * currentRate;
+
+      const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
+      const autoGas = getAutoGasAllowance(currentOrders);
+      const isPaid = record.payment_status === 'จ่ายแล้ว';
+      const displayGas = (isPaid || (record.gas_allowance && record.gas_allowance > 0)) ? record.gas_allowance : autoGas;
+
+      // 1. ตั้งค่า Default หักเงินสะสม 50 บาทถ้ายังไม่จ่าย
+      const displaySavings = (isPaid || record.total_pay > 0) 
+        ? (record.accumulated_savings || 0) 
+        : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? 50 : record.accumulated_savings);
+
+      // 2. 🌟 แก้ไขสมการตรงนี้: ต้องบวกโบนัสขยัน ก่อนลบเงินสะสม
+      const calculatedDisplayTotal = Math.max(0, displayBasePay + (showOrderAndGas ? displayGas : 0) + (record.diligence_bonus || 0) - displaySavings);
+
+      const displayTotal = isWorking
+        ? calculatedDisplayTotal
+        : (record.total_pay > 0 ? record.total_pay : calculatedDisplayTotal);
+
+      return total + displayTotal;
+    }, 0);
+  }, [filteredRecords, currentTime]);
 
   const handleExportMonthly = async (riderId: string, username: string) => {
     showToast("กำลังเตรียมข้อมูล Export...", "success");
@@ -532,9 +632,13 @@ export default function PayrollPage() {
       const autoGas = getAutoGasAllowance(currentOrders);
       const displayGas = (record.payment_status === 'จ่ายแล้ว' || (record.gas_allowance && record.gas_allowance > 0)) ? record.gas_allowance : autoGas;
 
-      const displayTotal = isWorking 
-        ? Math.max(0, displayBasePay + (showOrderAndGas ? displayGas : 0) - (record.accumulated_savings || 0))
-        : (record.total_pay || 0);
+      const isPaid = record.payment_status === 'จ่ายแล้ว';
+      const displaySavings = isPaid ? (record.accumulated_savings || 0) : (record.accumulated_savings ?? 50);
+      const calculatedDisplayTotal = Math.max(0, displayBasePay + (showOrderAndGas ? displayGas : 0) + (record.diligence_bonus || 0) - displaySavings);
+
+      const displayTotal = isWorking
+        ? calculatedDisplayTotal
+        : (record.total_pay > 0 ? record.total_pay : calculatedDisplayTotal);
 
       return [
         record.profiles?.username || 'N/A',
@@ -545,7 +649,7 @@ export default function PayrollPage() {
         displayBasePay.toFixed(2),
         showOrderAndGas ? displayGas : 0,
         record.diligence_bonus || 0,
-        record.accumulated_savings || 0,
+        displaySavings,
         displayTotal.toFixed(2),
         record.payment_status || 'รอชำระ',
         record.payment_slip_url || 'N/A',
@@ -613,6 +717,12 @@ export default function PayrollPage() {
               className="w-full md:w-64 p-3 bg-transparent border-none outline-none text-sm font-bold text-slate-700"
             />
           </div>
+          <button
+              onClick={openWageModal}
+              className="p-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-600 outline-none hover:bg-slate-50 active:scale-95 shadow-sm transition-all flex items-center gap-2"
+          >
+              <Settings size={16} />
+          </button>
 
           <div className="flex items-center w-full md:w-auto gap-3">
             <label className="text-xs font-black text-slate-500 uppercase tracking-wide flex items-center gap-1.5 shrink-0">
@@ -632,6 +742,25 @@ export default function PayrollPage() {
             </button>
           </div>
         </div>
+
+        {!loading && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-3xl p-6 flex items-center justify-between shadow-sm animate-in fade-in duration-300">
+              <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center">
+                      <PiggyBank size={24} className="text-emerald-600"/>
+                  </div>
+                  <div>
+                      <h2 className="text-sm font-black text-emerald-800 uppercase tracking-wide">ยอดรวมที่ต้องจ่ายวันนี้</h2>
+                      <p className="text-slate-500 text-xs font-bold">จากพนักงาน {filteredRecords.length} คน (ที่แสดงผล)</p>
+                  </div>
+              </div>
+              <div className="text-right">
+                  <div className="text-4xl font-black text-emerald-600 tracking-tighter">
+                      ฿{Math.round(totalPayroll).toLocaleString()}
+                  </div>
+              </div>
+          </div>
+        )}
 
         {/* Data List */}
         {loading ? (
@@ -659,19 +788,25 @@ export default function PayrollPage() {
                 displayMinutes = Math.floor((currentTime.getTime() - checkInTime) / 60000);
               }
 
-              const showOrderAndGas = record.profiles?.role !== 'kitchen';              const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
+              const showOrderAndGas = record.profiles?.role !== 'kitchen';
+              // Use the profile's hourly rate, otherwise fallback
+              const currentRate = record.profiles?.hourly_rate || 40;
+              const displayBasePay = (displayMinutes / 60) * currentRate;
+
+              const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
               const autoGas = getAutoGasAllowance(currentOrders);
               const displayGas = (isPaid || (record.gas_allowance && record.gas_allowance > 0)) ? record.gas_allowance : autoGas;
 
-              let currentRate = 40;
-              if ((record.base_pay || 0) > 0 && (record.total_minutes || 0) > 0) {
-                currentRate = (record.base_pay / record.total_minutes) * 60;
-              }
-              const displayBasePay = (displayMinutes / 60) * currentRate;
-              
-              const displayTotal = isWorking 
-                ? Math.max(0, displayBasePay + (showOrderAndGas ? displayGas : 0) - (record.accumulated_savings || 0))
-                : (record.total_pay || 0);
+              // 🌟 เปลี่ยนบรรทัด displaySavings ตรงนี้
+              const displaySavings = (isPaid || record.total_pay > 0) 
+                ? (record.accumulated_savings || 0) 
+                : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? 50 : record.accumulated_savings);
+
+              const calculatedDisplayTotal = Math.max(0, displayBasePay + (showOrderAndGas ? displayGas : 0) + (record.diligence_bonus || 0) - displaySavings);
+
+              const displayTotal = isWorking
+                ? calculatedDisplayTotal
+                : (record.total_pay > 0 ? record.total_pay : calculatedDisplayTotal);
               
               return (
                 <div key={record.id} className={`bg-white rounded-3xl px-5 pb-5 pt-8 border ${isWorking ? 'border-amber-200 shadow-sm shadow-amber-500/10' : isPaid ? 'border-emerald-200 shadow-sm shadow-emerald-500/10' : 'border-slate-200 shadow-sm'} transition-all hover:shadow-md relative overflow-hidden`}>
@@ -768,6 +903,7 @@ export default function PayrollPage() {
                     <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
                       <Clock size={14} className="text-blue-500 shrink-0"/> 
                       <span>{displayMinutes >= 60 ? `${Math.floor(displayMinutes / 60)} ชม. ${displayMinutes % 60} นาที` : `${displayMinutes} นาที`}</span> 
+                      <span className="text-slate-400 text-[10px]">(@{currentRate}/ชม.)</span>
                     </div>
                     
                     {showOrderAndGas && (
@@ -786,13 +922,13 @@ export default function PayrollPage() {
 
                   <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100 mb-5 flex justify-between text-xs font-bold text-slate-600 relative z-10">
                     <div className="flex items-center gap-1.5"><Trophy size={14} className="text-amber-500"/> โบนัสวันนี้: <span className="text-amber-600">฿{(record.diligence_bonus || 0).toLocaleString()}</span></div>
-                    <div className="flex items-center gap-1.5"><PiggyBank size={14} className="text-indigo-500"/> สะสมวันนี้: <span className="text-indigo-600">฿{(record.accumulated_savings || 0).toLocaleString()}</span></div>
+                    <div className="flex items-center gap-1.5"><PiggyBank size={14} className="text-indigo-500"/> สะสมวันนี้: <span className="text-indigo-600">฿{displaySavings.toLocaleString()}</span></div>
                   </div>
 
                   <div className="flex items-stretch gap-2 relative z-10">
                     <button 
                       onClick={() => openEditModal(record)}
-                      className={`flex-grow py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer
+                      className={`grow py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer
                         ${isWorking ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 
                           isPaid ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 
                           'bg-slate-900 text-white hover:bg-blue-600 hover:shadow-lg hover:shadow-blue-500/30'}`}
@@ -803,7 +939,7 @@ export default function PayrollPage() {
                     <button
                       onClick={() => handleExportMonthly(record.rider_id, record.profiles?.username || 'unknown')}
                       title="Export รายงานรายเดือน"
-                      className="flex-shrink-0 px-3 bg-white border border-slate-200 text-slate-500 rounded-xl hover:bg-slate-50 active:scale-95 transition-all flex items-center justify-center"
+                      className="shrink-0 px-3 bg-white border border-slate-200 text-slate-500 rounded-xl hover:bg-slate-50 active:scale-95 transition-all flex items-center justify-center"
                     >
                         <Download size={18} />
                     </button>
@@ -1025,14 +1161,14 @@ export default function PayrollPage() {
                   <div>
                     <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide items-center gap-1"><Trophy size={12}/> โบนัสขยัน</label>
                     <div className="flex items-center gap-1 mb-1">
-                      <button type="button" onClick={() => setEditForm(p => ({...p, diligence_bonus: Math.max(0, p.diligence_bonus - 50)}))} className="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-rose-50 text-rose-500 active:scale-95"><Minus size={14}/></button>
+                      <button type="button" onClick={() => setEditForm(p => ({...p, diligence_bonus: Math.max(0, p.diligence_bonus - 50), manual_total: null}))} className="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-rose-50 text-rose-500 active:scale-95"><Minus size={14}/></button>
                       <input 
                         type="number" min="0" 
                         value={editForm.diligence_bonus}
-                        onChange={e => setEditForm({...editForm, diligence_bonus: Number(e.target.value)})}
+                        onChange={e => setEditForm({...editForm, diligence_bonus: Number(e.target.value), manual_total: null})}
                         className="w-full p-2 bg-white border border-amber-200 rounded-lg text-sm text-center font-black text-amber-600 outline-none focus:ring-2 focus:ring-amber-500 shadow-sm"
                       />
-                      <button type="button" onClick={() => setEditForm(p => ({...p, diligence_bonus: p.diligence_bonus + 50}))} className="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-emerald-50 text-emerald-500 active:scale-95"><Plus size={14}/></button>
+                      <button type="button" onClick={() => setEditForm(p => ({...p, diligence_bonus: p.diligence_bonus + 50, manual_total: null}))} className="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-emerald-50 text-emerald-500 active:scale-95"><Plus size={14}/></button>
                     </div>
                   </div>
 
@@ -1111,47 +1247,102 @@ export default function PayrollPage() {
         </div>
       )}
 
-      {/* 🌟 Modal: แสดงรูปภาพแบบเต็มจอพร้อมระบบซูมเลื่อนได้ (ใช้ดูได้ทั้งสลิปและรูปถ่ายบัตร) */}
-      {viewSlip && (
-        <div 
-          className="fixed inset-0 z-200 flex items-center justify-center bg-slate-900/95 backdrop-blur-md p-4 animate-in fade-in duration-200"
-          onClick={() => { setViewSlip(null); setIsZoomed(false); }}
-        >
-          <button 
-            className="absolute top-6 right-6 text-white hover:text-slate-300 z-210 bg-white/10 p-2 rounded-full backdrop-blur-sm transition-colors cursor-pointer"
-            onClick={(e) => { e.stopPropagation(); setViewSlip(null); setIsZoomed(false); }}
-          >
-            <X size={24} />
-          </button>
-          
-          <div className="absolute top-6 left-6 text-white/50 text-xs font-bold bg-white/5 px-3 py-1.5 rounded-full backdrop-blur-sm z-210 pointer-events-none">
-            คลิกที่รูปภาพเพื่อ {isZoomed ? 'ย่อรูป' : 'ซูมรูป'}
-          </div>
 
-          <div 
-            className="relative w-full h-full flex overflow-auto p-4 md:p-10 thin-scrollbar"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img 
-              src={viewSlip} 
-              alt="Full View" 
-              className={`transition-all duration-300 rounded-2xl m-auto shadow-2xl ${isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'}`}
-              style={{ 
-                maxHeight: isZoomed ? 'none' : '100%', 
-                maxWidth: isZoomed ? 'none' : '100%',
-                width: isZoomed ? '250%' : 'auto',
-                objectFit: 'contain'
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsZoomed(!isZoomed);
-              }}
-            />
-          </div>
-        </div>
-      )}
+            {/* 🌟 Modal: แสดงรูปภาพแบบเต็มจอพร้อมระบบซูมเลื่อนได้ (ใช้ดูได้ทั้งสลิปและรูปถ่ายบัตร) */}
+            {viewSlip && (
+              <div 
+                className="fixed inset-0 z-200 flex items-center justify-center bg-slate-900/95 backdrop-blur-md p-4 animate-in fade-in duration-200"
+                onClick={() => { setViewSlip(null); setIsZoomed(false); }}
+              >
+                <button 
+                  className="absolute top-6 right-6 text-white hover:text-slate-300 z-210 bg-white/10 p-2 rounded-full backdrop-blur-sm transition-colors cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); setViewSlip(null); setIsZoomed(false); }}
+                >
+                  <X size={24} />
+                </button>
 
-    </div>
-  );
-}
+                <div className="absolute top-6 left-6 text-white/50 text-xs font-bold bg-white/5 px-3 py-1.5 rounded-full backdrop-blur-sm z-210 pointer-events-none">
+                  คลิกที่รูปภาพเพื่อ {isZoomed ? 'ย่อรูป' : 'ซูมรูป'}
+                </div>
+
+                <div 
+                  className="relative w-full h-full flex overflow-auto p-4 md:p-10 thin-scrollbar"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img 
+                    src={viewSlip} 
+                    alt="Full View" 
+                    className={`transition-all duration-300 rounded-2xl m-auto shadow-2xl ${isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'}`}
+                    style={{ 
+                      maxHeight: isZoomed ? 'none' : '100%', 
+                      maxWidth: isZoomed ? 'none' : '100%',
+                      width: isZoomed ? '250%' : 'auto',
+                      objectFit: 'contain'
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsZoomed(!isZoomed);
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Modal: ตั้งค่าค่าแรง */}
+            {isWageModalOpen && (
+              <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-60 animate-in fade-in duration-200">
+                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
+                  <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-800 text-white shrink-0">
+                    <h3 className="text-lg font-black flex items-center gap-2">
+                      <Settings size={20} className="text-blue-400" /> ตั้งค่าค่าแรงพนักงาน
+                    </h3>
+                    <button onClick={() => setIsWageModalOpen(false)} className="hover:bg-white/20 p-2 rounded-full transition-colors cursor-pointer active:scale-95">
+                      <X size={20} />
+                    </button>
+                  </div>
+
+                  <div className="p-6 space-y-3 overflow-y-auto thin-scrollbar">
+                    {profilesForWageEdit.map((profile, index) => (
+                      <div key={profile.id} className="flex items-center justify-between gap-4 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                        <span className="font-bold text-slate-700 text-sm">{profile.username}</span>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            value={profile.hourly_rate}
+                            onChange={(e) => {
+                              const newProfiles = [...profilesForWageEdit];
+                              newProfiles[index].hourly_rate = Number(e.target.value);
+                              setProfilesForWageEdit(newProfiles);
+                            }}
+                            className="w-24 p-2 bg-white border border-slate-200 rounded-lg text-sm font-black text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm text-center"
+                          />
+                          <span className="text-sm font-bold text-slate-500">บาท/ชม.</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="p-6 border-t border-slate-200 bg-white/50 backdrop-blur-sm flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsWageModalOpen(false)}
+                      className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors cursor-pointer text-sm"
+                    >
+                      ยกเลิก
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveWages}
+                      disabled={isSaving}
+                      className="flex-[1.5] py-3 bg-slate-900 text-emerald-400 font-black rounded-xl hover:bg-slate-800 transition-all cursor-pointer shadow-lg active:scale-95 disabled:bg-slate-300 disabled:text-slate-500 text-sm flex justify-center items-center gap-2"
+                    >
+                      {isSaving ? "กำลังบันทึก..." : <><Save size={18}/> บันทึกค่าแรง</>}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }

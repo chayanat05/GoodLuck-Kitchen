@@ -146,8 +146,15 @@ export default function MonthlyPayrollPage() {
             payment_status: "รอชำระ"
           };
         }
+        // 🌟 รวมยอดโบนัสขยัน
         summaryMap[rId].total_bonus += (Number(record.diligence_bonus) || 0);
-        summaryMap[rId].total_savings += (Number(record.accumulated_savings) || 0);
+        
+        // 🌟 รวมยอดเงินเก็บ: ถ้าฐานข้อมูลเป็น null ให้ปัดเป็น 50 อัตโนมัติ (ให้ตรงกับหน้ารายวัน)
+        const dailySavings = (record.accumulated_savings === null || record.accumulated_savings === undefined) 
+          ? 50 
+          : Number(record.accumulated_savings);
+          
+        summaryMap[rId].total_savings += dailySavings;
       });
 
       if (paymentData) {
