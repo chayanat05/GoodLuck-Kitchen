@@ -30,7 +30,8 @@ import {
   Calendar,
   RefreshCw,
   Camera,
-  Loader2
+  Loader2,
+  Search,
 } from "lucide-react";
 import { Order } from "../../components/OrderCard";
 import { User as SupabaseUser, RealtimeChannel } from "@supabase/supabase-js";
@@ -63,6 +64,9 @@ interface Branch {
   lng: number;
   cut_off_hour: number;
 }
+
+interface SavedLocation { id: string; name: string; lat: number; lng: number; address?: string; }
+interface UnifiedSearchResult { type: string; name: string; address?: string; lat?: number; lng?: number; distanceText?: string; place_id?: string; }
 
 interface ActiveAttendance {
   id: string;
@@ -125,6 +129,14 @@ export default function RiderPage() {
   // 🌟 State สำหรับระบบตอกบัตร
   const [activeAttendance, setActiveAttendance] = useState<ActiveAttendance | null>(null);
   const [showCameraModal, setShowCameraModal] = useState(false);
+
+  // 🌟 State สำหรับระบบค้นหาหอพัก
+  const [locationSearchQuery, setLocationSearchQuery] = useState("");
+  const [unifiedResults, setUnifiedResults] = useState<UnifiedSearchResult[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const dbTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const googleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const [cameraAction, setCameraAction] = useState<'in' | 'out'>('in');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -831,6 +843,89 @@ export default function RiderPage() {
     showAlert("ขออภัย", "ออเดอร์นี้ไม่มีทั้งลิงก์แผนที่และไม่มีการระบุสถานที่ครับ", "error"); 
   };
 
+  // 🌟 ฟังก์ชันค้นหาหอพัก (ค้นทั้งในฐานข้อมูลร้าน และ Google Maps)
+  const handleLocationSearch = (text: string) => {
+    setLocationSearchQuery(text);
+    if (dbTimeoutRef.current) clearTimeout(dbTimeoutRef.current);
+    if (googleTimeoutRef.current) clearTimeout(googleTimeoutRef.current);
+    
+    if (text.trim().length < 2) {
+      setUnifiedResults([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    dbTimeoutRef.current = setTimeout(async () => {
+      const { data: storeData } = await supabase.from("saved_locations").select("*").ilike("name", `%${text}%`).limit(5);
+      let storeResults: UnifiedSearchResult[] = [];
+      if (storeData && storeData.length > 0) {
+        storeResults = (storeData as SavedLocation[]).map((loc) => ({
+          type: "store" as const,
+          name: loc.name,
+          address: loc.address || "หมุดบันทึก",
+          lat: loc.lat,
+          lng: loc.lng,
+          distanceText: myLocation ? `${getDistanceFromLatLonInKm(myLocation.lat, myLocation.lng, loc.lat, loc.lng).toFixed(1)} km` : "",
+        }));
+      }
+      setUnifiedResults(storeResults);
+      setShowSuggestions(storeResults.length > 0);
+    }, 150);
+
+    googleTimeoutRef.current = setTimeout(async () => {
+      if (isLoaded && window.google) {
+        const service = new window.google.maps.places.AutocompleteService();
+        service.getPlacePredictions(
+          {
+            input: text,
+            componentRestrictions: { country: "th" },
+            locationBias: { radius: 20000, center: { lat: shopLocation.lat, lng: shopLocation.lng } },
+          },
+          (predictions, status) => {
+            if (status === window.google.maps.places.PlacesServiceStatus.OK && predictions) {
+              const googleResults = predictions.slice(0, 3).map((p) => ({
+                type: "google" as const,
+                place_id: p.place_id,
+                name: p.structured_formatting.main_text,
+                address: p.structured_formatting.secondary_text || "Google Maps",
+              }));
+              setUnifiedResults((prev) => {
+                const combined = [...prev, ...googleResults];
+                setShowSuggestions(combined.length > 0);
+                return combined;
+              });
+            }
+          }
+        );
+      }
+    }, 1500);
+  };
+
+  // 🌟 ฟังก์ชันเมื่อไรเดอร์กดเลือกสถานที่ ให้เปิด Google Maps นำทางทันที!
+  const selectUnifiedResult = (item: UnifiedSearchResult) => {
+    setShowSuggestions(false);
+    setLocationSearchQuery(""); 
+    
+    const lat = myLocation?.lat || shopLocation.lat;
+    const lng = myLocation?.lng || shopLocation.lng;
+
+    if (item.type === "store" && item.lat && item.lng) {
+      const url = `https://www.google.com/maps/dir/?api=1&origin=${lat},${lng}&destination=${item.lat},${item.lng}&travelmode=driving`;
+      window.open(url, "_blank");
+    } else if (item.type === "google" && item.place_id && isLoaded) {
+      const geocoder = new window.google.maps.Geocoder();
+      geocoder.geocode({ placeId: item.place_id }, (results, status) => {
+        if (status === "OK" && results && results[0]) {
+          const loc = results[0].geometry.location;
+          const url = `https://www.google.com/maps/dir/?api=1&origin=${lat},${lng}&destination=${loc.lat()},${loc.lng()}&travelmode=driving`;
+          window.open(url, "_blank");
+        } else {
+          showAlert("เกิดข้อผิดพลาด", "ไม่สามารถดึงพิกัดจาก Google Maps ได้", "error");
+        }
+      });
+    }
+  };
+
   const handleLogout = () => {
     showConfirm(
       "ออกจากระบบ?", "คุณต้องการออกจากระบบใช่หรือไม่?",
@@ -1129,8 +1224,60 @@ export default function RiderPage() {
           </div>
         </div>
         
-        {/* 🌟 ส่วนแสดงชื่อ */}
+        {/* 🌟 ส่วนแสดงชื่อ และ ช่องค้นหา */}
         <div className="flex items-center gap-2">
+          
+          {/* 🌟 ช่องค้นหาสถานที่ (ไรเดอร์) 🌟 */}
+          <div className="relative">
+            <div className="flex items-center bg-white border-2 border-slate-300 hover:border-slate-400 rounded-full px-2 py-1.5 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 transition-all shadow-inner">
+              <Search size={14} className="text-slate-400 mr-1.5" />
+              <input
+                type="text"
+                placeholder="ค้นหาที่อยู่ / ค้นหาเลขบ้าน /หมู่บ้าน"
+                className="bg-transparent border-none outline-none text-[10px] sm:text-xs w-40 sm:w-56 md:w-72 font-bold text-slate-700 placeholder-slate-400"
+                value={locationSearchQuery}
+                onChange={(e) => handleLocationSearch(e.target.value)}
+                onFocus={() => { if (unifiedResults.length > 0) setShowSuggestions(true); }}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+              />
+              {locationSearchQuery && (
+                <button onClick={() => { setLocationSearchQuery(""); setUnifiedResults([]); setShowSuggestions(false); }} className="text-slate-400 hover:text-rose-500 transition-colors">
+                  <X size={12} strokeWidth={3} />
+                </button>
+              )}
+            </div>
+
+            {/* 🌟 Dropdown ผลลัพธ์ 🌟 */}
+            {showSuggestions && unifiedResults.length > 0 && (
+              <ul className="absolute right-0 top-full mt-2 w-[85vw] max-w-sm max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-2xl shadow-2xl divide-y divide-slate-100 z-50 thin-scrollbar">
+                {unifiedResults.map((item, idx) => (
+                  <li
+                    key={idx}
+                    className="p-3 hover:bg-slate-50 cursor-pointer transition-colors active:bg-slate-100"
+                    onClick={() => selectUnifiedResult(item)}
+                  >
+                    <div className="flex items-center">
+                      {item.type === "store" ? (
+                        <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center mr-3 shrink-0"><Store size={14} className="text-blue-500" /></div>
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-rose-50 flex items-center justify-center mr-3 shrink-0"><MapIcon size={14} className="text-rose-500" /></div>
+                      )}
+                      <div className="flex-1 min-w-0 pr-2">
+                        <div className="font-black text-slate-800 text-sm truncate">{item.name}</div>
+                        <div className="text-[10px] text-slate-500 truncate mt-0.5 font-medium">{item.address}</div>
+                      </div>
+                      {item.distanceText && (
+                        <div className="shrink-0 text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100">
+                          {item.distanceText}
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           <div className="bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full text-[10px] font-black tracking-wide text-slate-600 shadow-inner truncate max-w-25">
             {riderName}
           </div>
