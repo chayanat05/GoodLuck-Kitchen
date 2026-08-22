@@ -46,6 +46,7 @@ import {
   Loader2,
   Clock,
   Globe,
+  RefreshCw,
 } from "lucide-react";
 
 import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from '@react-google-maps/api';
@@ -595,7 +596,7 @@ const unlockOrder = (orderId: string) => {
       setIsMounted(true);
       fetchOrdersAndLocations();
       
-      if (profile.role === 'admin' || profile.role === 'superadmin') {
+      if (profile.role === 'admin' || profile.role === 'superadmin' || profile.role === 'kitchen') {
         fetchAllBranchesTodaysOrders();
       }
     };
@@ -646,7 +647,7 @@ const unlockOrder = (orderId: string) => {
       supabase.removeChannel(orderChannel);
       supabase.removeChannel(syncChannel);
     };
-  }, [fetchOrdersAndLocations, showToast, currentBranchId, playSound]);
+  }, [fetchOrdersAndLocations, showToast, currentBranchId, playSound, fetchAllBranchesTodaysOrders]);
 
   useEffect(() => {
     if (showRiderMap && currentBranchId) {
@@ -776,8 +777,26 @@ const unlockOrder = (orderId: string) => {
   const submitAttendance = async () => {
     if (!photoFile || !currentUser || !currentBranchId) return;
 
+    // 🌟 เริ่ม: เช็คระยะทาง 100 เมตรก่อนให้ถ่ายรูปเข้า/ออกงาน
+    if (!myLocation) {
+      showAlert("แจ้งเตือน", "กำลังค้นหาตำแหน่งของคุณ กรุณารอสักครู่...", "warning");
+      return;
+    }
+
+    const distanceToShop = calculateDistance(myLocation.lat, myLocation.lng, SHOP_LAT, SHOP_LNG) * 1000; // แปลงเป็นเมตร
+
+    if (distanceToShop > 100) {
+      showAlert(
+        "อยู่ไกลจากร้านเกินไป ❌", 
+        `ต้องอยู่ในรัศมี 100 เมตรจากร้านเพื่อถ่ายรูปเข้า/ออกงาน\n(ตอนนี้คุณอยู่ห่าง ${Math.round(distanceToShop)} เมตร)`, 
+        "error"
+      );
+      return;
+    }
+    // 🌟 จบ: เช็คระยะทาง
+
     setIsProcessingAttendance(true);
-    const showAlert = (title: string, message: string, icon: "success" | "error" | "warning" | "info" = "info") => {
+    const showAlertMessage = (title: string, message: string, icon: "success" | "error" | "warning" | "info" = "info") => {
       if (icon === "success") {
         toast.success(title, { description: message });
       } else if (icon === "error") {
@@ -806,7 +825,7 @@ const unlockOrder = (orderId: string) => {
 
         if (error) throw error;
         setActiveAttendance(data as ActiveAttendance);
-        showAlert("เข้างานสำเร็จ!", "ถ่ายรูปเข้างานเรียบร้อย ลุยเลย! 🚀", "success");
+        showAlertMessage("เข้างานสำเร็จ!", "ถ่ายรูปเข้างานเรียบร้อย ลุยเลย! 🚀", "success");
       } else {
         if (!activeAttendance) return;
         const now = new Date();
@@ -821,7 +840,7 @@ const unlockOrder = (orderId: string) => {
 
         if (error) throw error;
         setActiveAttendance(null);
-        showAlert("เลิกงานสำเร็จ!", "ถ่ายรูปออกงานเรียบร้อย พักผ่อนได้! 🌙", "success");
+        showAlertMessage("เลิกงานสำเร็จ!", "ถ่ายรูปออกงานเรียบร้อย พักผ่อนได้! 🌙", "success");
       }
       
       setShowCameraModal(false);
@@ -829,7 +848,7 @@ const unlockOrder = (orderId: string) => {
       setPhotoPreview(null);
     } catch (err: unknown) {
       console.error(err);
-      showAlert("เกิดข้อผิดพลาด", "ไม่สามารถบันทึกข้อมูลการถ่ายรูปได้", "error");
+      showAlertMessage("เกิดข้อผิดพลาด", "ไม่สามารถบันทึกข้อมูลการถ่ายรูปได้", "error");
     } finally {
       setIsProcessingAttendance(false);
     }
@@ -1565,6 +1584,69 @@ const unlockOrder = (orderId: string) => {
         </div>
       </div>
     );
+  
+  // 🌟🌟🌟🌟🌟 หน้าจอแจ้งเตือนและสอนวิธีเปิด GPS สำหรับแม่ครัว 🌟🌟🌟🌟🌟
+  if (currentUserRole === 'kitchen' && gpsEnabled === false) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 text-center text-slate-800 font-sans z-50 absolute inset-0">
+        <div className="bg-white p-6 md:p-8 rounded-4xl shadow-2xl border border-slate-200 max-w-md w-full animate-in zoom-in-95 duration-500">
+          <div className="w-20 h-20 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+            <MapPin size={40} className="text-rose-500 animate-bounce" />
+          </div>
+          <h2 className="text-2xl font-black mb-2 text-slate-800 tracking-tight">ระบบต้องการพิกัด GPS 📍</h2>
+          <p className="text-sm text-slate-500 font-medium mb-6 leading-relaxed">
+            คุณจำเป็นต้องอนุญาตตำแหน่งที่ตั้ง (Location)<br/>
+            เพื่อตรวจสอบรัศมี 100 เมตรในการถ่ายรูปเข้า/ออกงานครับ
+          </p>
+
+          {/* 🌟 กล่องคำแนะนำที่อัปเดตใหม่ 🌟 */}
+          <div className="bg-slate-50 rounded-3xl p-5 text-left border border-slate-200 mb-6 shadow-inner">
+            <h3 className="font-black text-slate-700 text-sm mb-3 border-b border-slate-200 pb-2">🛠️ วิธีแก้ไข (ทำตามขั้นตอนนี้นะครับ)</h3>
+            
+            <div className="mb-4 bg-amber-50 p-3 rounded-xl border border-amber-200 text-amber-800 text-xs font-bold leading-relaxed">
+              ⚠️ <span className="font-black">สำคัญ:</span> ลำดับแรก เช็คให้ชัวร์ก่อนว่าคุณได้เปิดใช้งานตำแหน่งที่ตั้ง (GPS) แล้วหรือยัง <span className="text-amber-600 font-black">&quot;หมายเหตุ: คุณต้องเปิดใช้งานตำแหน่งที่ตั้ง (GPS) บนอุปกรณ์ของคุณก่อน&quot;</span> 
+            </div>
+
+            <div className="mb-5">
+              <div className="font-black text-blue-600 text-sm flex items-center gap-1.5 mb-2">
+                <Globe size={16} /> ถ้าใช้ iPhone (Safari)
+              </div>
+              <ol className="text-xs text-slate-600 list-decimal pl-4 space-y-1.5 font-medium">
+                <li>สังเกตแถบที่อยู่เว็บด้านล่าง แตะที่ตัวอักษร <span className="font-black text-slate-800">กA</span> หรือ <span className="font-black text-slate-800">aA</span></li>
+                <li>เลือกเมนู <span className="font-black text-slate-800">การตั้งค่าเว็บไซต์</span> (Website Settings)</li>
+                <li>ตรงคำว่าตำแหน่งที่ตั้ง ให้กดเปลี่ยนเป็น <span className="font-black text-blue-600">อนุญาต (Allow)</span></li>
+              </ol>
+            </div>
+
+            <div>
+              <div className="font-black text-emerald-600 text-sm flex items-center gap-1.5 mb-2">
+                <Lock size={16} /> ถ้าใช้ Android (Chrome)
+              </div>
+              <ol className="text-xs text-slate-600 list-decimal pl-4 space-y-1.5 font-medium">
+                <li>แตะที่รูป <span className="font-black text-slate-800">แม่กุญแจ 🔒</span> หรือ <span className="font-black text-slate-800">สัญลักษณ์ตั้งค่า</span> ข้างๆ ชื่อเว็บด้านบน</li>
+                <li>เลือกเมนู <span className="font-black text-slate-800">สิทธิ์</span> (Permissions)</li>
+                <li>กดเปิดสวิตช์อนุญาตตรงคำว่า <span className="font-black text-emerald-600">ตำแหน่ง (Location)</span></li>
+              </ol>
+            </div>
+          </div>
+
+          <button
+            onClick={() => window.location.reload()}
+            className="w-full py-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl font-black shadow-xl shadow-slate-900/20 transition-all active:scale-95 text-base uppercase tracking-widest flex justify-center items-center gap-2"
+          >
+            <RefreshCw size={18} /> รีเฟรชหน้าจออีกครั้ง
+          </button>
+          
+          <button
+            onClick={handleLogoutRequest}
+            className="w-full py-3 mt-3 bg-transparent text-rose-500 rounded-2xl font-bold transition-all active:scale-95 text-sm"
+          >
+            ออกจากระบบ
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1633,7 +1715,7 @@ const unlockOrder = (orderId: string) => {
             )}
 
             {/* All branches today's total for admins */}
-            {(currentUserRole === 'admin' || currentUserRole === 'superadmin') && allBranchesTodaysTotal > 0 && (
+            {(currentUserRole === 'admin' || currentUserRole === 'superadmin' || currentUserRole === 'kitchen') && allBranchesTodaysTotal > 0 && (
               <div className="flex items-center gap-2 text-sm md:text-base text-rose-700 font-bold bg-rose-50 border border-rose-200 rounded-xl px-3 py-1.5 shadow-sm ml-2">
                 <Globe size={14} className="animate-pulse" />
                 รวมทุกสาขา:{" "}
@@ -1653,11 +1735,11 @@ const unlockOrder = (orderId: string) => {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="ค้นหาบิล, ที่อยู่, ไรเดอร์..."
-                className="w-full sm:w-48 md:w-64 bg-slate-50 border-slate-200 border rounded-xl py-1.5 pl-9 pr-3 text-sm font-medium text-slate-700 transition-all duration-300 focus:bg-white focus:shadow-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                className="w-full sm:w-48 md:w-64 bg-white border-slate-300 border-2 rounded-xl py-1.5 pl-9 pr-3 text-sm font-bold text-slate-800 transition-all duration-300 hover:border-slate-400 focus:bg-white focus:shadow-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder-slate-400 shadow-sm"
               />
             </div>
             
-            {(currentUserRole === "admin" || currentUserRole === 'superadmin' || currentUserRole === 'kitchen') && (
+            {(currentUserRole === "admin" || currentUserRole === 'superadmin' ) && (
               <button
                 onClick={() => setShowRiderMap(true)}
                 className="w-full sm:w-auto px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-sm font-bold rounded-xl hover:bg-indigo-100 transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
@@ -3288,7 +3370,7 @@ const unlockOrder = (orderId: string) => {
 
       {/* Rider Selection Modal */}
       {riderModalOrder && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300 z-[200]">
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300 z-200">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col max-h-[80vh]">
             <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white sticky top-0 z-10">
               <div className="flex items-center gap-3">

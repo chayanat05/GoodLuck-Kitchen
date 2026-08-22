@@ -154,10 +154,9 @@ export default function MonthlyPayrollPage() {
           ? 50 
           : Number(record.accumulated_savings);
           
-        summaryMap[rId].total_savings += dailySavings;
-      });
-
-      if (paymentData) {
+        summaryMap[rId].total_savings += dailySavings;     });
+        
+        if (paymentData) {
         const typedPaymentData = paymentData as unknown as RawPayment[];
         typedPaymentData.forEach((pay) => {
           if (summaryMap[pay.rider_id]) {
