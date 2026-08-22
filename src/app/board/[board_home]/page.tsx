@@ -2720,7 +2720,23 @@ const unlockOrder = (orderId: string) => {
                     </div>
                   </div>
                 </div>
+                
               )}
+              {/* 🌟 ปุ่มสร้างออเดอร์ สำหรับมือถือและแท็บเล็ต (จะซ่อนบนจอคอมเพราะมีฝั่งขวาแล้ว) 🌟 */}
+              <div className="mt-8 pb-4 block lg:hidden">
+                <button
+                  type="submit"
+                  form="orderForm"
+                  disabled={isUploading}
+                  className="w-full bg-blue-600 text-white font-black py-4 rounded-2xl hover:bg-blue-500 transition-all duration-300 flex justify-center items-center cursor-pointer text-base uppercase tracking-widest disabled:bg-slate-700 disabled:text-slate-400 active:scale-95 shadow-lg shadow-blue-500/30"
+                >
+                  {isUploading
+                    ? "กำลังจัดเก็บข้อมูล..."
+                    : editingId
+                      ? "บันทึกการแก้ไข"
+                      : "สร้างออเดอร์"}
+                </button>
+              </div>
             </form>
             </div>
 
