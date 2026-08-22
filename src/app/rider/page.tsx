@@ -98,7 +98,7 @@ export default function RiderPage() {
   const [activeTab, setActiveTab] = useState<"available" | "jobs" | "history">("available");
   
   const [selectedViewOrder, setSelectedViewOrder] = useState<RiderOrder | null>(null);
-  const [isCompact, setIsCompact] = useState<boolean>(false);
+  const [isCompact] = useState<boolean>(false);
   const [imageGallery, setImageGallery] = useState<{ urls: string[]; startIndex: number } | null>(null);
   const [imgScale, setImgScale] = useState(1);
   const galleryRef = useRef<HTMLDivElement>(null);
@@ -439,7 +439,7 @@ export default function RiderPage() {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [currentUser, fetchOrdersAndBranches]);
+  }, [currentUser, currentUserRole, fetchOrdersAndBranches]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -863,10 +863,16 @@ export default function RiderPage() {
     if (now.getHours() < cutOffHour) { shiftStart.setDate(shiftStart.getDate() - 1); }
     shiftStart.setHours(cutOffHour, 0, 0, 0);
 
-    return completedOrders.filter((order) => {
-      const orderDate = new Date(order.end_time || order.created_at);
-      return orderDate >= shiftStart;
-    });
+    return completedOrders
+      .filter((order) => {
+        const orderDate = new Date(order.end_time || order.created_at);
+        return orderDate >= shiftStart;
+      })
+      .sort((a: RiderOrder, b: RiderOrder) => {
+        const timeA = new Date(a.end_time || a.created_at).getTime();
+        const timeB = new Date(b.end_time || b.created_at).getTime();
+        return timeB - timeA;
+      });
   }, [completedOrders, cutOffHour]);
 
   const getRiderStatusDisplay = (status: string) => {
@@ -1154,9 +1160,6 @@ export default function RiderPage() {
               <h2 className="font-black text-slate-800 text-lg flex items-center">
                 งานว่าง <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] rounded-md shadow-sm">{availableOrders.length}</span>
               </h2>
-              <button onClick={() => setIsCompact(!isCompact)} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black text-slate-600 hover:text-blue-600 transition-all active:scale-95 shadow-sm cursor-pointer">
-                {isCompact ? <ZoomIn size={12} className="text-blue-600" /> : <ZoomOut size={12} className="text-blue-600" />} {isCompact ? "ซูมเข้า" : "ซูมออก"}
-              </button>
             </div>
 
             {/* 🌟 บังคับตอกบัตรก่อนเห็นงานว่าง (แอดมินดูได้เลย) */}
@@ -1201,9 +1204,6 @@ export default function RiderPage() {
                   {activeOrders.length} / {orderLimit}
                 </span>
               </h2>
-              <button onClick={() => setIsCompact(!isCompact)} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black text-slate-600 hover:text-blue-600 transition-all active:scale-95 shadow-sm cursor-pointer">
-                {isCompact ? <ZoomIn size={12} className="text-blue-600" /> : <ZoomOut size={12} className="text-blue-600" />} {isCompact ? "ซูมเข้า" : "ซูมออก"}
-              </button>
             </div>
 
             {activeOrders.length === 0 ? (
