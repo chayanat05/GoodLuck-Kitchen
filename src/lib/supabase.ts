@@ -17,7 +17,14 @@ const customFetch = (url: RequestInfo | URL, options?: RequestInit) => {
 };
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  // 🌟 1. ตั้งค่า Fetch เดิมของคุณปลั๊ก (กัน Cache)
   global: {
     fetch: customFetch as typeof fetch
+  },
+  // 🌟 2. เพิ่มการตั้งค่า Auth ตรงนี้ เพื่อให้จำการล็อกอินถาวร!
+  auth: {
+    persistSession: true,     // บังคับจำลง LocalStorage
+    autoRefreshToken: true,   // ต่ออายุ Token ให้เรื่อยๆ ก่อนจะหมดอายุ
+    detectSessionInUrl: true, 
   }
 })
