@@ -47,6 +47,7 @@ import {
   Clock,
   Globe,
   RefreshCw,
+  Banknote,
 } from "lucide-react";
 
 import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from '@react-google-maps/api';
@@ -1833,6 +1834,18 @@ const unlockOrder = (orderId: string) => {
                 ตารางงาน (Schedule)
               </Link>
 
+              <div className="h-px bg-slate-100 my-2"></div>
+              <Link
+                href={`/board/${branchSlug}/cash`}
+                prefetch={false}
+                className="w-full flex items-center p-4 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 rounded-2xl transition-all font-bold border border-transparent hover:border-emerald-100 group"
+              >
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                  <Banknote size={20} className="text-emerald-600" />
+                </div>
+                เคลียร์ยอดเงินสด (ไรเดอร์)
+              </Link>
+              
               <div className="h-px bg-slate-100 my-2"></div>
               {(currentUserRole === "admin" || currentUserRole === "superadmin") && (
                 <>
