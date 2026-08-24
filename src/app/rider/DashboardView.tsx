@@ -4,30 +4,33 @@ import {
   ArrowLeft, LayoutDashboard, CheckCircle2, 
   MapPinned, X, ClipboardList,
   ImageIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Calendar, CalendarDays,
-  Banknote, Coins, Clock, Package, Trophy, PiggyBank, Fuel 
+  Banknote, Coins, Clock, Package, Trophy, PiggyBank, Fuel, Landmark
 } from 'lucide-react';
 import { Order } from '../../components/OrderCard';
 import Image from 'next/image';
 import { supabase } from '../../lib/supabase'; 
 
-const getCycleDetails = () => {
+// 🌟 1. แก้ไขระบบตัดรอบเดือนให้ตรงกับเวลาเปิดร้าน
+const getCycleDetails = (businessDayStart: string) => {
   const now = new Date();
-  const startDate = new Date(now);
-  if (now.getDate() >= 26) {
-    startDate.setDate(26);
-  } else {
-    startDate.setMonth(startDate.getMonth() - 1);
-    startDate.setDate(26);
+  const year = now.getFullYear();
+  const month = now.getMonth(); 
+  const date = now.getDate();
+  const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
+
+  let cycleEndMonth = month;
+  const cycleEndYear = year; // เปลี่ยน let เป็น const
+  
+  if (date > 26 || (date === 26 && (now.getHours() > bizHour || (now.getHours() === bizHour && now.getMinutes() >= bizMin)))) {
+    cycleEndMonth = month + 1;
   }
-  startDate.setHours(0, 0, 0, 0);
-  const endDate = new Date(startDate);
-  endDate.setMonth(endDate.getMonth() + 1);
-  endDate.setDate(25);
-  endDate.setHours(23, 59, 59, 999);
-  return { startDateStr: startDate.toISOString(), endDateStr: endDate.toISOString() };
+  
+  const startOfCycle = new Date(cycleEndYear, cycleEndMonth - 1, 26, bizHour, bizMin, 0, 0);
+  const endOfCycle = new Date(cycleEndYear, cycleEndMonth, 26, bizHour, bizMin, 0, 0);
+
+  return { startDateStr: startOfCycle.toISOString(), endDateStr: endOfCycle.toISOString() };
 };
 
-// 🌟 เพิ่มฟังก์ชันแปลงวันที่แบบไทย (กันบัค Timezone)
 const getLocalYMD = (date: Date) => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -61,6 +64,21 @@ interface AttendanceRecord {
   payment_status?: string | null; 
   total_pay?: number | null;      
   payment_slip_url?: string | null;
+  diligence_bonus?: number | null;
+  accumulated_savings?: number | null;
+  gas_allowance?: number | null;
+}
+
+// 🌟 เพิ่ม Interface สำหรับประวัติรายเดือน
+interface MonthlyPaymentRecord {
+  id: string;
+  month_key: string;
+  total_amount: number;
+  total_bonus: number;
+  total_savings: number;
+  status: string;
+  slip_url: string;
+  paid_at: string;
 }
 
 type FilterMode = 'today' | 'yesterday' | 'date' | 'month' | 'all';
@@ -75,7 +93,6 @@ export default function DashboardView({
   
   const [filterMode, setFilterMode] = useState<FilterMode>('today');
   
-  // 🌟 แก้ไขให้ Default วันที่อิงตามรอบบิลของร้าน
   const [filterDate, setFilterDate] = useState<string>(getInitialBizDate(businessDayStart)); 
   const [filterMonth, setFilterMonth] = useState<string>(getInitialBizDate(businessDayStart).slice(0, 7)); 
   
@@ -87,7 +104,9 @@ export default function DashboardView({
   const galleryRef = useRef<HTMLDivElement>(null);
 
   const [showHistory, setShowHistory] = useState(false);
+  const [historyTab, setHistoryTab] = useState<'daily' | 'monthly'>('daily'); // 🌟 ระบบ Tab ในหน้าประวัติ
   const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);  
+  const [monthlyHistory, setMonthlyHistory] = useState<MonthlyPaymentRecord[]>([]); // 🌟 State ประวัติรายเดือน
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   const fetchAttendanceHistory = async () => {
@@ -95,13 +114,22 @@ export default function DashboardView({
     setShowHistory(true);
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
-      const { data } = await supabase
+      // ดึงรายวัน
+      const { data: daily } = await supabase
         .from('rider_attendance')
         .select('*')
         .eq('rider_id', session.user.id)
         .order('check_in', { ascending: false })
         .limit(30);
-      if (data) setAttendanceHistory(data as AttendanceRecord[]);
+      if (daily) setAttendanceHistory(daily as AttendanceRecord[]);
+
+      // 🌟 ดึงรายเดือน
+      const { data: monthly } = await supabase
+        .from('monthly_payments')
+        .select('*')
+        .eq('rider_id', session.user.id)
+        .order('month_key', { ascending: false });
+      if (monthly) setMonthlyHistory(monthly as MonthlyPaymentRecord[]);
     }
     setLoadingHistory(false);
   };
@@ -234,20 +262,29 @@ export default function DashboardView({
         .lt('check_in', targetEnd.toISOString())
         .order('check_in', { ascending: false });
 
-      const cycle = getCycleDetails();
+      // 🌟 2. ดึงค่า Default Savings มาจากโปรไฟล์ของไรเดอร์
+      const { data: profile } = await supabase.from('profiles').select('default_savings').eq('id', riderId).single();
+      const defaultSavings = profile?.default_savings ?? 50;
+
+      // 🌟 3. ปรับการดึงข้อมูลรายเดือนให้ตรงกับเวลาเปิดร้านเป๊ะๆ
+      const cycle = getCycleDetails(businessDayStart);
       const { data: monthlyData } = await supabase
         .from('rider_attendance')
-        .select('diligence_bonus, accumulated_savings')
+        .select('diligence_bonus, accumulated_savings, payment_status, total_pay')
         .eq('rider_id', riderId)
         .gte('check_in', cycle.startDateStr)
-        .lte('check_in', cycle.endDateStr);
+        .lt('check_in', cycle.endDateStr);
 
       let mBonus = 0;
       let mSavings = 0;
       if (monthlyData) {
         monthlyData.forEach(r => {
           mBonus += Number(r.diligence_bonus) || 0;
-          mSavings += Number(r.accumulated_savings) || 0;
+          // 🌟 4. ถ้าไม่มีข้อมูลเงินสะสม ให้เอาค่าเริ่มต้นจากโปรไฟล์มาคิด
+          const dailySavings = (r.accumulated_savings === null || r.accumulated_savings === undefined) 
+            ? defaultSavings 
+            : Number(r.accumulated_savings);
+          mSavings += dailySavings;
         });
       }
 
@@ -307,7 +344,6 @@ export default function DashboardView({
   const getFilteredOrders = () => {
     const sourceOrders = filterMode === 'today' ? allCompletedOrders : historicalOrders;
     return (Array.isArray(sourceOrders) ? sourceOrders : []).filter(order => {
-      // 🌟 แก้ไข: ถ้าไม่มี end_time ให้ใช้ created_at แทน ป้องกันข้อมูลหาย
       const dateString = order.end_time || order.created_at;
       if (!dateString) return false;
       const orderDate = new Date(dateString);
@@ -549,7 +585,7 @@ export default function DashboardView({
             </h3>
             <div className="flex items-center gap-2">
               <button onClick={fetchAttendanceHistory} className="text-[10px] font-black uppercase text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-md border border-blue-200 transition-colors shadow-sm flex items-center gap-1 cursor-pointer">
-                <Clock size={12} /> ประวัติ
+                <Clock size={12} /> ประวัติสลิป
               </button>
               {payrollStats.isWorking && filterMode === 'today' ? (
                 <span className="flex items-center gap-1 text-[10px] font-black uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 shadow-sm">
@@ -781,8 +817,119 @@ export default function DashboardView({
         </div>
       )}
 
+      {/* 🌟 Modal: ประวัติรายได้ (สลิปรายวัน & รายเดือน) */}
+      {showHistory && (
+        <div className="fixed inset-0 bg-slate-900/60 z-100 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm">
+          <div className="bg-slate-50 rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col max-h-[90vh]">
+            <div className="bg-blue-600 p-6 flex justify-between items-center text-white shrink-0 shadow-sm">
+              <h3 className="font-black flex items-center text-lg tracking-tight">
+                <Clock size={20} className="mr-2"/> ประวัติสลิปเงินเดือน
+              </h3>
+              <button onClick={() => setShowHistory(false)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-all cursor-pointer active:scale-90 duration-300"><X size={18} strokeWidth={2} /></button>
+            </div>
+            
+            <div className="p-4 space-y-4 flex-1 overflow-hidden flex flex-col">
+              {/* 🌟 Tab Selector */}
+              <div className="flex bg-slate-200/60 p-1.5 rounded-xl border border-slate-200 shadow-inner shrink-0">
+                <button
+                  onClick={() => setHistoryTab('daily')}
+                  className={`flex-1 py-2.5 text-xs font-black rounded-lg transition-all duration-300 cursor-pointer ${
+                    historyTab === 'daily' 
+                    ? 'bg-white text-blue-600 shadow-sm' 
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+                  }`}
+                >
+                  สลิปรายวัน
+                </button>
+                <button
+                  onClick={() => setHistoryTab('monthly')}
+                  className={`flex-1 py-2.5 text-xs font-black rounded-lg transition-all duration-300 cursor-pointer ${
+                    historyTab === 'monthly' 
+                    ? 'bg-white text-indigo-600 shadow-sm' 
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+                  }`}
+                >
+                  สลิปรายเดือน
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto hide-scrollbar space-y-3">
+                {loadingHistory ? (
+                  <div className="text-center py-10 text-slate-400">กำลังโหลด...</div>
+                ) : historyTab === 'daily' ? (
+                  /* 🌟 รายการประวัติรายวัน */
+                  attendanceHistory.length === 0 ? (
+                    <div className="text-center py-10 text-slate-400 font-bold bg-white rounded-2xl border border-slate-100">ไม่มีประวัติสลิปรายวัน</div>
+                  ) : (
+                    attendanceHistory.map(record => (
+                      <div key={record.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+                        <div className="flex justify-between items-center mb-2">
+                          <div className="text-xs font-black text-slate-600">
+                            {new Date(record.check_in).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+                          </div>
+                          <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase border ${record.payment_status === 'จ่ายแล้ว' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}>
+                            {record.payment_status || 'รอชำระ'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center bg-slate-50 p-2 rounded-xl mb-2">
+                          <div className="text-[10px] font-bold text-slate-500">ยอดเงินที่ได้</div>
+                          <div className="text-sm font-black text-emerald-600">฿{(record.total_pay || 0).toLocaleString()}</div>
+                        </div>
+                        {record.payment_slip_url && (
+                          <button onClick={() => setImageGallery({urls: [record.payment_slip_url!], startIndex: 0})} className="w-full mt-1 py-2 bg-blue-50 text-blue-600 text-[10px] font-black rounded-xl border border-blue-100 flex items-center justify-center gap-1.5 cursor-pointer hover:bg-blue-100 transition-colors">
+                            <ImageIcon size={14} /> ดูสลิปโอนเงิน
+                          </button>
+                        )}
+                      </div>
+                    ))
+                  )
+                ) : (
+                  /* 🌟 รายการประวัติรายเดือน */
+                  monthlyHistory.length === 0 ? (
+                    <div className="text-center py-10 text-slate-400 font-bold bg-white rounded-2xl border border-slate-100">ไม่มีประวัติสลิปรายเดือน</div>
+                  ) : (
+                    monthlyHistory.map(record => (
+                      <div key={record.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
+                        <div className="absolute top-0 left-0 bottom-0 w-1.5 bg-indigo-500"></div>
+                        <div className="flex justify-between items-center mb-2 ml-2">
+                          <div className="text-xs font-black text-indigo-700 flex items-center gap-1.5">
+                            <Landmark size={14}/> รอบเดือน: {record.month_key}
+                          </div>
+                          <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase border ${record.status === 'จ่ายแล้ว' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}>
+                            {record.status}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 ml-2 mb-3 mt-3">
+                          <div className="bg-amber-50 p-2 rounded-xl border border-amber-100">
+                            <div className="text-[9px] font-bold text-amber-600/70 uppercase">เงินโบนัสสะสม</div>
+                            <div className="text-xs font-black text-amber-600">฿{record.total_bonus.toLocaleString()}</div>
+                          </div>
+                          <div className="bg-indigo-50 p-2 rounded-xl border border-indigo-100">
+                            <div className="text-[9px] font-bold text-indigo-600/70 uppercase">เงินเก็บสะสม</div>
+                            <div className="text-xs font-black text-indigo-600">฿{record.total_savings.toLocaleString()}</div>
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl mb-2 ml-2 border border-slate-100">
+                          <div className="text-xs font-bold text-slate-500">ยอดเงินเดือนสุทธิ</div>
+                          <div className="text-lg font-black text-indigo-600">฿{(record.total_amount || 0).toLocaleString()}</div>
+                        </div>
+                        {record.slip_url && (
+                          <button onClick={() => setImageGallery({urls: [record.slip_url!], startIndex: 0})} className="w-full mt-2 ml-1 py-2 bg-indigo-50 text-indigo-700 text-xs font-black rounded-xl border border-indigo-200 flex items-center justify-center gap-1.5 cursor-pointer hover:bg-indigo-100 transition-colors shadow-sm">
+                            <ImageIcon size={14} /> ดูสลิปเงินเดือน
+                          </button>
+                        )}
+                      </div>
+                    ))
+                  )
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {imageGallery && (
-        <div className="fixed inset-0 z-300 bg-black/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200" onClick={() => { setImageGallery(null); setImgScale(1); }}>
+        <div className="fixed inset-0 z-400 bg-black/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200" onClick={() => { setImageGallery(null); setImgScale(1); }}>
           <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-50 text-white pointer-events-none">
             <span className="font-bold text-xs bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm">แตะ 2 ครั้งเพื่อซูม / ใช้ปุ่มลูกศรเลื่อน</span>
             <button type="button" onClick={() => { setImageGallery(null); setImgScale(1); }} className="p-2.5 bg-white/10 hover:bg-white/20 rounded-full transition-colors active:scale-90 pointer-events-auto cursor-pointer">
@@ -832,49 +979,6 @@ export default function DashboardView({
             <button onClick={() => setImgScale(prev => Math.min(4, prev + 0.5))} className={`p-2 rounded-full transition-all cursor-pointer ${imgScale >= 4 ? 'text-slate-500 cursor-not-allowed' : 'text-white hover:bg-white/20'}`} disabled={imgScale >= 4}>
               <ZoomIn size={24} />
             </button>
-          </div>
-        </div>
-      )}
-
-      {showHistory && (
-        <div className="fixed inset-0 bg-slate-900/60 z-100 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm">
-          <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col max-h-[90vh]">
-            <div className="bg-blue-600 p-6 flex justify-between items-center text-white shrink-0">
-              <h3 className="font-black flex items-center text-lg tracking-tight">
-                <Clock size={20} className="mr-2"/> ประวัติรายได้ย้อนหลัง
-              </h3>
-              <button onClick={() => setShowHistory(false)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-all cursor-pointer active:scale-90 duration-300"><X size={18} strokeWidth={2} /></button>
-            </div>
-            
-            <div className="p-4 space-y-3 overflow-y-auto hide-scrollbar bg-slate-50">
-              {loadingHistory ? (
-                <div className="text-center py-10 text-slate-400">กำลังโหลด...</div>
-              ) : attendanceHistory.length === 0 ? (
-                <div className="text-center py-10 text-slate-400 font-bold">ไม่มีประวัติรายได้</div>
-              ) : (
-                attendanceHistory.map(record => (
-                  <div key={record.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-                    <div className="flex justify-between items-center mb-2">
-                      <div className="text-xs font-black text-slate-600">
-                        {new Date(record.check_in).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
-                      </div>
-                      <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase border ${record.payment_status === 'จ่ายแล้ว' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}>
-                        {record.payment_status || 'รอชำระ'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center bg-slate-50 p-2 rounded-xl mb-2">
-                      <div className="text-[10px] font-bold text-slate-500">ยอดเงินที่ได้</div>
-                      <div className="text-sm font-black text-emerald-600">฿{(record.total_pay || 0).toLocaleString()}</div>
-                    </div>
-                    {record.payment_slip_url && (
-                      <button onClick={() => setImageGallery({urls: [record.payment_slip_url!], startIndex: 0})} className="w-full mt-1 py-1.5 bg-indigo-50 text-indigo-600 text-[10px] font-black rounded-lg border border-indigo-100 flex items-center justify-center gap-1 cursor-pointer hover:bg-indigo-100 transition-colors">
-                        <ImageIcon size={12} /> ดูสลิปโอนเงิน
-                      </button>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
           </div>
         </div>
       )}

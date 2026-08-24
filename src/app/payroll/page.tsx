@@ -31,6 +31,7 @@ interface AttendanceRecord {
     username: string;
     role?: string;
     hourly_rate?: number;
+    default_savings?: number;
   } | null;
   real_time_order_count?: number;
 }
@@ -56,6 +57,7 @@ interface ProfileForWageEdit {
   id: string;
   username: string;
   hourly_rate: number;
+  default_savings: number;
 }
 
 const getAutoGasAllowance = (orders: number): number => {
@@ -152,7 +154,7 @@ export default function PayrollPage() {
 
     const { data, error } = await supabase
       .from('rider_attendance')
-      .select('*, profiles(username, role, hourly_rate)') // 🌟 ดึงฟิลด์ภาพตอกบัตรและค่าแรงมาด้วย
+      .select('*, profiles(username, role, hourly_rate, default_savings)') // 🌟 ดึงฟิลด์ภาพตอกบัตรและค่าแรงมาด้วย
       .gte('check_in', startOfDayThailand.toISOString())
       .lt('check_in', endOfDayThailand.toISOString()) // Use .lt for a clean, exclusive end date
       .order('check_in', { ascending: false });
@@ -256,7 +258,7 @@ export default function PayrollPage() {
       // 🌟 เปลี่ยนการดึงค่า accumulated_savings เป็นแบบนี้
       accumulated_savings: (record.payment_status === 'จ่ายแล้ว' || record.total_pay > 0) 
         ? (record.accumulated_savings || 0) 
-        : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? 50 : record.accumulated_savings),
+        : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? (record.profiles?.default_savings ?? 50) : record.accumulated_savings),
       manual_total: record.total_pay || null,
       payment_status: record.payment_status || "รอชำระ",
       payment_slip_url: record.payment_slip_url || null,
@@ -370,10 +372,9 @@ export default function PayrollPage() {
   // 🌟 ฟังก์ชันกดจ่ายเงินด่วน (Quick Action)
   
   const openWageModal = async () => {
-    // 1. Fetch all 'rider' and 'kitchen' profiles
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, username, hourly_rate')
+      .select('id, username, hourly_rate, default_savings') // 🌟 ดึงค่าสะสมมาด้วย
       .in('role', ['rider', 'kitchen'])
       .order('username', { ascending: true });
 
@@ -383,48 +384,84 @@ export default function PayrollPage() {
       return;
     }
 
-    // 2. Set them to state and open modal
-    setProfilesForWageEdit(data.map(p => ({ ...p, hourly_rate: p.hourly_rate || 40 })));
+    setProfilesForWageEdit(data.map(p => ({ 
+      ...p, 
+      hourly_rate: p.hourly_rate || 40,
+      default_savings: p.default_savings ?? 50 // 🌟 ค่าเริ่มต้นเป็น 50
+    })));
     setIsWageModalOpen(true);
   };
 
   const handleSaveWages = async () => {
     setIsSaving(true);
-
     const updatePromises = profilesForWageEdit.map(profile =>
       supabase
         .from('profiles')
-        .update({ hourly_rate: profile.hourly_rate })
+        .update({ 
+          hourly_rate: profile.hourly_rate, 
+          default_savings: profile.default_savings // 🌟 บันทึก 2 ค่าพร้อมกัน
+        })
         .eq('id', profile.id)
     );
 
     try {
       const results = await Promise.all(updatePromises);
       const hasError = results.some(res => res.error);
-
-      if (hasError) {
-        showToast("เกิดข้อผิดพลาดในการบันทึกค่าแรงบางรายการ", "error");
-      } else {
-        showToast("บันทึกค่าแรงทั้งหมดสำเร็จ!", "success");
+      if (hasError) showToast("เกิดข้อผิดพลาดในการบันทึกบางรายการ", "error");
+      else {
+        showToast("บันทึกการตั้งค่าทั้งหมดสำเร็จ!", "success");
         setIsWageModalOpen(false);
-        fetchRecords(selectedDate); // Re-fetch data to reflect new rates
+        fetchRecords(selectedDate);
       }
     } catch (error) {
-      console.error("Error saving wages:", error);
       showToast("เกิดข้อผิดพลาดรุนแรงในการบันทึก", "error");
     }
-
     setIsSaving(false);
   };
 
   const handleQuickMarkPaid = async (record: AttendanceRecord) => {
-    // อัปเดต UI ทันทีให้ดูลื่นไหล (Optimistic Update)
-    setRecords(prev => prev.map(r => r.id === record.id ? { ...r, payment_status: "จ่ายแล้ว" } : r));
+    // 🌟 1. คำนวณยอดทั้งหมด ณ วินาทีที่กดจ่ายเงิน
+    const isWorking = !record.check_out;
+    let finalMinutes = record.total_minutes || 0;
+    if (isWorking) {
+      const checkInTime = new Date(record.check_in).getTime();
+      finalMinutes = Math.floor((currentTime.getTime() - checkInTime) / 60000);
+    }
+
+    const showOrderAndGas = record.profiles?.role !== 'kitchen';
+    const currentRate = record.profiles?.hourly_rate || 40;
+    const finalBasePay = (finalMinutes / 60) * currentRate;
+
+    const finalOrders = record.real_time_order_count ?? (record.order_count || 0);
+    const autoGas = getAutoGasAllowance(finalOrders);
     
-    // อัปเดตเข้าฐานข้อมูล
+    // ถ้ายอดเดิมมีอยู่แล้วให้ใช้ยอดเดิม ถ้าไม่มีให้ใช้ autoGas
+    const finalGas = (record.gas_allowance && record.gas_allowance > 0) ? record.gas_allowance : autoGas;
+    const finalSavings = (record.accumulated_savings === 0 || record.accumulated_savings == null) ? (record.profiles?.default_savings ?? 50) : record.accumulated_savings;
+    const finalBonus = record.diligence_bonus || 0;
+
+    const calculatedTotal = Math.max(0, finalBasePay + (showOrderAndGas ? finalGas : 0) + finalBonus - finalSavings);
+    const finalTotalPay = record.total_pay > 0 ? record.total_pay : calculatedTotal;
+
+    // 🌟 2. แพ็กข้อมูลทั้งหมดเตรียมส่งไปบันทึก
+    const updateData = {
+      payment_status: "จ่ายแล้ว" as const,
+      total_minutes: finalMinutes,
+      order_count: showOrderAndGas ? finalOrders : 0,
+      base_pay: finalBasePay,
+      gas_allowance: showOrderAndGas ? finalGas : 0,
+      diligence_bonus: finalBonus,
+      accumulated_savings: finalSavings,
+      total_pay: finalTotalPay
+    };
+
+    // อัปเดต UI ทันทีให้ดูลื่นไหล (Optimistic Update)
+    setRecords(prev => prev.map(r => r.id === record.id ? { ...r, ...updateData } : r));
+    
+    // อัปเดตเข้าฐานข้อมูลแบบครบทุกฟิลด์
     const { error } = await supabase
       .from('rider_attendance')
-      .update({ payment_status: "จ่ายแล้ว" })
+      .update(updateData)
       .eq('id', record.id);
 
     if (error) {
@@ -432,7 +469,7 @@ export default function PayrollPage() {
       showToast('อัปเดตสถานะไม่สำเร็จ ❌', 'error');
       fetchRecords(selectedDate); // ดึงข้อมูลใหม่เพื่อคืนค่าเดิมถ้าพัง
     } else {
-      showToast('เปลี่ยนเป็น "จ่ายแล้ว" สำเร็จ! 💸');
+      showToast('เปลี่ยนเป็น "จ่ายแล้ว" และบันทึกยอดสำเร็จ! 💸');
     }
   };
 
@@ -464,7 +501,7 @@ export default function PayrollPage() {
       // 1. ตั้งค่า Default หักเงินสะสม 50 บาทถ้ายังไม่จ่าย
       const displaySavings = (isPaid || record.total_pay > 0) 
         ? (record.accumulated_savings || 0) 
-        : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? 50 : record.accumulated_savings);
+        : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? (record.profiles?.default_savings ?? 50) : record.accumulated_savings);
 
       // 2. 🌟 แก้ไขสมการตรงนี้: ต้องบวกโบนัสขยัน ก่อนลบเงินสะสม
       const calculatedDisplayTotal = Math.max(0, displayBasePay + (showOrderAndGas ? displayGas : 0) + (record.diligence_bonus || 0) - displaySavings);
@@ -633,7 +670,7 @@ export default function PayrollPage() {
       const displayGas = (record.payment_status === 'จ่ายแล้ว' || (record.gas_allowance && record.gas_allowance > 0)) ? record.gas_allowance : autoGas;
 
       const isPaid = record.payment_status === 'จ่ายแล้ว';
-      const displaySavings = isPaid ? (record.accumulated_savings || 0) : (record.accumulated_savings ?? 50);
+      const displaySavings = isPaid ? (record.accumulated_savings || 0) : (record.accumulated_savings ?? (record.profiles?.default_savings ?? 50));
       const calculatedDisplayTotal = Math.max(0, displayBasePay + (showOrderAndGas ? displayGas : 0) + (record.diligence_bonus || 0) - displaySavings);
 
       const displayTotal = isWorking
@@ -1304,20 +1341,35 @@ export default function PayrollPage() {
 
                   <div className="p-6 space-y-3 overflow-y-auto thin-scrollbar">
                     {profilesForWageEdit.map((profile, index) => (
-                      <div key={profile.id} className="flex items-center justify-between gap-4 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                      <div key={profile.id} className="flex flex-col gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
                         <span className="font-bold text-slate-700 text-sm">{profile.username}</span>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            value={profile.hourly_rate}
-                            onChange={(e) => {
-                              const newProfiles = [...profilesForWageEdit];
-                              newProfiles[index].hourly_rate = Number(e.target.value);
-                              setProfilesForWageEdit(newProfiles);
-                            }}
-                            className="w-24 p-2 bg-white border border-slate-200 rounded-lg text-sm font-black text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm text-center"
-                          />
-                          <span className="text-sm font-bold text-slate-500">บาท/ชม.</span>
+                        <div className="flex items-center gap-4">
+                          <div className="flex-1 flex flex-col gap-1">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">ค่าแรง (บาท/ชม.)</span>
+                            <input
+                              type="number"
+                              value={profile.hourly_rate}
+                              onChange={(e) => {
+                                const newProfiles = [...profilesForWageEdit];
+                                newProfiles[index].hourly_rate = Number(e.target.value);
+                                setProfilesForWageEdit(newProfiles);
+                              }}
+                              className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm font-black text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm text-center"
+                            />
+                          </div>
+                          <div className="flex-1 flex flex-col gap-1">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">หักสะสม (บาท/วัน)</span>
+                            <input
+                              type="number"
+                              value={profile.default_savings}
+                              onChange={(e) => {
+                                const newProfiles = [...profilesForWageEdit];
+                                newProfiles[index].default_savings = Number(e.target.value);
+                                setProfilesForWageEdit(newProfiles);
+                              }}
+                              className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm font-black text-rose-600 outline-none focus:ring-2 focus:ring-rose-500 shadow-sm text-center"
+                            />
+                          </div>
                         </div>
                       </div>
                     ))}
