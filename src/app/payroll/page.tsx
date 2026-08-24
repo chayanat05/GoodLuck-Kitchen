@@ -58,6 +58,7 @@ interface ProfileForWageEdit {
   username: string;
   hourly_rate: number;
   default_savings: number;
+  role: string;
 }
 
 const getAutoGasAllowance = (orders: number): number => {
@@ -113,6 +114,8 @@ export default function PayrollPage() {
   
   const [isWageModalOpen, setIsWageModalOpen] = useState(false);
   const [profilesForWageEdit, setProfilesForWageEdit] = useState<ProfileForWageEdit[]>([]);
+  const [wageFilterRole, setWageFilterRole] = useState<string>('all'); // 🌟 2. เพิ่ม State นี้
+  
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -374,7 +377,7 @@ export default function PayrollPage() {
   const openWageModal = async () => {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, username, hourly_rate, default_savings') // 🌟 ดึงค่าสะสมมาด้วย
+      .select('id, username, hourly_rate, default_savings, role') // 🌟 ดึงค่าสะสมและบทบาทมาด้วย
       .in('role', ['rider', 'kitchen'])
       .order('username', { ascending: true });
 
@@ -387,7 +390,8 @@ export default function PayrollPage() {
     setProfilesForWageEdit(data.map(p => ({ 
       ...p, 
       hourly_rate: p.hourly_rate || 40,
-      default_savings: p.default_savings ?? 50 // 🌟 ค่าเริ่มต้นเป็น 50
+      default_savings: p.default_savings ?? 50, // 🌟 ค่าเริ่มต้นเป็น 50
+      role: p.role // 🌟 เพิ่มบทบาท
     })));
     setIsWageModalOpen(true);
   };
@@ -713,6 +717,7 @@ export default function PayrollPage() {
     }
     showToast("Export ข้อมูลสำเร็จ!", "success");
   };
+  
 
   return (
     <div className="min-h-screen pb-12 transition-all duration-500 bg-slate-50 font-sans">
@@ -1339,10 +1344,32 @@ export default function PayrollPage() {
                     </button>
                   </div>
 
-                  <div className="p-6 space-y-3 overflow-y-auto thin-scrollbar">
-                    {profilesForWageEdit.map((profile, index) => (
+                  {/* 🌟 4.1 ปุ่มตัวกรองตำแหน่ง (วางไว้ก่อนเริ่มลิสต์) */}
+                  <div className="flex gap-2 px-6 pt-6 pb-2">
+                    {['all', 'rider', 'kitchen'].map(role => (
+                      <button
+                        key={role}
+                        onClick={() => setWageFilterRole(role)}
+                        className={`px-4 py-1.5 text-xs font-black rounded-lg border transition-all ${
+                          wageFilterRole === role
+                            ? 'bg-blue-100 text-blue-700 border-blue-200'
+                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {role === 'all' ? 'ทั้งหมด' : role === 'rider' ? 'ไรเดอร์' : 'แม่ครัว'}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="px-6 pb-6 pt-2 space-y-3 overflow-y-auto thin-scrollbar">
+                    {profilesForWageEdit
+                      .filter(p => wageFilterRole === 'all' || p.role === wageFilterRole) // 🌟 4.2 กรองข้อมูลก่อนแสดงผล
+                      .map((profile) => (
                       <div key={profile.id} className="flex flex-col gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                        <span className="font-bold text-slate-700 text-sm">{profile.username}</span>
+                        <span className="font-bold text-slate-700 text-sm flex items-center gap-2">
+                          {profile.username}
+                          <span className="text-[9px] px-1.5 py-0.5 bg-slate-200 text-slate-500 rounded uppercase">{profile.role}</span>
+                        </span>
                         <div className="flex items-center gap-4">
                           <div className="flex-1 flex flex-col gap-1">
                             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">ค่าแรง (บาท/ชม.)</span>
@@ -1350,9 +1377,10 @@ export default function PayrollPage() {
                               type="number"
                               value={profile.hourly_rate}
                               onChange={(e) => {
-                                const newProfiles = [...profilesForWageEdit];
-                                newProfiles[index].hourly_rate = Number(e.target.value);
-                                setProfilesForWageEdit(newProfiles);
+                                // 🌟 4.3 อัปเดตโดยหาจาก ID แทน index
+                                setProfilesForWageEdit(prev => prev.map(p => 
+                                  p.id === profile.id ? { ...p, hourly_rate: Number(e.target.value) } : p
+                                ));
                               }}
                               className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm font-black text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm text-center"
                             />
@@ -1363,9 +1391,10 @@ export default function PayrollPage() {
                               type="number"
                               value={profile.default_savings}
                               onChange={(e) => {
-                                const newProfiles = [...profilesForWageEdit];
-                                newProfiles[index].default_savings = Number(e.target.value);
-                                setProfilesForWageEdit(newProfiles);
+                                // 🌟 4.4 อัปเดตโดยหาจาก ID แทน index
+                                setProfilesForWageEdit(prev => prev.map(p => 
+                                  p.id === profile.id ? { ...p, default_savings: Number(e.target.value) } : p
+                                ));
                               }}
                               className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm font-black text-rose-600 outline-none focus:ring-2 focus:ring-rose-500 shadow-sm text-center"
                             />
