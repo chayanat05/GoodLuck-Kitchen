@@ -809,7 +809,7 @@ export default function SchedulePage() {
       {selectedDate && (
         <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-50">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-50 shrink-0">
               <div>
                 <h3 className="font-black text-xl text-slate-800">ตารางประจำวัน</h3>
                 <p className="text-sm font-bold text-blue-600 mt-1">วันที่ {new Date(selectedDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
@@ -817,39 +817,81 @@ export default function SchedulePage() {
               <button onClick={() => setSelectedDate(null)} className="p-2 hover:bg-slate-200 text-slate-400 rounded-full transition-colors cursor-pointer"><X size={20}/></button>
             </div>
 
-            <div className="p-6 overflow-y-auto flex-1 space-y-3 bg-slate-50/50">
-              {schedules.filter(s => s.work_date === selectedDate && (globalBranch === 'all' || s.profiles?.branch_id === globalBranch || s.profiles?.role === 'superadmin')).length === 0 ? (
-                 <p className="text-center text-slate-400 font-medium py-6 text-sm">ไม่มีกะเวลางานบันทึกไว้ในวันนี้</p>
-              ) : (
-                schedules.filter(s => s.work_date === selectedDate && (globalBranch === 'all' || s.profiles?.branch_id === globalBranch || s.profiles?.role === 'superadmin')).map(schedule => (
-                  <div key={schedule.id} className={`bg-white p-4 rounded-2xl border shadow-sm flex justify-between items-center transition-all ${editingId === schedule.id ? 'border-blue-400 ring-2 ring-blue-100 scale-[1.01]' : 'border-slate-100'}`}>
-                    <div>
-                      <p className="font-bold text-slate-800 text-sm md:text-base flex items-center gap-2">
-                        {schedule.profiles?.username || 'พนักงาน'}
-                        {/* 🌟 แสดงคำว่า admin เสมอ แม้จะเป็น superadmin */}
-                        <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md uppercase tracking-wider font-bold">
-                          {schedule.profiles?.role === 'superadmin' ? 'admin' : schedule.profiles?.role}
-                        </span>
-                        {globalBranch === 'all' && <span className="text-[10px] text-blue-500 bg-blue-50 px-2 py-0.5 rounded-md">{branches.find(b => b.id === schedule.profiles?.branch_id)?.name}</span>}
-                      </p>
-                      <div className="flex items-center gap-3 mt-1.5 text-xs font-bold text-slate-500">
-                        <span className="flex items-center gap-1"><Clock size={12}/> {schedule.start_time.substring(0, 5)} - {schedule.end_time.substring(0, 5)} น.</span>
-                        <span className={`${schedule.status === 'ทำงาน' ? 'text-emerald-500' : 'text-rose-500'}`}>{schedule.status}</span>
-                      </div>
-                    </div>
-                    {isAdmin && (
-                      <div className="flex gap-1">
-                        <button onClick={() => handleEditClick(schedule)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all cursor-pointer"><Edit size={16}/></button>
-                        <button onClick={() => handleDeleteClick(schedule.id)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"><Trash2 size={16}/></button>
-                      </div>
-                    )}
+            <div className="p-6 overflow-y-auto flex-1 bg-slate-50/50">
+              {(() => {
+                const daySchedules = schedules.filter(s => s.work_date === selectedDate && (globalBranch === 'all' || s.profiles?.branch_id === globalBranch || s.profiles?.role === 'superadmin'));
+                
+                if (daySchedules.length === 0) {
+                  return <p className="text-center text-slate-400 font-medium py-10 text-sm bg-white rounded-2xl border border-slate-200 shadow-sm">ไม่มีกะเวลางานบันทึกไว้ในวันนี้</p>;
+                }
+
+                // 🌟 จัดกลุ่มตาม Role
+                const roleGroups = [
+                  { id: 'admin', title: 'แอดมิน', icon: <ShieldCheck size={16} />, color: 'blue', items: daySchedules.filter(s => s.profiles?.role === 'admin' || s.profiles?.role === 'superadmin') },
+                  { id: 'kitchen', title: 'แม่ครัว', icon: <span className="text-[14px]">🍳</span>, color: 'orange', items: daySchedules.filter(s => s.profiles?.role === 'kitchen') },
+                  { id: 'rider', title: 'ไรเดอร์', icon: <span className="text-[14px]">🛵</span>, color: 'emerald', items: daySchedules.filter(s => s.profiles?.role === 'rider') },
+                  { id: 'other', title: 'อื่นๆ', icon: <Users size={16} />, color: 'slate', items: daySchedules.filter(s => !['admin', 'superadmin', 'kitchen', 'rider'].includes(s.profiles?.role || '')) },
+                ];
+
+                const colorStyles: Record<string, { bg: string, text: string, border: string }> = {
+                  blue: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
+                  orange: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
+                  emerald: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
+                  slate: { bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-200' },
+                };
+
+                return (
+                  <div className="space-y-5">
+                    {roleGroups.map(group => {
+                      if (group.items.length === 0) return null;
+                      const styles = colorStyles[group.color];
+                      
+                      return (
+                        <div key={group.id}>
+                          {/* 🌟 Header ของกลุ่ม */}
+                          <div className={`flex items-center gap-2 px-4 py-2.5 rounded-t-2xl font-black text-sm uppercase ${styles.bg} ${styles.text} ${styles.border} border-b-0`}>
+                            {group.icon} {group.title} 
+                            <span className="opacity-70 text-[10px] bg-white/60 px-2 py-0.5 rounded-full ml-1 shadow-sm">{group.items.length} คน</span>
+                          </div>
+                          
+                          {/* 🌟 List พนักงานในกลุ่มนั้น */}
+                          <div className="bg-white border border-slate-200 rounded-b-2xl p-3 space-y-2 shadow-sm">
+                            {group.items.map(schedule => (
+                              <div key={schedule.id} className={`bg-slate-50 p-3 rounded-xl border flex justify-between items-center transition-all ${editingId === schedule.id ? 'border-blue-400 ring-2 ring-blue-100 scale-[1.02] bg-white shadow-md' : 'border-slate-100 hover:border-slate-300'}`}>
+                                <div>
+                                  <p className="font-black text-slate-800 text-sm flex items-center gap-2">
+                                    {schedule.profiles?.username || 'พนักงาน'}
+                                    {globalBranch === 'all' && (
+                                      <span className="text-[9px] text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-md border border-blue-200">
+                                        {branches.find(b => b.id === schedule.profiles?.branch_id)?.name || 'N/A'}
+                                      </span>
+                                    )}
+                                  </p>
+                                  <div className="flex items-center gap-3 mt-1.5 text-xs font-bold text-slate-500">
+                                    <span className="flex items-center gap-1 bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-sm"><Clock size={12} className="text-blue-500"/> {schedule.start_time.substring(0, 5)} - {schedule.end_time.substring(0, 5)} น.</span>
+                                    <span className={`${schedule.status === 'ทำงาน' ? 'text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 shadow-sm' : 'text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100 shadow-sm'}`}>{schedule.status}</span>
+                                  </div>
+                                </div>
+                                
+                                {isAdmin && (
+                                  <div className="flex gap-1 bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
+                                    <button onClick={() => handleEditClick(schedule)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all cursor-pointer"><Edit size={14}/></button>
+                                    <button onClick={() => handleDeleteClick(schedule.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-all cursor-pointer"><Trash2 size={14}/></button>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                ))
-              )}
+                );
+              })()}
             </div>
 
             {isAdmin && (
-              <div className="p-6 border-t border-slate-100 bg-white">
+              <div className="p-6 border-t border-slate-100 bg-white shrink-0">
                 <form onSubmit={handleSubmit} className="space-y-4">
                   {formError && <div className="p-3 bg-rose-50 text-rose-600 text-xs font-bold rounded-xl">{formError}</div>}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
