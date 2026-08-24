@@ -510,7 +510,7 @@ export default function MonthlyPayrollPage() {
             <div className="flex justify-between items-center p-6 bg-slate-800 text-white shrink-0 shadow-sm">
               <div>
                 <h3 className="text-lg font-black flex items-center gap-2">
-                  <FileText size={20} className="text-blue-400" /> ประวัติการทำงานรายวัน
+                  <FileText size={20} className="text-blue-400" /> ประวัติการทำงานรายวัน (นับเฉพาะยอดที่จ่ายแล้วไม่งั้นเลขจะเป็น 0)
                 </h3>
                 <div className="text-xs text-slate-400 mt-1 font-bold">พนักงาน: {historyRecord.username} | {historyRecord.daily_records.length} วันทำงาน</div>
               </div>
