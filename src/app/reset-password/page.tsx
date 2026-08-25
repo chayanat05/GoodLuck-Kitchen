@@ -54,8 +54,8 @@ export default function ResetPasswordPage() {
             setErrorMsg('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษรครับ');
             return;
         }
-        if (!isSessionActive && otp.length !== 6) {
-            setErrorMsg('รหัส OTP ต้องมี 6 หลักครับ');
+        if (!isSessionActive && otp.length !== 8) {
+            setErrorMsg('รหัส OTP ต้องมี 8 หลักครับ');
             return;
         }
 
@@ -154,8 +154,8 @@ export default function ResetPasswordPage() {
                                 <input 
                                     type="text" 
                                     required
-                                    maxLength={6}
-                                    placeholder="รหัส OTP 6 หลัก จากอีเมล"
+                                    maxLength={8}
+                                    placeholder="รหัส OTP 8 หลัก จากอีเมล"
                                     value={otp}
                                     onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} 
                                     className="w-full pl-10 pr-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:bg-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all font-black tracking-widest text-center"
