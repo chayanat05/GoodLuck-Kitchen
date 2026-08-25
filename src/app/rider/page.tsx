@@ -1278,9 +1278,6 @@ export default function RiderPage() {
             )}
           </div>
 
-          <div className="bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full text-[10px] font-black tracking-wide text-slate-600 shadow-inner truncate max-w-25">
-            {riderName}
-          </div>
         </div>
       </div>
 

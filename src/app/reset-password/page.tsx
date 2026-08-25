@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Lock, AlertCircle, CheckCircle2, Eye, EyeOff, Save, Mail, Hash } from 'lucide-react';
 import { supabase } from '../../lib/supabase'; 
@@ -18,6 +18,29 @@ export default function ResetPasswordPage() {
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+    // 🌟 State ใหม่ เช็คว่ามี Session จากการคลิกลิงก์แล้วหรือยัง
+    const [isSessionActive, setIsSessionActive] = useState(false);
+
+    useEffect(() => {
+        // เช็คว่าระบบดึง Token จาก URL ไป Verify ให้เบื้องหลังแล้วหรือยัง
+        const checkSession = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                setIsSessionActive(true);
+            }
+        };
+        checkSession();
+
+        // ดักจับ Event เผื่อ Supabase เพิ่งทำงานเสร็จหลังจากโหลดหน้าเว็บ
+        const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') {
+                setIsSessionActive(true);
+            }
+        });
+
+        return () => authListener.subscription.unsubscribe();
+    }, []);
+
     const handleUpdatePassword = async (e: React.FormEvent) => {
         e.preventDefault();
         setErrorMsg(null);
@@ -31,7 +54,7 @@ export default function ResetPasswordPage() {
             setErrorMsg('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษรครับ');
             return;
         }
-        if (otp.length !== 6) {
+        if (!isSessionActive && otp.length !== 6) {
             setErrorMsg('รหัส OTP ต้องมี 6 หลักครับ');
             return;
         }
@@ -39,18 +62,20 @@ export default function ResetPasswordPage() {
         setLoading(true);
 
         try {
-            // 🌟 1. นำ OTP 6 หลักไปยืนยันกับ Supabase
-            const { error: verifyError } = await supabase.auth.verifyOtp({
-                email: email,
-                token: otp,
-                type: 'recovery' // แจ้งว่าเป็น OTP สำหรับกู้รหัสผ่าน
-            });
+            // 🌟 หากยังไม่มี Session (พิมพ์ OTP เอง) ต้อง Verify ก่อน
+            if (!isSessionActive) {
+                const { error: verifyError } = await supabase.auth.verifyOtp({
+                    email: email.trim(), // ใส่ trim() ป้องกันช่องว่างแถมมา
+                    token: otp.trim(),
+                    type: 'recovery' 
+                });
 
-            if (verifyError) {
-                throw new Error("รหัส OTP ไม่ถูกต้อง หรือหมดอายุแล้วครับ");
+                if (verifyError) {
+                    throw new Error("รหัส OTP ไม่ถูกต้อง หรือหมดอายุแล้วครับ");
+                }
             }
 
-            // 🌟 2. ถ้า OTP ผ่าน ค่อยอัปเดตรหัสผ่านใหม่เข้าระบบ
+            // 🌟 สั่งอัปเดตรหัสผ่านใหม่
             const { error: updateError } = await supabase.auth.updateUser({
                 password: password
             });
@@ -60,11 +85,7 @@ export default function ResetPasswordPage() {
             }
 
             setSuccessMsg('เปลี่ยนรหัสผ่านสำเร็จ! กรุณารอสักครู่ ระบบกำลังพากลับไปหน้าล็อกอิน...');
-            setPassword('');
-            setConfirmPassword('');
-            setOtp('');
             
-            // รอ 3 วิแล้วล็อกเอาท์กันเหนียว + เด้งกลับหน้าล็อกอิน
             setTimeout(async () => {
                 await supabase.auth.signOut();
                 router.push('/login');
@@ -87,7 +108,11 @@ export default function ResetPasswordPage() {
                         <Lock size={32} />
                     </div>
                     <h1 className="text-2xl font-bold text-gray-900 mb-1">ตั้งรหัสผ่านใหม่</h1>
-                    <p className="text-sm text-gray-500">กรอกรหัส OTP ที่ได้รับทางอีเมลและตั้งรหัสผ่านใหม่</p>
+                    <p className="text-sm text-gray-500">
+                        {isSessionActive 
+                            ? "ยืนยันตัวตนสำเร็จแล้ว กรุณาตั้งรหัสผ่านใหม่" 
+                            : "กรอกรหัส OTP ที่ได้รับทางอีเมลและตั้งรหัสผ่านใหม่"}
+                    </p>
                 </div>
 
                 {errorMsg && (
@@ -104,40 +129,42 @@ export default function ResetPasswordPage() {
                 )}
 
                 <form onSubmit={handleUpdatePassword} className="space-y-4">
-                    {/* ช่องกรอก Email */}
-                    <div className="relative group">
-                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400 group-focus-within:text-green-500 transition-colors">
-                            <Mail size={18} />
-                        </div>
-                        <input 
-                            type="email" 
-                            required
-                            placeholder="อีเมลของคุณ"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            className="w-full pl-10 pr-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:bg-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all"
-                        />
-                    </div>
+                    
+                    {/* 🌟 ซ่อนช่องอีเมลและ OTP ถ้าคลิกลิงก์มาและยืนยันแล้ว */}
+                    {!isSessionActive && (
+                        <>
+                            <div className="relative group">
+                                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400 group-focus-within:text-green-500 transition-colors">
+                                    <Mail size={18} />
+                                </div>
+                                <input 
+                                    type="email" 
+                                    required
+                                    placeholder="อีเมลของคุณ"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:bg-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all"
+                                />
+                            </div>
 
-                    {/* ช่องกรอก OTP */}
-                    <div className="relative group">
-                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400 group-focus-within:text-green-500 transition-colors">
-                            <Hash size={18} />
-                        </div>
-                        <input 
-                            type="text" 
-                            required
-                            maxLength={6}
-                            placeholder="รหัส OTP 6 หลัก จากอีเมล"
-                            value={otp}
-                            onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} // บังคับกรอกแค่ตัวเลข
-                            className="w-full pl-10 pr-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:bg-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all font-black tracking-widest text-center"
-                        />
-                    </div>
+                            <div className="relative group">
+                                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400 group-focus-within:text-green-500 transition-colors">
+                                    <Hash size={18} />
+                                </div>
+                                <input 
+                                    type="text" 
+                                    required
+                                    maxLength={6}
+                                    placeholder="รหัส OTP 6 หลัก จากอีเมล"
+                                    value={otp}
+                                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} 
+                                    className="w-full pl-10 pr-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:bg-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all font-black tracking-widest text-center"
+                                />
+                            </div>
+                            <div className="h-px bg-gray-100 my-4"></div>
+                        </>
+                    )}
 
-                    <div className="h-px bg-gray-100 my-4"></div>
-
-                    {/* ช่องกรอก รหัสผ่านใหม่ */}
                     <div className="relative group">
                         <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400 group-focus-within:text-green-500 transition-colors">
                             <Lock size={18} />
@@ -159,7 +186,6 @@ export default function ResetPasswordPage() {
                         </button>
                     </div>
 
-                    {/* ช่องกรอก ยืนยันรหัสผ่านใหม่ */}
                     <div className="relative group">
                         <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400 group-focus-within:text-green-500 transition-colors">
                             <Lock size={18} />

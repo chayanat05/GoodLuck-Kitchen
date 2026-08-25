@@ -31,6 +31,7 @@ interface EmployeeProfile {
   role: string;
   branch_id: string | null;
   is_approved: boolean; // 🌟 เพิ่มฟิลด์สถานะอนุมัติ
+  custom_order_limit?: number | null;
 }
 
 export default function SettingPage() {
@@ -139,12 +140,13 @@ export default function SettingPage() {
   }, [selectedBranchId]);
 
   // 🌟 ดึงข้อมูลพนักงานเมื่อเข้าหน้าตั้งค่าสิทธิ์
+  // 🌟 ดึงข้อมูลพนักงานเมื่อเข้าหน้าตั้งค่าสิทธิ์ หรือ หน้าตั้งค่าไรเดอร์
   useEffect(() => {
-    if (activeView === 'access') {
+    if (activeView === 'access' || activeView === 'store') {
       const fetchEmployees = async () => {
         const { data } = await supabase
           .from('profiles')
-          .select('id, username, role, branch_id, is_approved')
+          .select('id, username, role, branch_id, is_approved, custom_order_limit') // 🌟 ดึงฟิลด์ใหม่มา
           .not('role', 'eq', 'superadmin')
           .order('role', { ascending: true })
           .order('username', { ascending: true });
@@ -242,10 +244,21 @@ export default function SettingPage() {
 
   const handleSaveRiderLimit = async () => {
     setIsSavingLimit(true);
-    const { error } = await supabase.from('store_settings').update({ rider_order_limit: riderOrderLimit }).eq('id', 1);
+    // 1. เซฟค่าเริ่มต้นสำหรับทุกคน
+    const { error: globalError } = await supabase.from('store_settings').update({ rider_order_limit: riderOrderLimit }).eq('id', 1);
+    
+    // 2. เซฟค่าจำกัดรายบุคคล (อัปเดตเฉพาะไรเดอร์)
+    const riderUpdates = employees
+      .filter(emp => emp.role === 'rider')
+      .map(emp => 
+        supabase.from('profiles').update({ custom_order_limit: emp.custom_order_limit }).eq('id', emp.id)
+      );
+    
+    await Promise.all(riderUpdates);
+
     setIsSavingLimit(false);
-    if (error) {
-      console.error(error);
+    if (globalError) {
+      console.error(globalError);
       showToast('เกิดข้อผิดพลาดในการบันทึกข้อมูล', 'error');
     } else {
       showToast('บันทึกจำกัดงานไรเดอร์สำเร็จ!');
@@ -617,23 +630,58 @@ export default function SettingPage() {
                   </div>
                 </div>
 
-                <div className="bg-white p-6 rounded-2xl border border-indigo-100 shadow-sm space-y-4">
-                  <label className="block text-sm font-black text-slate-700">
-                    ให้ไรเดอร์ 1 คน ถืองานได้สูงสุดกี่บิล?
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input 
-                      type="number" 
-                      min="1" max="20"
-                      value={riderOrderLimit}
-                      onChange={(e) => setRiderOrderLimit(Number(e.target.value))}
-                      className="w-24 text-center bg-slate-50 border border-slate-200 p-4 rounded-xl text-xl outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-black text-indigo-600 shadow-inner"
-                    />
-                    <span className="text-lg font-black text-slate-500">บิล / คน</span>
+                <div className="space-y-4">
+                  {/* 🌟 1. กล่องตั้งค่าเริ่มต้น (ทุกคน) */}
+                  <div className="bg-white p-6 rounded-2xl border border-indigo-100 shadow-sm">
+                    <label className="block text-sm font-black text-slate-700 mb-4">
+                      ตั้งค่าเริ่มต้น (สำหรับไรเดอร์ทุกคน)
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <input 
+                        type="number" 
+                        min="1" max="20"
+                        value={riderOrderLimit}
+                        onChange={(e) => setRiderOrderLimit(Number(e.target.value))}
+                        className="w-24 text-center bg-slate-50 border border-slate-200 p-4 rounded-xl text-xl outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-black text-indigo-600 shadow-inner"
+                      />
+                      <span className="text-lg font-black text-slate-500">บิล / คน</span>
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-400 font-bold">
-                    * ค่าเริ่มต้นคือ 3 งาน (ถ้ารับครบจำนวนแล้ว ไรเดอร์จะกดรับเพิ่มไม่ได้จนกว่าจะส่งของในมือเสร็จ)
-                  </p>
+
+                  {/* 🌟 2. กล่องตั้งค่ารายบุคคล */}
+                  <div className="bg-white p-6 rounded-2xl border border-indigo-100 shadow-sm space-y-4">
+                    <label className="block text-sm font-black text-slate-700">
+                      จำกัดงานแยกรายบุคคล (ระบุเฉพาะคน)
+                    </label>
+                    <div className="space-y-2 max-h-80 overflow-y-auto thin-scrollbar pr-2">
+                      {employees.filter(e => e.role === 'rider').map(rider => (
+                        <div key={rider.id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100 gap-3 hover:bg-slate-100 transition-colors">
+                          <span className="font-bold text-slate-700 text-sm flex items-center gap-2">
+                            <span className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-black">{rider.username.charAt(0)}</span>
+                            {rider.username}
+                          </span>
+                          <select
+                            value={rider.custom_order_limit === null || rider.custom_order_limit === undefined ? 'default' : rider.custom_order_limit}
+                            onChange={(e) => {
+                              const val = e.target.value === 'default' ? null : Number(e.target.value);
+                              setEmployees(prev => prev.map(p => p.id === rider.id ? { ...p, custom_order_limit: val } : p));
+                            }}
+                            className={`p-2.5 border rounded-lg text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm transition-all
+                              ${rider.custom_order_limit ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-white text-slate-500 border-slate-200'}
+                            `}
+                          >
+                            <option value="default">ใช้ค่าเริ่มต้น ({riderOrderLimit} บิล)</option>
+                            {[1,2,3,4,5,6,7,8,9,10].map(num => (
+                              <option key={num} value={num}>จำกัดเฉพาะ {num} บิล</option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                      {employees.filter(e => e.role === 'rider').length === 0 && (
+                        <div className="text-center text-slate-400 text-sm font-bold py-4">ไม่พบรายชื่อไรเดอร์</div>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 <button 
@@ -641,7 +689,7 @@ export default function SettingPage() {
                   disabled={isSavingLimit}
                   className="mt-6 w-full flex items-center justify-center py-4 text-white bg-indigo-600 hover:bg-indigo-700 rounded-2xl transition-all font-black shadow-lg cursor-pointer active:scale-95 disabled:bg-slate-300 disabled:cursor-not-allowed text-base"
                 >
-                  {isSavingLimit ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่า'}
+                  {isSavingLimit ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่าทั้งหมด'}
                 </button>
               </div>
             </div>
