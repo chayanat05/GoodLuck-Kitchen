@@ -644,9 +644,19 @@ const unlockOrder = (orderId: string) => {
       .on("postgres_changes", { event: "*", schema: "public", table: "contact_sources", filter: `branch_id=eq.${currentBranchId}` }, () => fetchOrdersAndLocations())
       .subscribe();
       
+    // 🌟 เพิ่ม Channel ใหม่: ดักจับการเปลี่ยนแปลงออเดอร์ของ "ทุกสาขา" เพื่ออัปเดตยอดรวม
+    const globalOrderChannel = supabase
+      .channel("public:all_orders_count")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
+        // เมื่อมีออเดอร์เข้า/ลบ/เปลี่ยนสถานะ จากสาขาไหนก็ตาม ให้คำนวณยอดรวมทุกสาขาใหม่
+        fetchAllBranchesTodaysOrders();
+      })
+      .subscribe();
+
     return () => {
       supabase.removeChannel(orderChannel);
       supabase.removeChannel(syncChannel);
+      supabase.removeChannel(globalOrderChannel); // 🌟 อย่าลืมเคลียร์ Channel เมื่อปิดหน้าเว็บ
     };
   }, [fetchOrdersAndLocations, showToast, currentBranchId, playSound, fetchAllBranchesTodaysOrders]);
 
