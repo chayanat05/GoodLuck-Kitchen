@@ -33,7 +33,7 @@ interface MonthlySummary {
   payment_id?: string;
   slip_url?: string | null;
   paid_at?: string | null;
-  daily_records: DailyRecord[]; // 🌟 เก็บประวัติย้อนหลังรายวัน
+  daily_records: DailyRecord[]; 
 }
 
 interface PaymentForm {
@@ -41,6 +41,8 @@ interface PaymentForm {
   total_savings: number;
   manual_total: number | null;
   slip_url: string | null;
+  // 🌟 1. เพิ่มฟิลด์ payment_status ไว้ใน Form
+  payment_status: "รอชำระ" | "จ่ายแล้ว";
 }
 
 interface RawAttendance {
@@ -87,12 +89,13 @@ export default function MonthlyPayrollPage() {
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
 
   const [editingRecord, setEditingRecord] = useState<MonthlySummary | null>(null);
-  const [historyRecord, setHistoryRecord] = useState<MonthlySummary | null>(null); // 🌟 State สำหรับเปิดหน้าประวัติ
+  const [historyRecord, setHistoryRecord] = useState<MonthlySummary | null>(null); 
   const [editForm, setEditForm] = useState<PaymentForm>({
     total_bonus: 0,
     total_savings: 0,
     manual_total: null,
-    slip_url: null
+    slip_url: null,
+    payment_status: "รอชำระ"
   });
   
   const [isSaving, setIsSaving] = useState(false);
@@ -148,7 +151,6 @@ export default function MonthlyPayrollPage() {
     const startDateStr = new Date(startOfCycleUTC.getTime() - thailandOffset).toISOString();
     const endDateStr = new Date(endOfCycleUTC.getTime() - thailandOffset).toISOString();
 
-    // 🌟 ดึงข้อมูลรายวันให้ครบถ้วนเพื่อเอามาโชว์ในประวัติ
     const { data: attendanceData, error: attError } = await supabase
       .from('rider_attendance')
       .select('id, rider_id, check_in, check_out, base_pay, gas_allowance, diligence_bonus, accumulated_savings, total_pay, payment_status, order_count, profiles(username, default_savings)')
@@ -179,7 +181,7 @@ export default function MonthlyPayrollPage() {
             total_savings: 0,
             net_pay: 0,
             payment_status: "รอชำระ",
-            daily_records: [] // 🌟 เริ่มต้นอาร์เรย์ว่างๆ สำหรับเก็บประวัติ
+            daily_records: [] 
           };
         }
         
@@ -191,7 +193,6 @@ export default function MonthlyPayrollPage() {
         summaryMap[rId].total_bonus += (Number(record.diligence_bonus) || 0);
         summaryMap[rId].total_savings += dailySavings; 
         
-        // 🌟 ยัดข้อมูลรายวันลงในกระเป๋าประวัติ
         summaryMap[rId].daily_records.push({
           id: record.id,
           check_in: record.check_in,
@@ -256,7 +257,8 @@ export default function MonthlyPayrollPage() {
       total_bonus: summary.total_bonus || 0,
       total_savings: summary.total_savings || 0,
       manual_total: summary.payment_status === 'จ่ายแล้ว' ? (summary.net_pay || 0) : null,
-      slip_url: summary.slip_url || null
+      slip_url: summary.slip_url || null,
+      payment_status: summary.payment_status // 🌟 ดึงสถานะเดิมมาโชว์
     });
     setEditingRecord(summary);
   };
@@ -281,7 +283,8 @@ export default function MonthlyPayrollPage() {
     }
 
     const { data } = supabase.storage.from("order-images").getPublicUrl(filePath);
-    setEditForm(prev => ({ ...prev, slip_url: data.publicUrl })); 
+    // 🌟 เปลี่ยนสถานะเป็น จ่ายแล้ว อัตโนมัติเมื่ออัปสลิป
+    setEditForm(prev => ({ ...prev, slip_url: data.publicUrl, payment_status: "จ่ายแล้ว" })); 
     showToast('อัปโหลดสลิปสำเร็จ! 📸');
     setIsUploading(false);
   };
@@ -314,9 +317,10 @@ export default function MonthlyPayrollPage() {
       total_bonus: editForm.total_bonus,
       total_savings: editForm.total_savings,
       total_amount: finalTotal,
-      status: "จ่ายแล้ว",
+      status: editForm.payment_status, // 🌟 ใช้ค่าจาก Dropdown
       slip_url: editForm.slip_url,
-      paid_at: new Date().toISOString()
+      // 🌟 บันทึกเวลาจ่ายเฉพาะตอนจ่ายจริง ถ้าแก้เป็นรอชำระให้คืนค่าเป็น null
+      paid_at: editForm.payment_status === "จ่ายแล้ว" ? new Date().toISOString() : null 
     };
 
     let errorObj;
@@ -335,7 +339,7 @@ export default function MonthlyPayrollPage() {
       showToast('บันทึกข้อมูลไม่สำเร็จ', 'error');
     } else {
       setEditingRecord(null);
-      showToast('บันทึกการจ่ายเงินเดือนสำเร็จ! 🎉');
+      showToast('บันทึกข้อมูลเสร็จสิ้น! 🎉');
       fetchMonthlyData(selectedMonth); 
     }
   };
@@ -351,7 +355,7 @@ export default function MonthlyPayrollPage() {
   return (
     <div className="min-h-screen pb-12 transition-all duration-500 bg-slate-50 font-sans">
       
-      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-[150] ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
+      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 transition-all duration-500 flex items-center bg-gray-900 text-white px-5 py-3 rounded-full shadow-2xl z-150 ${toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-20 opacity-0 scale-95 pointer-events-none'}`}>
         {toast.type === 'error' ? <AlertTriangle size={18} className="text-red-400 mr-2" /> : <CheckCircle2 size={18} className="text-green-400 mr-2" />}
         <span className="font-bold text-sm tracking-wide">{toast.message}</span>
       </div>
@@ -478,7 +482,6 @@ export default function MonthlyPayrollPage() {
                     </div>
                   </div>
 
-                  {/* 🌟 2 ปุ่ม: ดูประวัติ และ จัดการยอดเงิน */}
                   <div className="flex gap-2 relative z-10 mt-auto">
                     <button 
                       onClick={() => setHistoryRecord(summary)}
@@ -581,7 +584,7 @@ export default function MonthlyPayrollPage() {
 
       {/* Modal: จัดการเงิน */}
       {editingRecord && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60] animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-60 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-800 text-white shrink-0">
               <h3 className="text-lg font-black flex items-center gap-2">
@@ -600,6 +603,17 @@ export default function MonthlyPayrollPage() {
                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
                     รอบเดือน: {selectedMonth}
                   </div>
+                </div>
+                {/* 🌟 1. กล่องเลือกสถานะที่เพิ่มเข้ามา */}
+                <div className="text-right">
+                  <select 
+                    value={editForm.payment_status}
+                    onChange={e => setEditForm({...editForm, payment_status: e.target.value as "รอชำระ" | "จ่ายแล้ว"})}
+                    className={`text-xs font-black p-2 rounded-xl outline-none cursor-pointer border ${editForm.payment_status === 'จ่ายแล้ว' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}
+                  >
+                    <option value="รอชำระ">🔴 รอชำระ</option>
+                    <option value="จ่ายแล้ว">🟢 จ่ายแล้ว</option>
+                  </select>
                 </div>
               </div>
 
@@ -631,7 +645,8 @@ export default function MonthlyPayrollPage() {
                     <Image src={editForm.slip_url} alt="Slip" fill className="object-contain" />
                     <button 
                       type="button" 
-                      onClick={() => setEditForm(prev => ({...prev, slip_url: null}))}
+                      // 🌟 ถ้าลบรูปออก ให้เปลี่ยนสถานะกลับเป็น รอชำระ ให้ด้วย
+                      onClick={() => setEditForm(prev => ({...prev, slip_url: null, payment_status: "รอชำระ"}))}
                       className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       <Trash2 size={16} />
@@ -672,10 +687,12 @@ export default function MonthlyPayrollPage() {
                   ปิด
                 </button>
                 <button 
-                  type="submit" disabled={isSaving || !editForm.slip_url}
+                  type="submit" 
+                  // 🌟 ปลดล็อกให้บันทึกได้แม้ไม่มีรูป ถ้าตั้งใจเลือกเป็น "รอชำระ"
+                  disabled={isSaving || (editForm.payment_status === 'จ่ายแล้ว' && !editForm.slip_url)}
                   className="flex-[1.5] py-3.5 bg-slate-900 text-indigo-400 font-black rounded-xl hover:bg-slate-800 transition-all cursor-pointer shadow-lg active:scale-95 disabled:bg-slate-300 disabled:text-slate-500 text-sm flex justify-center items-center gap-2"
                 >
-                  {isSaving ? "กำลังบันทึก..." : <><CheckCircle2 size={18}/> ยืนยันจ่ายเงิน</>}
+                  {isSaving ? "กำลังบันทึก..." : <><CheckCircle2 size={18}/> บันทึกการแก้ไข</>}
                 </button>
               </div>
             </form>
@@ -686,17 +703,17 @@ export default function MonthlyPayrollPage() {
       {/* 🌟 Modal: แสดงรูปสลิปแบบเต็มจอพร้อมระบบซูมเลื่อนได้ */}
       {viewSlip && (
         <div 
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/95 backdrop-blur-md p-4 animate-in fade-in duration-200"
+          className="fixed inset-0 z-200 flex items-center justify-center bg-slate-900/95 backdrop-blur-md p-4 animate-in fade-in duration-200"
           onClick={() => { setViewSlip(null); setIsZoomed(false); }}
         >
           <button 
-            className="absolute top-6 right-6 text-white hover:text-slate-300 z-[210] bg-white/10 p-2 rounded-full backdrop-blur-sm transition-colors cursor-pointer"
+            className="absolute top-6 right-6 text-white hover:text-slate-300 z-210 bg-white/10 p-2 rounded-full backdrop-blur-sm transition-colors cursor-pointer"
             onClick={(e) => { e.stopPropagation(); setViewSlip(null); setIsZoomed(false); }}
           >
             <X size={24} />
           </button>
           
-          <div className="absolute top-6 left-6 text-white/50 text-xs font-bold bg-white/5 px-3 py-1.5 rounded-full backdrop-blur-sm z-[210] pointer-events-none">
+          <div className="absolute top-6 left-6 text-white/50 text-xs font-bold bg-white/5 px-3 py-1.5 rounded-full backdrop-blur-sm z-210 pointer-events-none">
             คลิกที่รูปภาพเพื่อ {isZoomed ? 'ย่อรูป' : 'ซูมรูป'}
           </div>
 

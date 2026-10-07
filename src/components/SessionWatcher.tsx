@@ -15,8 +15,12 @@ export default function SessionWatcher() {
       // ถ้าไม่มี session แล้ว (ถูกเตะออก, หมดอายุ, หรือล็อกเอาท์จากแท็บอื่น)
       if (event === "SIGNED_OUT" || (!session && event === "INITIAL_SESSION")) {
         
-        // ข้อยกเว้น: ถ้าอยู่หน้าล็อกอินหรือกู้รหัสผ่านอยู่แล้ว ไม่ต้องเด้งเตือนซ้ำ
-        const isPublicPage = pathname === "/login" || pathname === "/forgot-password" || pathname === "/reset-password";
+        // 🌟 ข้อยกเว้น: เพิ่มหน้า "/register" เข้ามาแล้ว!
+        const isPublicPage = 
+          pathname === "/login" || 
+          pathname === "/register" || 
+          pathname === "/forgot-password" || 
+          pathname === "/reset-password";
         
         if (!isPublicPage) {
           Swal.fire({
