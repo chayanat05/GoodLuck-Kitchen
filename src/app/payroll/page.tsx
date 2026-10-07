@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { 
   ArrowLeft, Banknote, Calendar, Loader2, CheckCircle2, AlertTriangle, 
   Search, Edit3, X, Save, Clock, Package, DollarSign, Fuel, Trophy, User, ImagePlus, Check,
-  Trash2, Image as ImageIcon, PiggyBank, Plus, Minus, Camera, Download, Settings
+  Trash2, Image as ImageIcon, PiggyBank, Plus, Minus, Camera, Download, Settings, Calculator
 } from "lucide-react";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import Image from "next/image";
@@ -115,7 +115,35 @@ export default function PayrollPage() {
   const [isWageModalOpen, setIsWageModalOpen] = useState(false);
   const [profilesForWageEdit, setProfilesForWageEdit] = useState<ProfileForWageEdit[]>([]);
   const [wageFilterRole, setWageFilterRole] = useState<string>('all'); // 🌟 2. เพิ่ม State นี้
-  
+
+  // 🌟🌟🌟 เพิ่ม State สำหรับระบบเครื่องคิดเลขค่าแรง 🌟🌟🌟
+  const [isCalcModalOpen, setIsCalcModalOpen] = useState(false);
+  const [calcState, setCalcState] = useState({
+    hourlyRate: 40,
+    startTime: "08:00",
+    endTime: "17:00",
+    days: 1
+  });
+
+  // 🌟 คำนวณผลลัพธ์แบบ Real-time ของเครื่องคิดเลข
+  const calcResult = useMemo(() => {
+    if (!calcState.startTime || !calcState.endTime) return { hours: 0, mins: 0, dailyPay: 0, totalPay: 0 };
+    const [sh, sm] = calcState.startTime.split(':').map(Number);
+    const [eh, em] = calcState.endTime.split(':').map(Number);
+    
+    let diffMins = (eh * 60 + em) - (sh * 60 + sm);
+    if (diffMins < 0) diffMins += 24 * 60; // กรณีข้ามคืน
+
+    const dailyPay = (diffMins / 60) * calcState.hourlyRate;
+    const totalPay = dailyPay * Math.max(1, calcState.days);
+
+    return {
+      hours: Math.floor(diffMins / 60),
+      mins: diffMins % 60,
+      dailyPay,
+      totalPay
+    };
+  }, [calcState]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -145,9 +173,7 @@ export default function PayrollPage() {
 
     const [year, month, day] = dateStr.split('-').map(Number);
     
-    // Create UTC dates to avoid server's local timezone interference, then adjust for Thailand's timezone (UTC+7).
-    // This makes the query robust regardless of the server's location.
-    const thailandOffset = 7 * 60 * 60 * 1000; // 7 hours in milliseconds
+    const thailandOffset = 7 * 60 * 60 * 1000; 
     
     const startOfDayUTC = new Date(Date.UTC(year, month - 1, day, bizHour, bizMin, 0, 0));
     const endOfDayUTC = new Date(Date.UTC(year, month - 1, day + 1, bizHour, bizMin, 0, 0));
@@ -157,9 +183,9 @@ export default function PayrollPage() {
 
     const { data, error } = await supabase
       .from('rider_attendance')
-      .select('*, profiles(username, role, hourly_rate, default_savings)') // 🌟 ดึงฟิลด์ภาพตอกบัตรและค่าแรงมาด้วย
+      .select('*, profiles(username, role, hourly_rate, default_savings)') 
       .gte('check_in', startOfDayThailand.toISOString())
-      .lt('check_in', endOfDayThailand.toISOString()) // Use .lt for a clean, exclusive end date
+      .lt('check_in', endOfDayThailand.toISOString()) 
       .order('check_in', { ascending: false });
 
     if (error) {
@@ -172,7 +198,6 @@ export default function PayrollPage() {
       })) as AttendanceRecord[];
       
       const recordsWithOrders = await Promise.all(formattedData.map(async (record) => {
-        // 🌟 ดึงออเดอร์จริงเสมอ สำหรับทุกคนที่ไม่ใช่แม่ครัว (แม้ว่าจะเลิกงานไปแล้วก็ตาม)
         if (record.profiles?.role !== 'kitchen') {
           const { data: riderOrders } = await supabase
             .from('orders')
@@ -190,13 +215,10 @@ export default function PayrollPage() {
 
           return { 
             ...record, 
-            // ✨ ถ้าระบบเคยบันทึกยอดตอนกด 'จ่ายแล้ว' ไว้แล้ว ให้ใช้ยอดนั้น 
-            // แต่ถ้ายังไม่จ่าย ให้ดึงยอดสด (Real-time) มาโชว์เสมอ
             real_time_order_count: (record.payment_status === 'จ่ายแล้ว' && record.order_count > 0) ? record.order_count : count 
           };
         }
         
-        // ถ้าเป็นแม่ครัว คืนค่า 0 ไปเลย
         return { ...record, real_time_order_count: 0 };
       }));
 
@@ -223,13 +245,11 @@ export default function PayrollPage() {
     const isKitchen = editingRecord.profiles?.role === 'kitchen';
     const gas = isKitchen ? 0 : (editForm.gas_allowance || 0);
 
-    // 🌟 เอาเงินสะสมมาหักลบออกจากยอดรวมที่นี่
     const total = basePay + gas + (editForm.diligence_bonus || 0) - (editForm.accumulated_savings || 0);
     return Math.max(0, total);
   }, [editForm, editingRecord]);
 
   const openEditModal = (record: AttendanceRecord) => {
-    // Use hourly_rate from profile, fallback to reverse-calculation, then to 40
     let rate = record.profiles?.hourly_rate || 40;
     
     let liveMinutes = record.total_minutes || 0;
@@ -240,7 +260,6 @@ export default function PayrollPage() {
       liveMinutes = Math.floor((new Date().getTime() - checkInTime) / 60000);
     }
 
-    // Only use reverse-calculation if rate from profile is missing
     if (!record.profiles?.hourly_rate && (record.base_pay || 0) > 0 && liveMinutes > 0) {
       rate = (record.base_pay / liveMinutes) * 60;
     }
@@ -258,17 +277,14 @@ export default function PayrollPage() {
       order_count: isKitchen ? 0 : currentOrders,
       gas_allowance: isKitchen ? 0 : proposedGas, 
       diligence_bonus: record.diligence_bonus || 0,
-      // 🌟 เปลี่ยนการดึงค่า accumulated_savings เป็นแบบนี้
       accumulated_savings: (record.payment_status === 'จ่ายแล้ว' || record.total_pay > 0) 
         ? (record.accumulated_savings || 0) 
         : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? (record.profiles?.default_savings ?? 50) : record.accumulated_savings),
       manual_total: record.total_pay || null,
       payment_status: record.payment_status || "รอชำระ",
       payment_slip_url: record.payment_slip_url || null,
-      // 🌟 ดึงค่าเวลาเข้าออกมาใส่ (แปลงฟอร์แมตให้ใช้กับ input type="datetime-local" ได้)
       check_in: record.check_in,
       check_out: record.check_out,
-      // 🌟 ดึงชั่วโมงและนาทีมาโชว์ในช่องพิมพ์
       check_in_time: `${String(new Date(record.check_in).getHours()).padStart(2, '0')}:${String(new Date(record.check_in).getMinutes()).padStart(2, '0')}`,
       check_out_time: record.check_out ? `${String(new Date(record.check_out).getHours()).padStart(2, '0')}:${String(new Date(record.check_out).getMinutes()).padStart(2, '0')}` : '',
     });
@@ -359,7 +375,6 @@ export default function PayrollPage() {
       setRecords(prev => prev.map(r => {
         if (r.id === editingRecord.id) {
           const updatedRecord = { ...r, ...formattedData };
-          // After saving, if status is paid, the definitive order count is the one saved.
           if (updatedRecord.payment_status === 'จ่ายแล้ว') {
             updatedRecord.real_time_order_count = updatedRecord.order_count;
           }
@@ -372,12 +387,10 @@ export default function PayrollPage() {
     }
   };
 
-  // 🌟 ฟังก์ชันกดจ่ายเงินด่วน (Quick Action)
-  
   const openWageModal = async () => {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, username, hourly_rate, default_savings, role') // 🌟 ดึงค่าสะสมและบทบาทมาด้วย
+      .select('id, username, hourly_rate, default_savings, role') 
       .in('role', ['rider', 'kitchen'])
       .order('username', { ascending: true });
 
@@ -390,8 +403,8 @@ export default function PayrollPage() {
     setProfilesForWageEdit(data.map(p => ({ 
       ...p, 
       hourly_rate: p.hourly_rate || 40,
-      default_savings: p.default_savings ?? 50, // 🌟 ค่าเริ่มต้นเป็น 50
-      role: p.role // 🌟 เพิ่มบทบาท
+      default_savings: p.default_savings ?? 50, 
+      role: p.role 
     })));
     setIsWageModalOpen(true);
   };
@@ -403,7 +416,7 @@ export default function PayrollPage() {
         .from('profiles')
         .update({ 
           hourly_rate: profile.hourly_rate, 
-          default_savings: profile.default_savings // 🌟 บันทึก 2 ค่าพร้อมกัน
+          default_savings: profile.default_savings 
         })
         .eq('id', profile.id)
     );
@@ -417,6 +430,7 @@ export default function PayrollPage() {
         setIsWageModalOpen(false);
         fetchRecords(selectedDate);
       }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
       showToast("เกิดข้อผิดพลาดรุนแรงในการบันทึก", "error");
     }
@@ -424,7 +438,6 @@ export default function PayrollPage() {
   };
 
   const handleQuickMarkPaid = async (record: AttendanceRecord) => {
-    // 🌟 1. คำนวณยอดทั้งหมด ณ วินาทีที่กดจ่ายเงิน
     const isWorking = !record.check_out;
     let finalMinutes = record.total_minutes || 0;
     if (isWorking) {
@@ -439,7 +452,6 @@ export default function PayrollPage() {
     const finalOrders = record.real_time_order_count ?? (record.order_count || 0);
     const autoGas = getAutoGasAllowance(finalOrders);
     
-    // ถ้ายอดเดิมมีอยู่แล้วให้ใช้ยอดเดิม ถ้าไม่มีให้ใช้ autoGas
     const finalGas = (record.gas_allowance && record.gas_allowance > 0) ? record.gas_allowance : autoGas;
     const finalSavings = (record.accumulated_savings === 0 || record.accumulated_savings == null) ? (record.profiles?.default_savings ?? 50) : record.accumulated_savings;
     const finalBonus = record.diligence_bonus || 0;
@@ -447,7 +459,6 @@ export default function PayrollPage() {
     const calculatedTotal = Math.max(0, finalBasePay + (showOrderAndGas ? finalGas : 0) + finalBonus - finalSavings);
     const finalTotalPay = record.total_pay > 0 ? record.total_pay : calculatedTotal;
 
-    // 🌟 2. แพ็กข้อมูลทั้งหมดเตรียมส่งไปบันทึก
     const updateData = {
       payment_status: "จ่ายแล้ว" as const,
       total_minutes: finalMinutes,
@@ -459,10 +470,8 @@ export default function PayrollPage() {
       total_pay: finalTotalPay
     };
 
-    // อัปเดต UI ทันทีให้ดูลื่นไหล (Optimistic Update)
     setRecords(prev => prev.map(r => r.id === record.id ? { ...r, ...updateData } : r));
     
-    // อัปเดตเข้าฐานข้อมูลแบบครบทุกฟิลด์
     const { error } = await supabase
       .from('rider_attendance')
       .update(updateData)
@@ -471,7 +480,7 @@ export default function PayrollPage() {
     if (error) {
       console.error(error);
       showToast('อัปเดตสถานะไม่สำเร็จ ❌', 'error');
-      fetchRecords(selectedDate); // ดึงข้อมูลใหม่เพื่อคืนค่าเดิมถ้าพัง
+      fetchRecords(selectedDate); 
     } else {
       showToast('เปลี่ยนเป็น "จ่ายแล้ว" และบันทึกยอดสำเร็จ! 💸');
     }
@@ -502,12 +511,10 @@ export default function PayrollPage() {
       const isPaid = record.payment_status === 'จ่ายแล้ว';
       const displayGas = (isPaid || (record.gas_allowance && record.gas_allowance > 0)) ? record.gas_allowance : autoGas;
 
-      // 1. ตั้งค่า Default หักเงินสะสม 50 บาทถ้ายังไม่จ่าย
       const displaySavings = (isPaid || record.total_pay > 0) 
         ? (record.accumulated_savings || 0) 
         : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? (record.profiles?.default_savings ?? 50) : record.accumulated_savings);
 
-      // 2. 🌟 แก้ไขสมการตรงนี้: ต้องบวกโบนัสขยัน ก่อนลบเงินสะสม
       const calculatedDisplayTotal = Math.max(0, displayBasePay + (showOrderAndGas ? displayGas : 0) + (record.diligence_bonus || 0) - displaySavings);
 
       const displayTotal = isWorking
@@ -521,24 +528,20 @@ export default function PayrollPage() {
   const handleExportMonthly = async (riderId: string, username: string) => {
     showToast("กำลังเตรียมข้อมูล Export...", "success");
 
-    // 1. Determine the month from selectedDate
     const year = new Date(selectedDate).getFullYear();
     const month = new Date(selectedDate).getMonth();
 
-    // 2. Get business day start time
     const { data: settings } = await supabase.from('store_settings').select('business_day_start').eq('id', 1).single();
     const bizTime = settings?.business_day_start || '07:00';
     const [bizHour, bizMin] = bizTime.split(':').map(Number);
     const thailandOffset = 7 * 60 * 60 * 1000;
 
-    // 3. Calculate date range for the entire month
     const startOfMonthUTC = new Date(Date.UTC(year, month, 1, bizHour, bizMin, 0, 0));
     const endOfMonthUTC = new Date(Date.UTC(year, month + 1, 1, bizHour, bizMin, 0, 0));
     
     const startOfMonth = new Date(startOfMonthUTC.getTime() - thailandOffset);
     const endOfMonth = new Date(endOfMonthUTC.getTime() - thailandOffset);
 
-    // 4. Fetch all attendance records for the month for this rider
     const { data: monthlyRecords, error } = await supabase
         .from('rider_attendance')
         .select('*')
@@ -553,8 +556,6 @@ export default function PayrollPage() {
         return;
     }
 
-    // 5. Process data and create CSV
-    // Summary calculations
     const totalPay = monthlyRecords.reduce((acc, r) => acc + (r.total_pay || 0), 0);
     const totalOrders = monthlyRecords.reduce((acc, r) => acc + (r.order_count || 0), 0);
     const totalMinutes = monthlyRecords.reduce((acc, r) => acc + (r.total_minutes || 0), 0);
@@ -565,7 +566,6 @@ export default function PayrollPage() {
     
     const monthName = new Date(year, month).toLocaleString('th-TH', { month: 'long', year: 'numeric' });
 
-    // CSV Headers and content
     const dailyHeaders = [
         "วันที่",
         "เวลาเข้างาน",
@@ -597,7 +597,7 @@ export default function PayrollPage() {
     const csvRows = [];
     csvRows.push(`"รายงานสำหรับ:", "${username}"`);
     csvRows.push(`"เดือน:", "${monthName}"`);
-    csvRows.push(''); // Empty line
+    csvRows.push(''); 
 
     csvRows.push(`"สรุปยอดรวม"`);
     csvRows.push(`"ยอดจ่ายรวม:", "${totalPay.toFixed(2)}"`);
@@ -606,7 +606,7 @@ export default function PayrollPage() {
     csvRows.push(`"ค่าน้ำมันรวม:", "${totalGas.toFixed(2)}"`);
     csvRows.push(`"โบนัสรวม:", "${totalBonus.toFixed(2)}"`);
     csvRows.push(`"เงินสะสมรวม:", "${totalSavings.toFixed(2)}"`);
-    csvRows.push(''); // Empty line
+    csvRows.push(''); 
 
     csvRows.push(dailyHeaders.join(','));
     dailyData.forEach(row => {
@@ -615,8 +615,7 @@ export default function PayrollPage() {
 
     const csvContent = csvRows.join('\n');
 
-    // 6. Trigger download
-    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' }); 
     const link = document.createElement("a");
     if (link.download !== undefined) {
         const url = URL.createObjectURL(blob);
@@ -704,7 +703,7 @@ export default function PayrollPage() {
       ...data.map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))
     ].join('\n');
 
-    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' }); // \uFEFF for BOM to support Excel
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' }); 
     const link = document.createElement("a");
     if (link.download !== undefined) {
       const url = URL.createObjectURL(blob);
@@ -759,12 +758,24 @@ export default function PayrollPage() {
               className="w-full md:w-64 p-3 bg-transparent border-none outline-none text-sm font-bold text-slate-700"
             />
           </div>
-          <button
-              onClick={openWageModal}
-              className="p-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-600 outline-none hover:bg-slate-50 active:scale-95 shadow-sm transition-all flex items-center gap-2"
-          >
-              <Settings size={16} />
-          </button>
+
+          {/* 🌟 กลุ่มปุ่มตั้งค่าและเครื่องคิดเลข */}
+          <div className="flex items-center gap-2">
+            <button
+                onClick={() => setIsCalcModalOpen(true)}
+                className="p-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-blue-600 outline-none hover:bg-blue-50 active:scale-95 shadow-sm transition-all flex items-center gap-2"
+                title="เครื่องคิดเลขค่าแรง"
+            >
+                <Calculator size={16} />
+            </button>
+            <button
+                onClick={openWageModal}
+                className="p-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-600 outline-none hover:bg-slate-50 active:scale-95 shadow-sm transition-all flex items-center gap-2"
+                title="ตั้งค่าค่าแรง"
+            >
+                <Settings size={16} />
+            </button>
+          </div>
 
           <div className="flex items-center w-full md:w-auto gap-3">
             <label className="text-xs font-black text-slate-500 uppercase tracking-wide flex items-center gap-1.5 shrink-0">
@@ -1289,6 +1300,108 @@ export default function PayrollPage() {
         </div>
       )}
 
+      {/* 🌟 Modal: เครื่องคิดเลขคำนวณค่าแรง */}
+      {isCalcModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-60 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-800 text-white shrink-0">
+              <h3 className="text-lg font-black flex items-center gap-2">
+                <Calculator size={20} className="text-blue-400" /> คำนวณค่าแรง
+              </h3>
+              <button onClick={() => setIsCalcModalOpen(false)} className="hover:bg-white/20 p-2 rounded-full transition-colors cursor-pointer active:scale-95">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">เรทค่าแรง (บาท/ชม.)</label>
+                  <input 
+                    type="number" min="0" 
+                    value={calcState.hourlyRate}
+                    onChange={e => setCalcState({...calcState, hourlyRate: Number(e.target.value)})}
+                    className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-black text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm text-center"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">จำนวนวันทำงาน (วัน)</label>
+                  <input 
+                    type="number" min="1" 
+                    value={calcState.days}
+                    onChange={e => setCalcState({...calcState, days: Number(e.target.value)})}
+                    className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-black text-emerald-600 outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm text-center"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">เวลาเริ่ม (ชม:นาที)</label>
+                  <input 
+                    type="text" 
+                    maxLength={5}
+                    placeholder="เช่น 08:00"
+                    value={calcState.startTime}
+                    onChange={e => {
+                      // ยอมรับจุด (.) แล้วแปลงเป็น (:) ให้อัตโนมัติเพื่อความสะดวก
+                      let val = e.target.value.replace(/[^0-9:\.]/g, '').replace('.', ':');
+                      if (val.length === 2 && !val.includes(':') && calcState.startTime.length < val.length) {
+                        val += ':';
+                      }
+                      setCalcState({...calcState, startTime: val});
+                    }}
+                    className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm text-center"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">เวลาสิ้นสุด (ชม:นาที)</label>
+                  <input 
+                    type="text" 
+                    maxLength={5}
+                    placeholder="เช่น 24:00"
+                    value={calcState.endTime}
+                    onChange={e => {
+                      let val = e.target.value.replace(/[^0-9:\.]/g, '').replace('.', ':');
+                      if (val.length === 2 && !val.includes(':') && calcState.endTime.length < val.length) {
+                        val += ':';
+                      }
+                      setCalcState({...calcState, endTime: val});
+                    }}
+                    className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm text-center"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 mt-4 space-y-2">
+                <div className="flex justify-between items-center text-xs font-bold text-slate-500">
+                  <span>เวลาทำงานต่อวัน:</span>
+                  <span className="text-slate-800">{calcResult.hours} ชม. {calcResult.mins} นาที</span>
+                </div>
+                <div className="flex justify-between items-center text-xs font-bold text-slate-500 pb-2 border-b border-slate-200">
+                  <span>ค่าแรงรายวัน:</span>
+                  <span className="text-slate-800">฿{calcResult.dailyPay.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center pt-2">
+                  <span className="text-sm font-black text-slate-700">ยอดรวม ({Math.max(1, calcState.days)} วัน):</span>
+                  <span className="text-xl font-black text-blue-600">฿{calcResult.totalPay.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex">
+              <button
+                type="button"
+                onClick={() => setIsCalcModalOpen(false)}
+                className="w-full py-3 bg-slate-900 text-white font-black rounded-xl hover:bg-slate-800 transition-all cursor-pointer shadow-lg active:scale-95 text-sm"
+              >
+                ปิดหน้าต่าง
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
 
             {/* 🌟 Modal: แสดงรูปภาพแบบเต็มจอพร้อมระบบซูมเลื่อนได้ (ใช้ดูได้ทั้งสลิปและรูปถ่ายบัตร) */}
             {viewSlip && (
@@ -1425,5 +1538,5 @@ export default function PayrollPage() {
               </div>
             )}
           </div>
-        );
-      }
+  );
+}

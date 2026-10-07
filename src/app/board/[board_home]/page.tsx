@@ -55,6 +55,8 @@ import { toast } from 'sonner';
 import Image from 'next/image';
 import Swal from 'sweetalert2';
 
+import AttendanceCameraModal from "@/components/AttendanceCameraModal";
+
 export default function BranchBoardPage({ params }: { params: Promise<{ board_home: string }> }) {
   const resolvedParams = use(params);
   const branchSlug = resolvedParams.board_home;
@@ -115,6 +117,15 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [allBranchesTodaysTotal, setAllBranchesTodaysTotal] = useState<number>(0);
   const [currentBranchId, setCurrentBranchId] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState<boolean>(false);
+
+  // 🌟 เพิ่ม State จับเวลาโหลดค้าง (ถ้าเกิน 6 วินาทีให้โชว์ปุ่มทางออกฉุกเฉิน)
+  const [isLoadTimeout, setIsLoadTimeout] = useState(false);
+  
+  useEffect(() => {
+    const timer = setTimeout(() => setIsLoadTimeout(true), 6000); // 6 วินาที
+    return () => clearTimeout(timer);
+  }, []);
+
   const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
   const [adminName, setAdminName] = useState<string>("กำลังโหลด...");
   const [currentUserRole, setCurrentUserRole] = useState<string>("kitchen");
@@ -155,9 +166,6 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [activeAttendance, setActiveAttendance] = useState<ActiveAttendance | null>(null);
   const [showCameraModal, setShowCameraModal] = useState(false);
   const [cameraAction, setCameraAction] = useState<'in' | 'out'>('in');
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [isProcessingAttendance, setIsProcessingAttendance] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -785,85 +793,6 @@ const unlockOrder = (orderId: string) => {
     }
   };
 
-  const submitAttendance = async () => {
-    if (!photoFile || !currentUser || !currentBranchId) return;
-
-    // 🌟 เริ่ม: เช็คระยะทาง 100 เมตรก่อนให้ถ่ายรูปเข้า/ออกงาน
-    if (!myLocation) {
-      showAlert("แจ้งเตือน", "กำลังค้นหาตำแหน่งของคุณ กรุณารอสักครู่...", "warning");
-      return;
-    }
-
-    const distanceToShop = calculateDistance(myLocation.lat, myLocation.lng, SHOP_LAT, SHOP_LNG) * 1000; // แปลงเป็นเมตร
-
-    if (distanceToShop > 100) {
-      showAlert(
-        "อยู่ไกลจากร้านเกินไป ❌", 
-        `ต้องอยู่ในรัศมี 100 เมตรจากร้านเพื่อถ่ายรูปเข้า/ออกงาน\n(ตอนนี้คุณอยู่ห่าง ${Math.round(distanceToShop)} เมตร)`, 
-        "error"
-      );
-      return;
-    }
-    // 🌟 จบ: เช็คระยะทาง
-
-    setIsProcessingAttendance(true);
-    const showAlertMessage = (title: string, message: string, icon: "success" | "error" | "warning" | "info" = "info") => {
-      if (icon === "success") {
-        toast.success(title, { description: message });
-      } else if (icon === "error") {
-        toast.error(title, { description: message });
-      } else {
-        Swal.fire({ title, text: message, icon, confirmButtonColor: "#3b82f6", confirmButtonText: "รับทราบ" });
-      }
-    };
-    
-    try {
-      // 1. Upload Photo
-      const fileExt = photoFile.name.split('.').pop() || 'jpg';
-      const fileName = `attendance-kitchen-${Date.now()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('rider-applications').upload(fileName, photoFile);
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage.from('rider-applications').getPublicUrl(fileName);
-      const imageUrl = urlData.publicUrl;
-
-      // 2. Insert or Update DB
-      if (cameraAction === 'in') {
-        const { data, error } = await supabase.from('rider_attendance').insert([{
-          rider_id: currentUser.id,
-          check_in_image: imageUrl
-        }]).select().single();
-
-        if (error) throw error;
-        setActiveAttendance(data as ActiveAttendance);
-        showAlertMessage("เข้างานสำเร็จ!", "ถ่ายรูปเข้างานเรียบร้อย ลุยเลย! 🚀", "success");
-      } else {
-        if (!activeAttendance) return;
-        const now = new Date();
-        const checkInDate = new Date(activeAttendance.check_in);
-        const minutes = Math.floor((now.getTime() - checkInDate.getTime()) / 60000);
-        
-        const { error } = await supabase.from('rider_attendance').update({
-          check_out: now.toISOString(),
-          total_minutes: minutes,
-          check_out_image: imageUrl
-        }).eq('id', activeAttendance.id);
-
-        if (error) throw error;
-        setActiveAttendance(null);
-        showAlertMessage("เลิกงานสำเร็จ!", "ถ่ายรูปออกงานเรียบร้อย พักผ่อนได้! 🌙", "success");
-      }
-      
-      setShowCameraModal(false);
-      setPhotoFile(null);
-      setPhotoPreview(null);
-    } catch (err: unknown) {
-      console.error(err);
-      showAlertMessage("เกิดข้อผิดพลาด", "ไม่สามารถบันทึกข้อมูลการถ่ายรูปได้", "error");
-    } finally {
-      setIsProcessingAttendance(false);
-    }
-  };
 
   const uploadImage = async (file: File): Promise<string | null> => {
     const fileExt = file.name.split(".").pop();
@@ -1584,7 +1513,7 @@ const unlockOrder = (orderId: string) => {
           backgroundAttachment: "fixed",
         }}
       >
-        <div className="bg-slate-900/60 backdrop-blur-xl p-10 rounded-4xl shadow-2xl flex flex-col items-center justify-center border border-white/10 animate-in zoom-in-95 duration-500">
+        <div className="bg-slate-900/80 backdrop-blur-xl p-8 md:p-10 rounded-4xl shadow-2xl flex flex-col items-center justify-center border border-white/10 animate-in zoom-in-95 duration-500 max-w-sm w-11/12 text-center">
           <div
             className="loader mb-4"
             style={{ "--loader-color": "#fff" } as React.CSSProperties}
@@ -1592,6 +1521,28 @@ const unlockOrder = (orderId: string) => {
           <p className="text-white text-sm font-bold tracking-widest mt-2 animate-pulse">
             กำลังเตรียมบอร์ด...
           </p>
+
+          {/* 🌟 แสดงปุ่มแก้ปัญหาเมื่อโหลดค้างเกิน 6 วินาที */}
+          {isLoadTimeout && (
+            <div className="mt-8 flex flex-col gap-3 w-full animate-in fade-in duration-500">
+              <p className="text-rose-400 text-[10px] font-bold mb-1">*หากโหลดค้างนาน อาจเปิดแอปผ่าน LINE หรือเซสชั่นมีปัญหา</p>
+              <button 
+                onClick={() => window.location.reload()} 
+                className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black active:scale-95 transition-all text-sm flex justify-center items-center gap-2 cursor-pointer shadow-lg"
+              >
+                <RefreshCw size={16} /> รีเฟรชหน้าจอ
+              </button>
+              <button 
+                onClick={async () => { 
+                  await supabase.auth.signOut(); 
+                  window.location.href = '/login'; 
+                }} 
+                className="w-full py-3.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-2xl font-black active:scale-95 transition-all text-sm flex justify-center items-center gap-2 cursor-pointer"
+              >
+                <LogOut size={16} /> ล็อกอินใหม่อีกครั้ง
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1658,6 +1609,31 @@ const unlockOrder = (orderId: string) => {
       </div>
     );
   }
+
+  // 🌟 ฟังก์ชันเช็คระยะและเปิดกล้องตอกบัตร
+  const handleOpenAttendanceCamera = (action: 'in' | 'out') => {
+    // ถ้าไม่ใช่ Superadmin หรือ Admin ให้เช็คระยะทาง (รัศมี 100 เมตร)
+    if (currentUserRole !== "superadmin" && currentUserRole !== "admin") {
+      if (!myLocation) {
+        showAlert("แจ้งเตือน", "กำลังค้นหาตำแหน่งของคุณ กรุณารอสักครู่...", "warning");
+        return;
+      }
+      
+      const distanceToShop = calculateDistance(myLocation.lat, myLocation.lng, SHOP_LAT, SHOP_LNG) * 1000;
+      if (distanceToShop > 100) {
+        showAlert(
+          "อยู่ไกลจากร้านเกินไป ❌", 
+          `ต้องอยู่ในรัศมี 100 เมตรจากร้านเพื่อถ่ายรูปเข้า/ออกงาน\n(ตอนนี้ห่าง ${Math.round(distanceToShop)} เมตร)`, 
+          "error"
+        );
+        return;
+      }
+    }
+    
+    // ถ้าระยะผ่าน (หรือเป็นแอดมิน) ให้เปิดกล้องได้เลย
+    setCameraAction(action);
+    setShowCameraModal(true);
+  };
 
   return (
     <div
@@ -2129,7 +2105,7 @@ const unlockOrder = (orderId: string) => {
                 ต้องถ่ายรูปเซลฟี่เพื่อเข้างานก่อน<br/>จึงจะมองเห็นกระดานออเดอร์ได้ครับ 📸
               </p>
               <button 
-                onClick={() => { setCameraAction('in'); setShowCameraModal(true); }} 
+                onClick={() => handleOpenAttendanceCamera('in')} 
                 className="w-full max-w-xs py-5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black shadow-lg shadow-emerald-500/30 active:scale-95 transition-all text-lg cursor-pointer flex items-center justify-center gap-2"
               >
                 <Camera size={20}/> ถ่ายรูปเข้างาน
@@ -3326,77 +3302,7 @@ const unlockOrder = (orderId: string) => {
         }
       `}</style>
 
-      {/* 🌟 Camera Modal for Attendance */}
-      {showCameraModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 z-160">
-          <div className="bg-white rounded-4xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col relative border border-white/20">
-            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white">
-              <div className="flex items-center gap-3">
-                <div className={`w-12 h-12 ${cameraAction === 'in' ? 'bg-emerald-100 text-emerald-500' : 'bg-rose-100 text-rose-500'} rounded-full flex items-center justify-center shadow-inner`}>
-                  <Camera size={24} />
-                </div>
-                <h3 className="text-2xl font-black text-slate-800 tracking-tight">
-                  {cameraAction === 'in' ? 'ถ่ายรูปเข้างาน' : 'ถ่ายรูปออกงาน'}
-                </h3>
-              </div>
-              <button onClick={() => setShowCameraModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 active:scale-90">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="p-6 flex flex-col items-center gap-4 bg-slate-50/50">
-              <div className="w-full aspect-square bg-slate-200 rounded-2xl overflow-hidden flex items-center justify-center border border-slate-300 shadow-inner">
-                {photoPreview ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={photoPreview} alt="Selfie preview" className="object-cover w-full h-full" />
-                ) : (
-                  <div className="text-slate-400 text-center">
-                    <Camera size={60} className="mb-2 mx-auto" />
-                    <p className="font-bold">รอรูปภาพ...</p>
-                  </div>
-                )}
-              </div>
-              
-              <input 
-                type="file" 
-                accept="image/*" 
-                capture="user" 
-                id="selfie-camera" 
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    setPhotoFile(file);
-                    setPhotoPreview(URL.createObjectURL(file));
-                  }
-                }}
-              />
-
-              <label htmlFor="selfie-camera" className={`w-full text-center py-4 rounded-2xl text-lg font-black transition-all shadow-sm active:scale-95 cursor-pointer ${photoFile ? 'bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-200' : 'bg-white hover:bg-slate-50 border border-slate-200'}`}>
-                {photoFile ? '📸 ถ่ายรูปใหม่อีกครั้ง' : '📸 เปิดกล้องเพื่อถ่ายรูป'}
-              </label>
-
-              <div className="flex w-full gap-3 mt-2">
-                <button onClick={() => {setShowCameraModal(false); setPhotoFile(null); setPhotoPreview(null);}} className="flex-1 py-4 bg-slate-200 text-slate-600 rounded-2xl font-bold">
-                  ยกเลิก
-                </button>
-                <button 
-                  onClick={submitAttendance} 
-                  disabled={!photoFile || isProcessingAttendance}
-                  className="flex-1 py-4 bg-emerald-500 text-white rounded-2xl font-black disabled:bg-slate-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {isProcessingAttendance ? (
-                    <Loader2 size={20} className="animate-spin" />
-                  ) : (
-                    cameraAction === 'in' ? 'ยืนยันเข้างาน' : 'ยืนยันออกงาน'
-                  )}
-                </button>
-              </div>
-              <p className="text-xs text-slate-400 mt-2 text-center">ระบบจะบันทึกรูปภาพ เวลา และคำนวณชั่วโมงทำงานของคุณ</p>
-            </div>
-          </div>
-        </div>
-      )}
+      
 
       {isGalleryOpen && (
         <SharedGallery
@@ -3477,6 +3383,18 @@ const unlockOrder = (orderId: string) => {
           </div>
         </div>
       )}
+
+      {/* 🌟 ดึง Camera Modal แบบแยกไฟล์มาใช้งาน */}
+      <AttendanceCameraModal 
+        isOpen={showCameraModal}
+        onClose={() => setShowCameraModal(false)}
+        action={cameraAction}
+        userId={currentUser.id}
+        userRole={currentUserRole}
+        activeAttendance={activeAttendance}
+        onSuccess={(newData) => setActiveAttendance(newData)}
+      />
+
     </div>
   );
 }

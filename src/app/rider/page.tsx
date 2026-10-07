@@ -30,7 +30,6 @@ import {
   Calendar,
   RefreshCw,
   Camera,
-  Loader2,
   Search,
 } from "lucide-react";
 import { Order } from "../../components/OrderCard";
@@ -42,6 +41,8 @@ import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from "@react-google-m
 import Swal from "sweetalert2";
 import { toast } from "sonner";
 import { useFCM } from "@/hooks/useFCM";
+
+import AttendanceCameraModal from "@/components/AttendanceCameraModal";
 
 const SHOP_LAT = 16.24813;
 const SHOP_LNG = 103.242206;
@@ -119,6 +120,15 @@ export default function RiderPage() {
   const lastGpsUpdateRef = useRef<number>(0);
 
   const [isCheckingAuth, setIsCheckingAuth] = useState(true); 
+
+  // 🌟 เพิ่ม State จับเวลาโหลดค้าง (ถ้าเกิน 6 วินาทีให้โชว์ปุ่มทางออกฉุกเฉิน)
+  const [isLoadTimeout, setIsLoadTimeout] = useState(false);
+  
+  useEffect(() => {
+    const timer = setTimeout(() => setIsLoadTimeout(true), 6000); // 6 วินาที
+    return () => clearTimeout(timer);
+  }, []);
+
   const [showRiderMap, setShowRiderMap] = useState<boolean>(false);
   const [ridersLoc, setRidersLoc] = useState<RiderLocation[]>([]);
   const [selectedRiderMapInfo, setSelectedRiderMapInfo] = useState<RiderLocation | null>(null);
@@ -138,9 +148,6 @@ export default function RiderPage() {
   const googleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const [cameraAction, setCameraAction] = useState<'in' | 'out'>('in');
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [isProcessingAttendance, setIsProcessingAttendance] = useState(false);
   
   const [mapLibraries] = useState<"places"[]>(["places"]);
   const { isLoaded } = useJsApiLoader({
@@ -590,86 +597,29 @@ export default function RiderPage() {
     return R * c;
   };
 
-  const submitAttendance = async () => {
-    if (!photoFile || !currentUser) return;
-
-    // 🌟 เช็คระยะ 50 เมตรสำหรับการตอกบัตรเข้า-ออก (หาว่าอยู่ใกล้สาขาไหนที่สุด)
-    const isSuper = currentUserRole === "superadmin" || currentUserRole === "admin";
-    if (!isSuper) {
+  // 🌟 ฟังก์ชันเช็คระยะก่อนเปิดกล้อง
+  const handleOpenAttendanceCamera = (action: 'in' | 'out') => {
+    // ถ้าไม่ใช่ Superadmin หรือ Admin ให้เช็คระยะทาง
+    if (currentUserRole !== "superadmin" && currentUserRole !== "admin") {
       if (!myLocation) {
-        showAlert("ไม่พบพิกัด GPS", "กำลังค้นหาตำแหน่งของคุณ กรุณารอสักครู่...", "warning");
+        showAlert("แจ้งเตือน", "กำลังค้นหาตำแหน่งของคุณ กรุณารอสักครู่...", "warning");
         return;
       }
-
-      let minDistance = Infinity;
-      let nearestName = "";
-      branches.forEach(b => {
-        if (b.lat && b.lng) {
-          const dist = getDistanceFromLatLonInKm(myLocation.lat, myLocation.lng, b.lat, b.lng) * 1000;
-          if (dist < minDistance) {
-            minDistance = dist;
-            nearestName = b.name;
-          }
-        }
-      });
-
-      if (minDistance > 50) {
+      const distanceToShop = getDistanceFromLatLonInKm(myLocation.lat, myLocation.lng, SHOP_LAT, SHOP_LNG) * 1000;
+      if (distanceToShop > 100) {
         showAlert(
-          "อยู่ไกลเกินไป ❌", 
-          `ต้องอยู่ในรัศมี 50 เมตรจากร้านเพื่อตอกบัตร\n(ตอนนี้คุณอยู่ห่าง ${Math.round(minDistance)} เมตร จาก ${nearestName || 'ร้าน'})`, 
+          "อยู่ไกลจากร้านเกินไป ❌", 
+          `ต้องอยู่ในรัศมี 100 เมตรจากร้านเพื่อถ่ายรูปเข้า/ออกงาน\n(ตอนนี้ห่าง ${Math.round(distanceToShop)} เมตร)`, 
           "error"
         );
         return;
       }
     }
-
-    setIsProcessingAttendance(true);
-    try {
-      // 1. Upload Photo
-      const fileExt = photoFile.name.split('.').pop() || 'jpg';
-      const fileName = `attendance-${Date.now()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('rider-applications').upload(fileName, photoFile);
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage.from('rider-applications').getPublicUrl(fileName);
-      const imageUrl = urlData.publicUrl;
-
-      // 2. Insert or Update DB
-      if (cameraAction === 'in') {
-        const { data, error } = await supabase.from('rider_attendance').insert([{
-          rider_id: currentUser.id,
-          check_in_image: imageUrl
-        }]).select().single();
-        if (error) throw error;
-        setActiveAttendance(data as ActiveAttendance);
-        showAlert("เข้างานสำเร็จ!", "ตอกบัตรเข้างานเรียบร้อย ลุยเลย! 🚀", "success");
-      } else {
-        if (!activeAttendance) return;
-        const now = new Date();
-        const checkInDate = new Date(activeAttendance.check_in);
-        const minutes = Math.floor((now.getTime() - checkInDate.getTime()) / 60000);
-        
-        const { error } = await supabase.from('rider_attendance').update({
-          check_out: now.toISOString(),
-          total_minutes: minutes,
-          check_out_image: imageUrl
-        }).eq('id', activeAttendance.id);
-        if (error) throw error;
-        setActiveAttendance(null);
-        showAlert("เลิกงานสำเร็จ!", "ตอกบัตรออกงานเรียบร้อย พักผ่อนได้! 🌙", "success");
-      }
-      
-      setShowCameraModal(false);
-      setPhotoFile(null);
-      setPhotoPreview(null);
-    } catch (err) {
-      console.error(err);
-      showAlert("เกิดข้อผิดพลาด", "ไม่สามารถบันทึกข้อมูลตอกบัตรได้", "error");
-    } finally {
-      setIsProcessingAttendance(false);
-    }
+    // ถ้าระยะผ่าน ให้เปิดกล้อง
+    setCameraAction(action);
+    setShowCameraModal(true);
   };
-
+  
   const handleTakeJob = async (order: RiderOrder) => {
     if (!currentUser) return;
     
@@ -1145,6 +1095,30 @@ export default function RiderPage() {
             กำลังเตรียมระบบ...
           </h2>
         </div>
+
+        {/* 🌟 แสดงปุ่มแก้ปัญหาเมื่อโหลดค้างเกิน 6 วินาที */}
+        {isLoadTimeout && (
+          <div className="mt-4 flex flex-col gap-3 w-11/12 max-w-xs animate-in fade-in duration-500">
+            <p className="text-rose-500 text-xs font-bold text-center mb-1">
+              *หากโหลดค้างนาน ลองกดรีเฟรชหรือล็อกอินใหม่ครับ
+            </p>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black active:scale-95 transition-all text-sm flex justify-center items-center gap-2 shadow-lg"
+            >
+              <RefreshCw size={16} /> รีเฟรชหน้าจอ
+            </button>
+            <button 
+              onClick={async () => { 
+                await supabase.auth.signOut(); 
+                window.location.href = '/login'; 
+              }} 
+              className="w-full py-3.5 bg-white hover:bg-slate-50 text-rose-600 border border-rose-200 rounded-2xl font-black active:scale-95 transition-all text-sm flex justify-center items-center gap-2 shadow-sm"
+            >
+              <LogOut size={16} /> ล็อกอินใหม่อีกครั้ง
+            </button>
+          </div>
+        )}
       </div>
     );
 
@@ -1316,7 +1290,7 @@ export default function RiderPage() {
                 <p className="text-sm text-slate-500 font-medium mb-8 leading-relaxed">
                   ต้องถ่ายรูปเซลฟี่เพื่อตอกบัตรเข้างานก่อน<br/>จึงจะมองเห็นและรับงานว่างได้ครับ 📸
                 </p>
-                <button onClick={() => { setCameraAction('in'); setShowCameraModal(true); }} className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black shadow-lg shadow-emerald-500/30 active:scale-95 transition-all text-base cursor-pointer">
+                <button onClick={() => handleOpenAttendanceCamera('in')} className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black shadow-lg shadow-emerald-500/30 active:scale-95 transition-all text-base cursor-pointer">
                   📸 ตอกบัตรเข้างาน
                 </button>
               </div>
@@ -1553,64 +1527,6 @@ export default function RiderPage() {
         </div>
       )}
 
-      {/* 🌟 Modal สำหรับถ่ายรูปตอกบัตร */}
-      {showCameraModal && (
-        <div className="fixed inset-0 bg-slate-900/90 z-200 flex items-center justify-center p-4">
-          <div className="bg-white rounded-4xl p-6 w-full max-w-sm flex flex-col items-center shadow-2xl animate-in zoom-in-95 duration-200">
-            <h3 className="text-xl font-black mb-2 text-slate-800">
-              {cameraAction === 'in' ? '📸 ถ่ายรูปเข้างาน' : '📸 ถ่ายรูปเลิกงาน'}
-            </h3>
-            <p className="text-xs text-slate-500 mb-6 text-center">ต้องถ่ายรูปเซลฟี่กับหน้าร้านเพื่อยืนยันตัวตนเข้าระบบ</p>
-            
-            {photoPreview ? (
-              <div className="relative w-full aspect-square rounded-3xl overflow-hidden mb-6 shadow-md border-4 border-slate-100">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={photoPreview} className="object-cover w-full h-full" alt="Preview" />
-                <button onClick={() => {setPhotoPreview(null); setPhotoFile(null);}} className="absolute top-3 right-3 bg-rose-500/90 backdrop-blur-md text-white p-2.5 rounded-full shadow-lg hover:bg-rose-600 transition-colors cursor-pointer">
-                  <X size={18} strokeWidth={3}/>
-                </button>
-              </div>
-            ) : (
-              <label className="w-full aspect-square bg-slate-50 border-2 border-dashed border-slate-300 rounded-3xl flex flex-col items-center justify-center mb-6 cursor-pointer hover:bg-slate-100 hover:border-blue-400 transition-all group">
-                <div className="w-20 h-20 bg-white rounded-full shadow-sm flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <Camera size={36} className="text-blue-500" />
-                </div>
-                <span className="font-black text-slate-600 text-lg">แตะเพื่อถ่ายรูป</span>
-                <span className="text-[10px] text-slate-400 mt-1 uppercase tracking-widest font-bold">เปิดกล้องมือถือ</span>
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  capture="user" 
-                  className="hidden" 
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      const file = e.target.files[0];
-                      setPhotoFile(file);
-                      setPhotoPreview(URL.createObjectURL(file));
-                    }
-                  }} 
-                />
-              </label>
-            )}
-
-            <div className="flex gap-3 w-full">
-              <button 
-                onClick={() => {setShowCameraModal(false); setPhotoPreview(null); setPhotoFile(null);}} 
-                className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold transition-colors active:scale-95 cursor-pointer"
-              >
-                ยกเลิก
-              </button>
-              <button 
-                disabled={!photoFile || isProcessingAttendance} 
-                onClick={submitAttendance}
-                className="flex-1 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black disabled:bg-slate-300 transition-colors shadow-lg shadow-blue-500/30 flex justify-center items-center active:scale-95 cursor-pointer"
-              >
-                {isProcessingAttendance ? <Loader2 className="animate-spin" size={20}/> : 'ยืนยัน'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {selectedViewOrder && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm" style={{ zIndex: 200 }}>
@@ -1971,6 +1887,17 @@ export default function RiderPage() {
           animation: dash-lines 0.4s linear infinite;
         }
       `}</style>
+
+      {/* 🌟 ดึง Camera Modal แบบแยกไฟล์มาใช้งาน */}
+      <AttendanceCameraModal 
+        isOpen={showCameraModal}
+        onClose={() => setShowCameraModal(false)}
+        action={cameraAction}
+        userId={currentUser?.id || ""} // 🌟 เติม ?. และ || "" ป้องกัน error
+        userRole={currentUserRole}
+        activeAttendance={activeAttendance}
+        onSuccess={(newData) => setActiveAttendance(newData)}
+      />
     </div>
   );
 }
