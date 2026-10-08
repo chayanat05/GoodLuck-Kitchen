@@ -629,13 +629,14 @@ const unlockOrder = (orderId: string) => {
             playSound("new");
             showToast(`🔔 มีออเดอร์ใหม่เข้า! ออเดอร์ที่ ${payload.new.order_number}`);
           } else if (payload.eventType === "UPDATE") {
-            // Simple notification for any update.
-            // A more complex check could be done here if needed, but requires careful state management.
-            // showToast(`🔄 ออเดอร์ #${payload.new.order_number} มีการอัปเดต`);
+            // 🌟 เช็คว่า "เมนู" ถูกแก้ไขหรือไม่ ถ้าใช่ให้ส่งเสียงเตือนเลย!
+            if (payload.old.menu !== payload.new.menu) {
+              playSound("edit");
+              showToast(`✏️ ออเดอร์ #${payload.new.order_number} มีการแก้ไขเมนู! 📝`);
+            }
           }
 
           // Refetch all orders to ensure the UI is in sync.
-          // This is simpler and more robust than manually updating the state.
           fetchOrdersAndLocations();
         }
       )
@@ -1033,8 +1034,8 @@ const unlockOrder = (orderId: string) => {
       if (error) {
         console.warn("Error updating order, might be false positive:", error);
       } else {
+        // 🌟 ถอดเสียงออกจากตรงนี้ แล้วไปดังตอน Realtime เพื่อให้ทุกเครื่องได้ยินพร้อมกัน!
         if (isMenuChanged) {
-            playSound('edit');
             showToast(`✏️ แก้ไขเมนูออเดอร์ #${finalOrderNumber} แล้ว 📝`);
         }
         const { error: logError } = await supabase.from("activity_logs").insert([{
