@@ -46,7 +46,7 @@ export default function AttendanceCameraModal({
     }
   }, [cameraStream]);
 
-  // 🌟 เปิดกล้องสด (เอา any ออก ใช้ unknown และตรวจสอบ Type อย่างปลอดภัย)
+  // 🌟 เปิดกล้องสด
   const startLiveCamera = useCallback(async () => {
     setIsStartingCamera(true);
     stopLiveCamera();
@@ -77,7 +77,7 @@ export default function AttendanceCameraModal({
         const errorName = err1 instanceof Error ? err1.name : (err1 as { name?: string })?.name;
         
         if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError") {
-          throw err1; // โยนให้ catch ด้านนอกจัดการ (แสดงป๊อปอัปสอนวิธีแก้)
+          throw err1; 
         }
         
         console.warn("ไม่พบกล้องหน้า พยายามเปิดกล้องหลักแทน...", err1);
@@ -138,7 +138,7 @@ export default function AttendanceCameraModal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  // 🌟 กดถ่ายรูป (ภาพเซฟไม่กลับด้าน)
+  // 🌟 กดถ่ายรูป (ปรับให้เซฟแบบกระจกเงา เหมือนตอนส่องวิดีโอ)
   const capturePhoto = () => {
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
@@ -152,6 +152,10 @@ export default function AttendanceCameraModal({
 
       const ctx = canvas.getContext("2d");
       if (ctx) {
+        // 🌟 เพิ่มคำสั่ง 2 บรรทัดนี้ เพื่อให้ Canvas กลับด้านภาพซ้าย-ขวา ก่อนวาด
+        ctx.translate(targetWidth, 0);
+        ctx.scale(-1, 1);
+        
         ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
 
         const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
@@ -283,8 +287,7 @@ export default function AttendanceCameraModal({
                   autoPlay
                   playsInline
                   muted
-                  // 🌟 ลบคำว่า scale-x-[-1] ออกจาก className ด้านล่างนี้แล้ว ภาพจะไม่กลับด้านตอนส่องกล้อง
-                  className={`object-cover w-full h-full ${cameraStream ? "block" : "hidden"}`}
+                  className={`object-cover w-full h-full scale-x-[-1] ${cameraStream ? "block" : "hidden"}`}
                 />
                 {!cameraStream && (
                   <div className="text-slate-400 text-center flex flex-col items-center p-6">
