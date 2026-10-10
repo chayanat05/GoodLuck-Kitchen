@@ -197,7 +197,7 @@ export default function DashboardView({
 
       query = query.order('created_at', { ascending: false });
       if (filterMode === 'all') {
-        query = query.limit(500);
+        query = query.limit(500000);
       }
 
       const { data } = await query;
@@ -956,11 +956,11 @@ export default function DashboardView({
                   src={url} 
                   className={`transition-all duration-300 origin-center cursor-zoom-in shadow-2xl rounded-lg ${imgScale > 1 ? 'm-auto' : ''}`}
                   style={{ 
-                    width: imgScale > 1 ? `${imgScale * 100}%` : '100%', 
-                    height: imgScale > 1 ? 'auto' : '100%',
-                    objectFit: 'contain',
-                    maxWidth: imgScale > 1 ? 'none' : '100%' 
-                  }}
+   width: imgScale > 1 ? `${imgScale * 100}%` : '100%', // ✅ แก้เป็นแบบนี้
+   height: imgScale > 1 ? 'auto' : '100%',
+   objectFit: 'contain',
+   maxWidth: imgScale > 1 ? 'none' : '100%' 
+ }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
                     setImgScale(prev => prev === 1 ? 2.5 : 1);

@@ -220,8 +220,9 @@ export default function RiderPage() {
     if (!isSuper) {
         myJobsQuery = myJobsQuery.or(`job_type.is.null,job_type.neq.${EXCLUDED_JOB_TYPE}`);
     }
-    const { data: myJobs } = await myJobsQuery.order("created_at", { ascending: true });
-
+    
+    // 🌟 แก้ไขจุดที่ 1: เปลี่ยนเป็นดึงจาก "ใหม่ไปเก่า" (false) และเอามาแค่ 150 บิลล่าสุด
+    const { data: myJobs } = await myJobsQuery.order("created_at", { ascending: false }).limit(150);
 
     let availableJobsQuery = supabase
       .from("orders")
@@ -232,13 +233,19 @@ export default function RiderPage() {
     if (!isSuper) {
         availableJobsQuery = availableJobsQuery.or(`job_type.is.null,job_type.neq.${EXCLUDED_JOB_TYPE}`);
     }
-    const { data: availableJobs } = await availableJobsQuery.order("created_at", { ascending: true });
+    
+    // 🌟 แก้ไขจุดที่ 2: ดึงงานว่างแค่ 150 งานล่าสุดเช่นกัน
+    const { data: availableJobs } = await availableJobsQuery.order("created_at", { ascending: false }).limit(150);
 
     const jobs1 = availableJobs || [];
     const jobs2 = myJobs || [];
     const combined = [...jobs1, ...jobs2];
     const uniqueOrders = Array.from(new Map(combined.map((item) => [item.id, item])).values());
     const activeOrders = uniqueOrders.filter((order) => order.is_deleted !== true);
+    
+    // 🌟 สลับให้เรียงลำดับ "เก่าไปใหม่" อีกครั้งก่อนแสดงผล เพื่อให้ UI เรียงบิลบนจอเหมือนเดิม
+    activeOrders.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    
     setOrders(activeOrders as RiderOrder[]);
   }, []);
 
