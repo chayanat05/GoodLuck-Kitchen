@@ -371,7 +371,6 @@ export default function RiderPage() {
         if (isAvailableForMe) {
           setOrders(prevOrders => {
             if (prevOrders.some(o => o.id === newOrder.id)) return prevOrders;
-            // Keep the list sorted by creation time
             return [...prevOrders, newOrder].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
           });
           toast.info("มีงานใหม่เข้า! 🛵", { description: `ออเดอร์ #${newOrder.order_number}` });
@@ -382,37 +381,40 @@ export default function RiderPage() {
       case 'UPDATE': {
         const updatedOrder = newRecord as RiderOrder;
 
-        const isMyJob = updatedOrder.rider_id === currentUser.id && !updatedOrder.is_archived && !updatedOrder.is_deleted && (isSuper || updatedOrder.job_type !== EXCLUDED_JOB_TYPE);
-        const isAvailableJob = 
-          updatedOrder.rider_id === null &&
-          !updatedOrder.is_deleted &&
-          !updatedOrder.is_archived &&
-          ["New", "ออเดอร์ใหม่", "กำลังทำ", "รับงาน"].includes(updatedOrder.status) &&
-          (myBranchId === "all" || updatedOrder.branch_id === myBranchId) &&
-          (isSuper || updatedOrder.job_type !== EXCLUDED_JOB_TYPE);
-        
-        const shouldBeVisible = isMyJob || isAvailableJob;
-
         setOrders(prevOrders => {
           const existingOrderIndex = prevOrders.findIndex(o => o.id === updatedOrder.id);
+          const existingOrder = existingOrderIndex !== -1 ? prevOrders[existingOrderIndex] : null;
+          
+          // 🌟 1. ประกอบร่างข้อมูล: ถ้า Supabase ส่งข้อมูลมาไม่ครบ ให้เอาข้อมูลเดิมในเครื่องมาเติมให้เต็ม
+          const mergedOrder = existingOrder ? { ...existingOrder, ...updatedOrder } : updatedOrder;
+
+          // 🌟 2. ใช้ mergedOrder ในการเช็คเงื่อนไขแทน
+          const isMyJob = mergedOrder.rider_id === currentUser.id && !mergedOrder.is_archived && !mergedOrder.is_deleted && (isSuper || mergedOrder.job_type !== EXCLUDED_JOB_TYPE);
+          
+          const isAvailableJob = 
+            mergedOrder.rider_id === null &&
+            !mergedOrder.is_deleted &&
+            !mergedOrder.is_archived &&
+            ["New", "ออเดอร์ใหม่", "กำลังทำ", "รับงาน"].includes(mergedOrder.status) &&
+            (myBranchId === "all" || mergedOrder.branch_id === myBranchId) &&
+            (isSuper || mergedOrder.job_type !== EXCLUDED_JOB_TYPE);
+          
+          const shouldBeVisible = isMyJob || isAvailableJob;
 
           if (shouldBeVisible) {
             if (existingOrderIndex !== -1) {
-              // Order exists, update it
               const newOrders = [...prevOrders];
-              newOrders[existingOrderIndex] = updatedOrder;
+              newOrders[existingOrderIndex] = mergedOrder; // อัปเดตด้วยข้อมูลที่ประกอบร่างแล้ว
               return newOrders;
             } else {
-              // Order is new to this rider (e.g., just assigned), add it
-              return [updatedOrder, ...prevOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+              return [mergedOrder, ...prevOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
             }
           } else {
-            // Order should no longer be visible (e.g., completed, archived, taken by another rider)
             if (existingOrderIndex !== -1) {
               return prevOrders.filter(o => o.id !== updatedOrder.id);
             }
           }
-          return prevOrders; // No change
+          return prevOrders;
         });
         break;
       }
