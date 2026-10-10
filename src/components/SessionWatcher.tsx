@@ -15,8 +15,9 @@ export default function SessionWatcher() {
       // ถ้าไม่มี session แล้ว (ถูกเตะออก, หมดอายุ, หรือล็อกเอาท์จากแท็บอื่น)
       if (event === "SIGNED_OUT" || (!session && event === "INITIAL_SESSION")) {
         
-        // 🌟 ข้อยกเว้น: เพิ่มหน้า "/register" เข้ามาแล้ว!
+        // 🌟 เพิ่มหน้า "/" (หน้าแรก) เข้ามาในกลุ่มหน้าสาธารณะ
         const isPublicPage = 
+          pathname === "/" || 
           pathname === "/login" || 
           pathname === "/register" || 
           pathname === "/forgot-password" || 
