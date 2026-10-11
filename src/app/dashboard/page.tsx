@@ -5,7 +5,8 @@ import { supabase } from "@/lib/supabase";
 import { 
   ArrowLeft, LayoutDashboard, TrendingUp, DollarSign, 
   CreditCard, Wallet, Store, Bike, Calendar, Loader2, Trophy,
-  Receipt, Award, RefreshCw, Utensils, Timer, Truck, Activity, Smartphone
+  Receipt, Award, RefreshCw, Timer, Truck, Activity, Smartphone,
+  Star
 } from "lucide-react";
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, 
@@ -14,7 +15,7 @@ import {
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import { toast } from "sonner";
 
-const COLORS = ['#3b82f6', '#10b981', '#06b6d4', '#f59e0b', '#8b5cf6', '#f43f5e']; // เพิ่มสี Cyan สำหรับคนละครึ่ง
+const COLORS = ['#3b82f6', '#10b981', '#06b6d4', '#f59e0b', '#8b5cf6', '#f43f5e']; 
 
 type DateFilterType = "today" | "singleDay" | "yesterday" | "7days" | "month" | "all" | "custom";
 
@@ -69,6 +70,10 @@ export default function GlobalDashboardPage() {
   const router = useRouter();
   const [, setCurrentUser] = useState<SupabaseUser | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // 🌟 เพิ่ม State สำหรับ All-time Stats
+  const [loadingAllTime, setLoadingAllTime] = useState(true);
+  const [allTimeRiderStats, setAllTimeRiderStats] = useState<{name: string, totalTrips: number}[]>([]);
 
   const [orders, setOrders] = useState<OrderData[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -79,6 +84,56 @@ export default function GlobalDashboardPage() {
   const [singleDate, setSingleDate] = useState<string>(getInitialBizDate());
   const [customStart, setCustomStart] = useState<string>(getInitialBizDate());
   const [customEnd, setCustomEnd] = useState<string>(getInitialBizDate());
+
+  // 🌟 ฟังก์ชันพิเศษสำหรับดึงข้อมูลไรเดอร์ "ทั้งหมดแบบ 100%" (ทะลุขีดจำกัด Supabase)
+  const fetchAllTimeRiderStats = useCallback(async () => {
+    setLoadingAllTime(true);
+    try {
+      const allNames: string[] = [];
+      let keepFetching = true;
+      let offset = 0;
+      const limit = 1000;
+
+      // วนลูปดึงข้อมูลทีละ 1,000 แถวไปเรื่อยๆ จนกว่าจะหมด
+      while (keepFetching) {
+        const { data, error } = await supabase
+          .from("orders")
+          .select("rider_name")
+          .eq("status", "ส่งแล้ว/เสร็จ")
+          .not("is_deleted", "eq", true)
+          .not("rider_name", "is", null)
+          .range(offset, offset + limit - 1);
+
+        if (error || !data || data.length === 0) {
+          keepFetching = false;
+        } else {
+          allNames.push(...data.map(d => d.rider_name as string));
+          if (data.length < limit) {
+            keepFetching = false; // ถ้าข้อมูลรอบนี้ได้มาไม่ถึง 1000 แปลว่าหมดแล้ว
+          } else {
+            offset += limit;
+          }
+        }
+      }
+
+      // นำชื่อมานับรวมกัน
+      const counts: Record<string, number> = {};
+      allNames.forEach(name => {
+        counts[name] = (counts[name] || 0) + 1;
+      });
+
+      // จัดเรียงจากมากไปน้อย
+      const statsArray = Object.keys(counts)
+        .map(name => ({ name, totalTrips: counts[name] }))
+        .sort((a, b) => b.totalTrips - a.totalTrips);
+
+      setAllTimeRiderStats(statsArray);
+    } catch (err) {
+      console.error("Error fetching all time stats:", err);
+    } finally {
+      setLoadingAllTime(false);
+    }
+  }, []);
 
   const fetchDashboardData = useCallback(async (isManualRefresh = false, isBackgroundSync = false) => {
     if (!isManualRefresh && !isBackgroundSync) setLoading(true); 
@@ -105,12 +160,13 @@ export default function GlobalDashboardPage() {
     const { data: branchData } = await supabase.from("branches").select("id, name").order("name");
     if (branchData) setBranches(branchData);
 
+    // ข้อมูลสำหรับกราฟและสถิติรายวัน (เอามาแค่ 5,000 พอให้เว็บไม่ช้า)
     const { data: orderData } = await supabase
       .from("orders")
       .select("id, order_number, total_price, payment_method, status, job_type, branch_id, rider_name, menu, created_at, start_time, end_time, is_archived")
       .not("is_deleted", "eq", true) 
       .order("created_at", { ascending: false })
-      .limit(10000);
+      .limit(5000); 
 
     if (orderData) {
       setOrders(orderData as OrderData[]);
@@ -119,12 +175,14 @@ export default function GlobalDashboardPage() {
     if (!isBackgroundSync) setLoading(false);
     if (isManualRefresh) {
       toast.success("อัปเดตข้อมูลสถิติล่าสุดเรียบร้อยแล้ว");
+      fetchAllTimeRiderStats(); // รีเฟรชฝั่ง All-time ด้วย
     }
-  }, [router]);
+  }, [router, fetchAllTimeRiderStats]);
 
   useEffect(() => { 
     const init = async () => {
       await fetchDashboardData();
+      fetchAllTimeRiderStats(); // 🌟 โหลดข้อมูล All-time แยกต่างหาก ไม่รอคิว
     };
     init();
 
@@ -138,7 +196,7 @@ export default function GlobalDashboardPage() {
     return () => {
       supabase.removeChannel(orderChannel);
     };
-  }, [fetchDashboardData]);
+  }, [fetchDashboardData, fetchAllTimeRiderStats]);
 
   const ordersByDate = useMemo(() => {
     const now = new Date();
@@ -220,7 +278,6 @@ export default function GlobalDashboardPage() {
         const price = Number(o.total_price) || 0;
         totalRevenue += price;
         
-        // 🌟 แก้ไข: จัดการ Payment Method ให้ครอบคลุมคนละครึ่ง
         const pm = (o.payment_method || "").trim();
         if (pm === "โอน" || pm.includes("โอน")) {
           transferRevenue += price;
@@ -311,7 +368,6 @@ export default function GlobalDashboardPage() {
         const price = Number(o.total_price) || 0;
         rStats[o.rider_name].revenue += price;
         
-        // 🌟 แก้ไข: ถ้ายอดโอนหรือคนละครึ่ง ไรเดอร์ไม่ต้องเก็บเงินสด
         const pm = (o.payment_method || "").trim();
         if (!(pm === "โอน" || pm.includes("โอน") || pm === "คนละครึ่ง" || pm.includes("คนละครึ่ง") || pm.includes("ครึ่ง"))) {
           rStats[o.rider_name].cash_revenue += price;
@@ -321,41 +377,8 @@ export default function GlobalDashboardPage() {
     return Object.values(rStats).sort((a, b) => b.trips - a.trips);
   }, [filteredOrders]);
 
-  const topMenus = useMemo(() => {
-    const counts: Record<string, { name: string, qty: number }> = {};
-    filteredOrders.forEach(o => {
-      if (o.status === 'ส่งแล้ว/เสร็จ' && o.menu) {
-        const lines = o.menu.split('\n');
-        lines.forEach(line => {
-          const cleanLine = line.trim();
-          if (!cleanLine) return;
-          
-          let text = cleanLine.replace(/^[-*•\d.]+\s*/, '').trim();
-          let qty = 1;
-          
-          const match1 = text.match(/\s+x?\s*(\d+)\s*(?:กล่อง|ถุง|ที่|จาน|ชาม|ถ้วย|ขวด|แก้ว|ชุด)?$/i);
-          const match2 = text.match(/(\d+)(?:กล่อง|ถุง|ที่|จาน|ชาม|ถ้วย|ขวด|แก้ว|ชุด)$/);
-          
-          if (match1) {
-            qty = parseInt(match1[1], 10);
-            text = text.substring(0, match1.index).trim();
-          } else if (match2) {
-            qty = parseInt(match2[1], 10);
-            text = text.substring(0, match2.index).trim();
-          }
-          
-          if (text && text.length > 1) {
-            if (!counts[text]) counts[text] = { name: text, qty: 0 };
-            counts[text].qty += qty;
-          }
-        });
-      }
-    });
-    return Object.values(counts).sort((a, b) => b.qty - a.qty).slice(0, 5);
-  }, [filteredOrders]);
-
   const maxRiderTrips = Math.max(...riderStats.map(r => r.trips), 1);
-  const maxMenuQty = Math.max(...topMenus.map(m => m.qty), 1);
+  const maxAllTimeTrips = Math.max(...allTimeRiderStats.map(r => r.totalTrips), 1);
 
   if (loading) {
     return (
@@ -429,7 +452,6 @@ export default function GlobalDashboardPage() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 animate-in fade-in duration-500 slide-in-from-bottom-4">
         
-        {/* 🌟 ปรับ Grid ให้รองรับ 6 การ์ดเพื่อแสดงยอดคนละครึ่ง */}
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
           <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between">
             <div className="flex justify-between items-start mb-2">
@@ -464,7 +486,6 @@ export default function GlobalDashboardPage() {
             </div>
           </div>
 
-          {/* 🌟 การ์ดคนละครึ่ง 🌟 */}
           <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between">
             <div className="flex justify-between items-start mb-2">
               <div className="w-10 h-10 bg-cyan-50 text-cyan-600 rounded-2xl flex items-center justify-center"><Smartphone size={20} /></div>
@@ -588,9 +609,10 @@ export default function GlobalDashboardPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* สถิติไรเดอร์ (ตามช่วงเวลาที่กรอง) */}
           <div className="bg-white rounded-4xl p-6 shadow-sm border border-slate-100 flex flex-col h-full max-h-100">
             <div className="flex justify-between items-center mb-4 shrink-0">
-              <h2 className="text-base font-black text-slate-800 flex items-center gap-2"><Bike size={20} className="text-emerald-500" /> ผลงานไรเดอร์</h2>
+              <h2 className="text-base font-black text-slate-800 flex items-center gap-2"><Bike size={20} className="text-emerald-500" /> ผลงานไรเดอร์ (ตามเวลาที่เลือก)</h2>
               <Trophy size={20} className="text-amber-400" />
             </div>
 
@@ -606,7 +628,7 @@ export default function GlobalDashboardPage() {
             </div>
 
             <div className="space-y-3 flex-1 overflow-y-auto thin-scrollbar pr-2">
-              {riderStats.length === 0 ? <div className="text-center text-slate-400 font-bold py-10">ไม่มีข้อมูล</div> : (
+              {riderStats.length === 0 ? <div className="text-center text-slate-400 font-bold py-10">ไม่มีข้อมูลในฟิลเตอร์นี้</div> : (
                 riderStats.map((r, idx) => {
                   const percent = (r.trips / maxRiderTrips) * 100;
                   const isTop = idx === 0;
@@ -631,25 +653,39 @@ export default function GlobalDashboardPage() {
             </div>
           </div>
 
+          {/* 🌟 ใหม: สถิติไรเดอร์ (รวมทั้งหมดตั้งแต่เริ่มทำ) */}
           <div className="bg-white rounded-4xl p-6 shadow-sm border border-slate-100 flex flex-col h-full max-h-100">
             <div className="flex justify-between items-center mb-6 shrink-0">
-              <h2 className="text-base font-black text-slate-800 flex items-center gap-2"><Award size={20} className="text-rose-500" /> 5 อันดับเมนูขายดี</h2>
-              <Utensils size={20} className="text-rose-300" />
+              <h2 className="text-base font-black text-slate-800 flex items-center gap-2">
+                <Star size={20} className="text-indigo-500" /> สถิติไรเดอร์ (รวมตั้งแต่สมัครสมาชิก)
+              </h2>
+              <Award size={20} className="text-indigo-300" />
             </div>
-            <div className="space-y-3 flex-1 overflow-y-auto thin-scrollbar pr-2">
-              {topMenus.length === 0 ? <div className="text-center text-slate-400 font-bold py-10">ไม่มีข้อมูลเมนู</div> : (
-                topMenus.map((m, idx) => {
-                  const percent = (m.qty / maxMenuQty) * 100;
+            
+            <div className="space-y-3 flex-1 overflow-y-auto thin-scrollbar pr-2 relative">
+              {loadingAllTime ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 bg-white/50 backdrop-blur-sm z-10 rounded-2xl">
+                  <Loader2 size={32} className="animate-spin text-indigo-500 mb-2" />
+                  <span className="text-xs font-bold uppercase tracking-widest">กำลังดึงประวัติทั้งหมด...</span>
+                </div>
+              ) : allTimeRiderStats.length === 0 ? (
+                <div className="text-center text-slate-400 font-bold py-10">ไม่มีข้อมูลไรเดอร์</div> 
+              ) : (
+                allTimeRiderStats.map((r, idx) => {
+                  const percent = (r.totalTrips / maxAllTimeTrips) * 100;
+                  const isTop = idx === 0;
                   return (
-                    <div key={idx} className="p-4 rounded-2xl border bg-rose-50/30 border-rose-100/50">
+                    <div key={idx} className={`p-4 rounded-2xl border transition-colors ${isTop ? 'bg-indigo-50/50 border-indigo-200' : 'bg-slate-50 border-slate-100'}`}>
                       <div className="flex justify-between items-center mb-2">
                         <div className="flex items-center gap-3">
-                          <span className="font-black text-rose-400 text-sm">#{idx + 1}</span>
-                          <span className="font-bold text-slate-700 text-sm">{m.name}</span>
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black shadow-sm ${isTop ? 'bg-indigo-500 text-white' : 'bg-slate-200 text-slate-600'}`}>{idx + 1}</div>
+                          <span className="font-bold text-slate-700 text-sm">{r.name}</span>
                         </div>
-                        <span className="font-black text-rose-600 bg-rose-100 px-2 py-1 rounded-lg text-xs">{m.qty} กล่อง</span>
+                        <span className="font-black text-indigo-600 bg-indigo-100 px-3 py-1 rounded-lg text-sm">{r.totalTrips.toLocaleString()} รอบ</span>
                       </div>
-                      <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden"><div className="bg-rose-400 h-1.5 rounded-full transition-all duration-1000" style={{ width: `${percent}%` }}></div></div>
+                      <div className="w-full bg-slate-200/60 rounded-full h-1.5 overflow-hidden shadow-inner mt-1">
+                        <div className={`${isTop ? 'bg-indigo-500' : 'bg-indigo-300'} h-1.5 rounded-full transition-all duration-1000`} style={{ width: `${percent}%` }}></div>
+                      </div>
                     </div>
                   )
                 })
