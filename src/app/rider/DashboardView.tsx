@@ -4,7 +4,7 @@ import {
   ArrowLeft, LayoutDashboard, CheckCircle2, 
   MapPinned, X, ClipboardList,
   ImageIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Calendar, CalendarDays,
-  Banknote, Coins, Clock, Package, Trophy, PiggyBank, Fuel, Landmark
+  Banknote, Coins, Clock, Package, Trophy, PiggyBank, Fuel, Landmark, AlertCircle
 } from 'lucide-react';
 import { Order } from '../../components/OrderCard';
 import Image from 'next/image';
@@ -47,6 +47,16 @@ const getInitialBizDate = (businessDayStart: string) => {
   return getLocalYMD(now);
 };
 
+export const getAutoGasAllowance = (orders: number): number => {
+  if (orders >= 71) return 350;
+  if (orders >= 65) return 300;
+  if (orders >= 55) return 250;
+  if (orders >= 41) return 200;
+  if (orders >= 31) return 150;
+  if (orders >= 21) return 100;
+  return 50; 
+};
+
 interface DashboardViewProps {
   riderName: string;
   onBack: () => void;
@@ -67,7 +77,70 @@ interface AttendanceRecord {
   diligence_bonus?: number | null;
   accumulated_savings?: number | null;
   gas_allowance?: number | null;
+  total_minutes?: number | null;
+  order_count?: number | null;
+  base_pay?: number | null;
 }
+
+// 🌟 คำนวณรายได้ของบันทึกการเข้างาน (ทั้งที่จ่ายแล้ว และยังไม่จ่าย/ค้างจ่าย)
+const calculateRecordPay = (
+  record: AttendanceRecord,
+  rate: number,
+  defSavings: number,
+  ordersCount?: number,
+  nowDate: Date = new Date()
+) => {
+  const isPaid = record.payment_status === 'จ่ายแล้ว';
+  const isWorking = !record.check_out;
+
+  let minutes = record.total_minutes || 0;
+  if (isWorking && record.check_in) {
+    minutes = Math.max(0, Math.floor((nowDate.getTime() - new Date(record.check_in).getTime()) / 60000));
+  } else if (!minutes && record.check_in && record.check_out) {
+    minutes = Math.max(0, Math.floor((new Date(record.check_out).getTime() - new Date(record.check_in).getTime()) / 60000));
+  }
+
+  // หากจ่ายแล้วและมียอด total_pay บันทึกไว้แล้ว ให้ใช้ยอดจริงที่จ่าย
+  if (isPaid && (record.total_pay || 0) > 0) {
+    return {
+      minutes,
+      gas: record.gas_allowance || 0,
+      savings: record.accumulated_savings ?? defSavings,
+      bonus: record.diligence_bonus || 0,
+      basePay: (record.base_pay || 0) > 0 ? record.base_pay! : (minutes / 60) * rate,
+      totalPay: record.total_pay || 0,
+      isPaid: true,
+      isWorking: false
+    };
+  }
+
+  // กรณียังไม่จ่าย (ค้างจ่าย/รอชำระ) หรือกำลังทำงานอยู่
+  const orders = ordersCount ?? (record.order_count || 0);
+  const gas = (record.gas_allowance && record.gas_allowance > 0) 
+    ? record.gas_allowance 
+    : (minutes > 0 || isWorking ? getAutoGasAllowance(orders) : 0);
+  const bonus = record.diligence_bonus || 0;
+  const savings = (record.accumulated_savings !== null && record.accumulated_savings !== undefined)
+    ? record.accumulated_savings
+    : defSavings;
+  const basePay = (minutes / 60) * rate;
+
+  const calculatedTotal = (minutes > 0 || isWorking) ? Math.max(0, basePay + gas + bonus - savings) : 0;
+  const totalPay = (!isWorking && record.total_pay && record.total_pay > 0)
+    ? record.total_pay
+    : calculatedTotal;
+
+  return {
+    minutes,
+    gas,
+    savings,
+    bonus,
+    basePay,
+    totalPay,
+    isPaid,
+    isWorking
+  };
+};
 
 // 🌟 เพิ่ม Interface สำหรับประวัติรายเดือน
 interface MonthlyPaymentRecord {
@@ -114,14 +187,33 @@ export default function DashboardView({
     setShowHistory(true);
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
+      const { data: profile } = await supabase.from('profiles').select('default_savings, hourly_rate').eq('id', session.user.id).single();
+      const defSavings = profile?.default_savings ?? 50;
+      const hRate = profile?.hourly_rate ?? 40;
+      setRiderHourlyRate(hRate);
+      setRiderDefaultSavings(defSavings);
+
       // ดึงรายวัน
       const { data: daily } = await supabase
         .from('rider_attendance')
         .select('*')
         .eq('rider_id', session.user.id)
         .order('check_in', { ascending: false })
-        .limit(30);
-      if (daily) setAttendanceHistory(daily as AttendanceRecord[]);
+        .limit(60);
+      if (daily) {
+        setAttendanceHistory(daily as AttendanceRecord[]);
+        const unpaid = daily.filter(r => r.payment_status !== 'จ่ายแล้ว');
+        let sum = 0;
+        unpaid.forEach(r => {
+          const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hRate;
+          const pay = calculateRecordPay(r, rRate, defSavings);
+          sum += pay.totalPay;
+        });
+        setUnpaidSummary({
+          totalAmount: Math.round(sum),
+          count: unpaid.length
+        });
+      }
 
       // 🌟 ดึงรายเดือน
       const { data: monthly } = await supabase
@@ -134,6 +226,19 @@ export default function DashboardView({
     setLoadingHistory(false);
   };
 
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const [riderHourlyRate, setRiderHourlyRate] = useState<number>(40);
+  const [riderDefaultSavings, setRiderDefaultSavings] = useState<number>(50);
+  const [unpaidSummary, setUnpaidSummary] = useState<{ totalAmount: number; count: number }>({
+    totalAmount: 0,
+    count: 0
+  });
+
   const [payrollStats, setPayrollStats] = useState({
     isWorking: false,
     checkInTime: null as string | null,
@@ -142,7 +247,9 @@ export default function DashboardView({
     monthlySavings: 0,
     dailyFixedPay: 0, 
     dailyFixedGas: 0,
-    dailyFixedMinutes: 0
+    dailyFixedMinutes: 0,
+    paymentStatus: '' as string,
+    isPaid: false
   });
 
   const [historicalOrders, setHistoricalOrders] = useState<Order[]>([]);
@@ -262,9 +369,34 @@ export default function DashboardView({
         .lt('check_in', targetEnd.toISOString())
         .order('check_in', { ascending: false });
 
-      // 🌟 2. ดึงค่า Default Savings มาจากโปรไฟล์ของไรเดอร์
-      const { data: profile } = await supabase.from('profiles').select('default_savings').eq('id', riderId).single();
+      // 🌟 2. ดึงค่า Default Savings และ Hourly Rate มาจากโปรไฟล์ของไรเดอร์
+      const { data: profile } = await supabase.from('profiles').select('default_savings, hourly_rate').eq('id', riderId).single();
       const defaultSavings = profile?.default_savings ?? 50;
+      const hourlyRate = profile?.hourly_rate ?? 40;
+      setRiderHourlyRate(hourlyRate);
+      setRiderDefaultSavings(defaultSavings);
+
+      // 🌟 2.1 ดึงข้อมูลงานที่ค้างจ่ายทั้งหมด (ยังไม่จ่าย) มาคำนวณยอดค้างจ่ายรวม
+      const { data: allAttendance } = await supabase
+        .from('rider_attendance')
+        .select('*')
+        .eq('rider_id', riderId)
+        .order('check_in', { ascending: false })
+        .limit(100);
+
+      if (allAttendance) {
+        const unpaidList = allAttendance.filter(r => r.payment_status !== 'จ่ายแล้ว');
+        let unpaidSum = 0;
+        unpaidList.forEach(r => {
+          const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hourlyRate;
+          const pay = calculateRecordPay(r, rRate, defaultSavings);
+          unpaidSum += pay.totalPay;
+        });
+        setUnpaidSummary({
+          totalAmount: Math.round(unpaidSum),
+          count: unpaidList.length
+        });
+      }
 
       // 🌟 3. ปรับการดึงข้อมูลรายเดือนให้ตรงกับเวลาเปิดร้านเป๊ะๆ
       const cycle = getCycleDetails(businessDayStart);
@@ -291,38 +423,47 @@ export default function DashboardView({
       if (attendanceData && attendanceData.length > 0) {
         if (filterMode === 'today' || filterMode === 'date') {
           const dailyData = attendanceData[0];
-          let rate = 40;
+          let rate = hourlyRate;
           if ((dailyData.base_pay || 0) > 0 && (dailyData.total_minutes || 0) > 0) {
             rate = (dailyData.base_pay / dailyData.total_minutes) * 60;
           }
+          const payInfo = calculateRecordPay(dailyData, rate, defaultSavings);
           setPayrollStats({
             isWorking: filterMode === 'today' ? !dailyData.check_out : false,
             checkInTime: dailyData.check_in,
             hourlyRate: Math.round(rate),
             monthlyBonus: mBonus,
             monthlySavings: mSavings,
-            dailyFixedPay: dailyData.total_pay || 0,
-            dailyFixedGas: dailyData.gas_allowance || 0,
-            dailyFixedMinutes: dailyData.total_minutes || 0
+            dailyFixedPay: Math.round(payInfo.totalPay),
+            dailyFixedGas: payInfo.gas,
+            dailyFixedMinutes: payInfo.minutes,
+            paymentStatus: dailyData.payment_status || 'ค้างจ่าย',
+            isPaid: dailyData.payment_status === 'จ่ายแล้ว'
           });
         } else {
           let totalPay = 0;
           let totalGas = 0;
           let totalMinutes = 0;
+          let allPaid = true;
           attendanceData.forEach(r => {
-            totalPay += r.total_pay || 0;
-            totalGas += r.gas_allowance || 0;
-            totalMinutes += r.total_minutes || 0;
+            const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hourlyRate;
+            const payInfo = calculateRecordPay(r, rRate, defaultSavings);
+            totalPay += payInfo.totalPay;
+            totalGas += payInfo.gas;
+            totalMinutes += payInfo.minutes;
+            if (r.payment_status !== 'จ่ายแล้ว') allPaid = false;
           });
           setPayrollStats({
             isWorking: false,
             checkInTime: null,
-            hourlyRate: 40,
+            hourlyRate: hourlyRate,
             monthlyBonus: mBonus,
             monthlySavings: mSavings,
-            dailyFixedPay: totalPay,
+            dailyFixedPay: Math.round(totalPay),
             dailyFixedGas: totalGas,
-            dailyFixedMinutes: totalMinutes
+            dailyFixedMinutes: totalMinutes,
+            paymentStatus: allPaid ? 'จ่ายแล้ว' : 'ค้างจ่าย',
+            isPaid: allPaid
           });
         }
       } else {
@@ -334,7 +475,9 @@ export default function DashboardView({
           dailyFixedGas: 0, 
           dailyFixedMinutes: 0, 
           monthlyBonus: mBonus, 
-          monthlySavings: mSavings 
+          monthlySavings: mSavings,
+          paymentStatus: '',
+          isPaid: false
         }));
       }
     };
@@ -441,9 +584,28 @@ export default function DashboardView({
     }).length;
   }, [allCompletedOrders, businessDayStart, filterMode, historicalOrders]); 
 
-  const liveMinutes = payrollStats.dailyFixedMinutes;
-  const liveGas = payrollStats.dailyFixedGas;
-  const liveTotalPay = payrollStats.dailyFixedPay;
+  const liveMinutes = useMemo(() => {
+    if (payrollStats.isWorking && payrollStats.checkInTime) {
+      return Math.max(0, Math.floor((currentTime.getTime() - new Date(payrollStats.checkInTime).getTime()) / 60000));
+    }
+    return payrollStats.dailyFixedMinutes;
+  }, [payrollStats.isWorking, payrollStats.checkInTime, payrollStats.dailyFixedMinutes, currentTime]);
+
+  const liveGas = useMemo(() => {
+    if (payrollStats.isWorking) {
+      return getAutoGasAllowance(todaysCompletedOrdersCount);
+    }
+    return payrollStats.dailyFixedGas;
+  }, [payrollStats.isWorking, payrollStats.dailyFixedGas, todaysCompletedOrdersCount]);
+
+  const liveTotalPay = useMemo(() => {
+    if (payrollStats.isWorking) {
+      const base = (liveMinutes / 60) * payrollStats.hourlyRate;
+      const gas = liveGas;
+      return Math.max(0, base + gas - riderDefaultSavings);
+    }
+    return payrollStats.dailyFixedPay;
+  }, [payrollStats.isWorking, liveMinutes, payrollStats.hourlyRate, liveGas, riderDefaultSavings, payrollStats.dailyFixedPay]);
 
   useEffect(() => {
     if (
@@ -578,6 +740,39 @@ export default function DashboardView({
           </div>
         </div>
 
+        {/* 🌟 การ์ดยอดค้างจ่าย (ยังไม่ได้รับเงิน) */}
+        {unpaidSummary.totalAmount > 0 && (
+          <div 
+            onClick={fetchAttendanceHistory}
+            className="bg-linear-to-r from-amber-500/10 via-rose-500/10 to-amber-500/10 border border-amber-300 rounded-3xl p-4 flex items-center justify-between cursor-pointer hover:border-amber-400 transition-all shadow-xs group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm shadow-amber-500/20 group-hover:scale-105 transition-transform">
+                <Coins size={20} />
+              </div>
+              <div>
+                <div className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                  <span>รายได้ค้างจ่าย (ยังไม่ได้รับเงิน)</span>
+                  <span className="bg-rose-100 text-rose-700 text-[10px] px-2 py-0.5 rounded-full font-black border border-rose-200">
+                    {unpaidSummary.count} กะ/วัน
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-500 font-bold mt-0.5">
+                  งานที่ทำแล้วแต่ร้านยังไม่ได้จ่ายเงิน แตะเพื่อดูสลิป
+                </div>
+              </div>
+            </div>
+            <div className="text-right pl-2 shrink-0">
+              <div className="text-xl font-black text-rose-600 tracking-tight">
+                ฿{Math.round(unpaidSummary.totalAmount).toLocaleString()}
+              </div>
+              <div className="text-[10px] font-black text-blue-600 flex items-center justify-end gap-0.5 group-hover:underline">
+                ดูประวัติ <ChevronRight size={12} />
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
           <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
             <h3 className="font-black text-slate-700 text-sm flex items-center">
@@ -591,7 +786,7 @@ export default function DashboardView({
                 <span className="flex items-center gap-1 text-[10px] font-black uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 shadow-sm">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> ทำงานอยู่
                 </span>
-              ) : filterMode === 'today' ? (
+              ) : filterMode === 'today' && !payrollStats.checkInTime ? (
                 <span className="text-[10px] font-black uppercase text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 shadow-sm">
                   ไม่ได้เข้างาน
                 </span>
@@ -602,8 +797,26 @@ export default function DashboardView({
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 text-center flex flex-col justify-center">
               <div>
-                <div className="text-[10px] font-black text-emerald-600/70 uppercase tracking-wider mb-1">รายได้ {filterMode === 'today' ? 'วันนี้' : filterMode === 'yesterday' ? 'เมื่อวาน' : 'รวม'}</div>
+                <div className="flex items-center justify-center gap-1 mb-1">
+                  <span className="text-[10px] font-black text-emerald-600/70 uppercase tracking-wider">
+                    รายได้ {filterMode === 'today' ? 'วันนี้' : filterMode === 'yesterday' ? 'เมื่อวาน' : 'รวม'}
+                  </span>
+                  {(payrollStats.checkInTime || payrollStats.dailyFixedMinutes > 0 || payrollStats.dailyFixedPay > 0) && (
+                    payrollStats.isPaid ? (
+                      <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">จ่ายแล้ว</span>
+                    ) : (
+                      <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 border border-rose-200">
+                        {payrollStats.isWorking ? 'กำลังทำ' : 'ค้างจ่าย'}
+                      </span>
+                    )
+                  )}
+                </div>
                 <div className="text-2xl font-black text-emerald-600 tracking-tighter">฿{Math.round(liveTotalPay).toLocaleString()}</div>
+                {!payrollStats.isPaid && liveTotalPay > 0 && (
+                  <div className="text-[10px] text-amber-600 font-bold mt-1 flex items-center justify-center gap-1">
+                    <AlertCircle size={10} /> รอร้านโอนเงิน
+                  </div>
+                )}
               </div>
             </div>
 
@@ -861,27 +1074,62 @@ export default function DashboardView({
                   attendanceHistory.length === 0 ? (
                     <div className="text-center py-10 text-slate-400 font-bold bg-white rounded-2xl border border-slate-100">ไม่มีประวัติสลิปรายวัน</div>
                   ) : (
-                    attendanceHistory.map(record => (
-                      <div key={record.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-                        <div className="flex justify-between items-center mb-2">
-                          <div className="text-xs font-black text-slate-600">
-                            {new Date(record.check_in).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+                    <>
+                      {/* 🌟 กล่องสรุปยอดค้างจ่าย vs ยอดที่จ่ายแล้ว */}
+                      <div className="grid grid-cols-2 gap-2 mb-2">
+                        <div className="bg-rose-50 border border-rose-200 p-3 rounded-2xl">
+                          <div className="text-[10px] font-black text-rose-600/80 uppercase">ค้างจ่าย (ยังไม่ได้รับ)</div>
+                          <div className="text-lg font-black text-rose-700">฿{Math.round(unpaidSummary.totalAmount).toLocaleString()}</div>
+                          <div className="text-[9px] text-rose-500 font-bold mt-0.5">{unpaidSummary.count} กะ/วัน</div>
+                        </div>
+                        <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-2xl">
+                          <div className="text-[10px] font-black text-emerald-600/80 uppercase">ได้รับเงินแล้ว</div>
+                          <div className="text-lg font-black text-emerald-700">
+                            ฿{Math.round(attendanceHistory.filter(r => r.payment_status === 'จ่ายแล้ว').reduce((s, r) => s + (r.total_pay || 0), 0)).toLocaleString()}
                           </div>
-                          <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase border ${record.payment_status === 'จ่ายแล้ว' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}>
-                            {record.payment_status || 'รอชำระ'}
-                          </span>
+                          <div className="text-[9px] text-emerald-500 font-bold mt-0.5">
+                            {attendanceHistory.filter(r => r.payment_status === 'จ่ายแล้ว').length} กะ/วัน
+                          </div>
                         </div>
-                        <div className="flex justify-between items-center bg-slate-50 p-2 rounded-xl mb-2">
-                          <div className="text-[10px] font-bold text-slate-500">ยอดเงินที่ได้</div>
-                          <div className="text-sm font-black text-emerald-600">฿{(record.total_pay || 0).toLocaleString()}</div>
-                        </div>
-                        {record.payment_slip_url && (
-                          <button onClick={() => setImageGallery({urls: [record.payment_slip_url!], startIndex: 0})} className="w-full mt-1 py-2 bg-blue-50 text-blue-600 text-[10px] font-black rounded-xl border border-blue-100 flex items-center justify-center gap-1.5 cursor-pointer hover:bg-blue-100 transition-colors">
-                            <ImageIcon size={14} /> ดูสลิปโอนเงิน
-                          </button>
-                        )}
                       </div>
-                    ))
+
+                      {attendanceHistory.map(record => {
+                        const isPaid = record.payment_status === 'จ่ายแล้ว';
+                        const rRate = (record.base_pay && record.total_minutes) ? (record.base_pay / record.total_minutes) * 60 : riderHourlyRate;
+                        const payInfo = calculateRecordPay(record, rRate, riderDefaultSavings);
+                        return (
+                          <div key={record.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+                            <div className="flex justify-between items-center mb-2">
+                              <div className="text-xs font-black text-slate-600">
+                                {new Date(record.check_in).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+                              </div>
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase border ${isPaid ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}>
+                                {isPaid ? 'จ่ายแล้ว' : (record.payment_status || 'ค้างจ่าย')}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl mb-2">
+                              <div>
+                                <div className="text-[10px] font-bold text-slate-500">
+                                  {isPaid ? 'ยอดเงินที่ได้รับ' : 'ยอดเงินที่ทำงาน (ยังไม่จ่าย)'}
+                                </div>
+                                <div className="text-[10px] text-slate-400 font-bold mt-0.5">
+                                  {payInfo.minutes >= 60 ? `${Math.floor(payInfo.minutes / 60)} ชม. ${payInfo.minutes % 60} นาที` : `${payInfo.minutes} นาที`}
+                                  {payInfo.gas > 0 && ` • ค่าน้ำมัน +฿${payInfo.gas}`}
+                                </div>
+                              </div>
+                              <div className={`text-base font-black ${isPaid ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                ฿{Math.round(payInfo.totalPay).toLocaleString()}
+                              </div>
+                            </div>
+                            {record.payment_slip_url && (
+                              <button onClick={() => setImageGallery({urls: [record.payment_slip_url!], startIndex: 0})} className="w-full mt-1 py-2 bg-blue-50 text-blue-600 text-[10px] font-black rounded-xl border border-blue-100 flex items-center justify-center gap-1.5 cursor-pointer hover:bg-blue-100 transition-colors">
+                                <ImageIcon size={14} /> ดูสลิปโอนเงิน
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </>
                   )
                 ) : (
                   /* 🌟 รายการประวัติรายเดือน */
