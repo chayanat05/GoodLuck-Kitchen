@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import Image from "next/image";
+import Swal from "sweetalert2";
 
 interface AttendanceRecord {
   id: string;
@@ -96,10 +97,8 @@ export default function PayrollPage() {
     manual_total: null,
     payment_status: "รอชำระ",
     payment_slip_url: null,
-    // 🌟 เพิ่ม 2 บรรทัดนี้
     check_in: new Date().toISOString(),
     check_out: null,
-    // 🌟 เพิ่ม 2 บรรทัดนี้
     check_in_time: "",
     check_out_time: ""
   });
@@ -114,7 +113,7 @@ export default function PayrollPage() {
   
   const [isWageModalOpen, setIsWageModalOpen] = useState(false);
   const [profilesForWageEdit, setProfilesForWageEdit] = useState<ProfileForWageEdit[]>([]);
-  const [wageFilterRole, setWageFilterRole] = useState<string>('all'); // 🌟 2. เพิ่ม State นี้
+  const [wageFilterRole, setWageFilterRole] = useState<string>('all');
 
   // 🌟🌟🌟 เพิ่ม State สำหรับระบบเครื่องคิดเลขค่าแรง 🌟🌟🌟
   const [isCalcModalOpen, setIsCalcModalOpen] = useState(false);
@@ -152,6 +151,25 @@ export default function PayrollPage() {
     return () => clearInterval(timer);
   }, []);
 
+  // 🌟 คำนวณ total_minutes อัตโนมัติเมื่อ check_in หรือ check_out เปลี่ยน
+  useEffect(() => {
+    if (editForm.check_in && editForm.check_out) {
+      const inTime = new Date(editForm.check_in).getTime();
+      const outTime = new Date(editForm.check_out).getTime();
+      
+      if (outTime > inTime) {
+        const diffMins = Math.floor((outTime - inTime) / 60000);
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setEditForm(prev => {
+          if (prev.total_minutes !== diffMins) {
+            return { ...prev, total_minutes: diffMins, manual_total: null };
+          }
+          return prev;
+        });
+      }
+    }
+  }, [editForm.check_in, editForm.check_out]);
+
   const showToast = useCallback((msg: string, type: 'success'|'error' = 'success') => {
     setToast({ show: true, message: msg, type });
     setTimeout(() => setToast({ show: false, message: "", type: "success" }), 3000);
@@ -181,6 +199,7 @@ export default function PayrollPage() {
     const startOfDayThailand = new Date(startOfDayUTC.getTime() - thailandOffset);
     const endOfDayThailand = new Date(endOfDayUTC.getTime() - thailandOffset);
 
+    // 1. ดึงข้อมูลการเข้างาน
     const { data, error } = await supabase
       .from('rider_attendance')
       .select('*, profiles(username, role, hourly_rate, default_savings)') 
@@ -191,40 +210,46 @@ export default function PayrollPage() {
     if (error) {
       console.error(error);
       showToast("ดึงข้อมูลไม่สำเร็จ", "error");
-    } else if (data) {
-      const formattedData = data.map((item) => ({
-        ...item,
-        profiles: Array.isArray(item.profiles) ? item.profiles[0] : item.profiles
-      })) as AttendanceRecord[];
-      
-      const recordsWithOrders = await Promise.all(formattedData.map(async (record) => {
-        if (record.profiles?.role !== 'kitchen') {
-          const { data: riderOrders } = await supabase
-            .from('orders')
-            .select('created_at, end_time')
-            .eq('rider_id', record.rider_id)
-            .eq('status', 'ส่งแล้ว/เสร็จ');
-            
-          let count = 0;
-          if (riderOrders) {
-            count = riderOrders.filter(o => {
-              const d = new Date(o.end_time || o.created_at);
-              return d.getTime() >= startOfDayThailand.getTime() && d.getTime() < endOfDayThailand.getTime();
-            }).length;
-          }
-
-          return { 
-            ...record, 
-            real_time_order_count: (record.payment_status === 'จ่ายแล้ว' && record.order_count > 0) ? record.order_count : count 
-          };
-        }
-        
-        return { ...record, real_time_order_count: 0 };
-      }));
-
-      setRecords(recordsWithOrders);
+      setLoading(false);
+      return;
     }
-    
+
+    const formattedData = data.map((item) => ({
+      ...item,
+      profiles: Array.isArray(item.profiles) ? item.profiles[0] : item.profiles
+    })) as AttendanceRecord[];
+
+    // 2. ดึงออเดอร์ทั้งหมดของ "ทุกคนในวันนี้" ภายใน 1 Query
+    const { data: allTodayOrders, error: orderError } = await supabase
+      .from('orders')
+      .select('rider_id, created_at, end_time')
+      .eq('status', 'ส่งแล้ว/เสร็จ')
+      .gte('created_at', startOfDayThailand.toISOString())
+      .lt('created_at', endOfDayThailand.toISOString()); 
+
+    if (orderError) console.error(orderError);
+
+    // 3. จับคู่ออเดอร์กับไรเดอร์
+    const recordsWithOrders = formattedData.map((record) => {
+      if (record.profiles?.role !== 'kitchen') {
+        let count = 0;
+        if (allTodayOrders) {
+          count = allTodayOrders.filter(o => {
+            const d = new Date(o.end_time || o.created_at);
+            return o.rider_id === record.rider_id && d.getTime() >= startOfDayThailand.getTime() && d.getTime() < endOfDayThailand.getTime();
+          }).length;
+        }
+
+        return { 
+          ...record, 
+          real_time_order_count: (record.payment_status === 'จ่ายแล้ว' && record.order_count > 0) ? record.order_count : count 
+        };
+      }
+      
+      return { ...record, real_time_order_count: 0 };
+    });
+
+    setRecords(recordsWithOrders);
     setLoading(false);
   }, [router, showToast]);
 
@@ -267,9 +292,9 @@ export default function PayrollPage() {
     const isKitchen = record.profiles?.role === 'kitchen';
     const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
     const autoGas = getAutoGasAllowance(currentOrders);
-    const proposedGas = (record.payment_status === 'จ่ายแล้ว' || (record.gas_allowance && record.gas_allowance > 0)) 
-      ? record.gas_allowance 
-      : autoGas;
+    const proposedGas = (record.payment_status === 'จ่ายแล้ว' || record.total_pay > 0) 
+  ? (record.gas_allowance || 0) 
+  : autoGas;
 
     setEditForm({
       hourlyRate: Math.round(rate),
@@ -452,7 +477,7 @@ export default function PayrollPage() {
     const finalOrders = record.real_time_order_count ?? (record.order_count || 0);
     const autoGas = getAutoGasAllowance(finalOrders);
     
-    const finalGas = (record.gas_allowance && record.gas_allowance > 0) ? record.gas_allowance : autoGas;
+    const finalGas = record.total_pay > 0 ? (record.gas_allowance || 0) : autoGas;
     const finalSavings = (record.accumulated_savings === 0 || record.accumulated_savings == null) ? (record.profiles?.default_savings ?? 50) : record.accumulated_savings;
     const finalBonus = record.diligence_bonus || 0;
 
@@ -486,6 +511,87 @@ export default function PayrollPage() {
     }
   };
 
+  const handleDeleteAttendance = async (record: AttendanceRecord) => {
+    const employeeName = record.profiles?.username || "พนักงาน";
+    const checkInTimeStr = new Date(record.check_in).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    const isPaid = record.payment_status === 'จ่ายแล้ว';
+
+    // 🔒 ชั้นที่ 1: แจ้งเตือนรอบแรก พร้อมข้อมูลรายการ
+    const step1 = await Swal.fire({
+      title: "⚠️ ยืนยันการลบรายการเข้างาน?",
+      html: `
+        <div style="text-align: left; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; font-size: 14px; margin-top: 8px;">
+          <p style="margin: 0 0 6px 0;"><strong>พนักงาน:</strong> <span style="color: #2563eb;">${employeeName}</span></p>
+          <p style="margin: 0 0 6px 0;"><strong>เวลาเข้างาน:</strong> ${checkInTimeStr} น.</p>
+          <p style="margin: 0 0 6px 0;"><strong>สถานะจ่ายเงิน:</strong> <span style="color: ${isPaid ? '#059669' : '#dc2626'}; font-weight: bold;">${record.payment_status || 'รอชำระ'}</span></p>
+          ${isPaid ? '<p style="margin: 6px 0 0 0; color: #dc2626; font-size: 12px; font-weight: bold;">⚠️ รายการนี้จ่ายเงินแล้ว หากลบยอดรวมจะเปลี่ยนทันที</p>' : ''}
+        </div>
+        <p style="margin-top: 12px; font-size: 13px; color: #64748b;">(เหมาะสำหรับกรณีพนักงานกดถ่ายรูปเข้างานผิด หรือหลงกดตอกบัตร)</p>
+      `,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#ef4444",
+      cancelButtonColor: "#64748b",
+      confirmButtonText: "ไปต่อเพื่อยืนยันลบ ➡️",
+      cancelButtonText: "ยกเลิก",
+      reverseButtons: true,
+    });
+
+    if (!step1.isConfirmed) return;
+
+    // 🔒 ชั้นที่ 2: บังคับพิมพ์คำว่า "ยืนยันลบ" หรือพิมพ์ชื่อพนักงาน เพื่อป้องกันมือลั่น
+    const expectedWord = "ยืนยันลบ";
+    const step2 = await Swal.fire({
+      title: "🔒 ยืนยันขั้นสุดท้าย (Double Check)",
+      html: `
+        <p style="font-size: 14px; color: #475569; margin-bottom: 8px;">
+          พิมพ์คำว่า <strong style="color: #ef4444; font-size: 16px; background: #fee2e2; padding: 2px 8px; border-radius: 6px;">${expectedWord}</strong> ในช่องด้านล่างเพื่อลบ
+        </p>
+      `,
+      input: "text",
+      inputPlaceholder: `พิมพ์ "${expectedWord}"`,
+      icon: "error",
+      showCancelButton: true,
+      confirmButtonColor: "#b91c1c",
+      cancelButtonColor: "#64748b",
+      confirmButtonText: "ลบรายการถาวร",
+      cancelButtonText: "ยกเลิก",
+      reverseButtons: true,
+      inputValidator: (value) => {
+        if (!value || value.trim() !== expectedWord) {
+          return `กรุณาพิมพ์คำว่า "${expectedWord}" ให้ถูกต้อง`;
+        }
+        return null;
+      },
+    });
+
+    if (!step2.isConfirmed) return;
+
+    try {
+      const { error } = await supabase
+        .from('rider_attendance')
+        .delete()
+        .eq('id', record.id);
+
+      if (error) throw error;
+
+      setRecords(prev => prev.filter(r => r.id !== record.id));
+      if (editingRecord?.id === record.id) {
+        setEditingRecord(null);
+      }
+      Swal.fire({
+        title: "ลบรายการสำเร็จ",
+        text: `ลบประวัติการเข้างานของ ${employeeName} เรียบร้อยแล้ว`,
+        icon: "success",
+        timer: 1800,
+        showConfirmButton: false,
+      });
+    } catch (err) {
+      console.error(err);
+      showToast("เกิดข้อผิดพลาดในการลบรายการ", "error");
+    }
+  };
+
   const filteredRecords = useMemo(() => {
     if (!searchQuery.trim()) return records;
     const query = searchQuery.toLowerCase();
@@ -509,7 +615,8 @@ export default function PayrollPage() {
       const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
       const autoGas = getAutoGasAllowance(currentOrders);
       const isPaid = record.payment_status === 'จ่ายแล้ว';
-      const displayGas = (isPaid || (record.gas_allowance && record.gas_allowance > 0)) ? record.gas_allowance : autoGas;
+      
+      const displayGas = (isPaid || record.total_pay > 0) ? (record.gas_allowance || 0) : autoGas;
 
       const displaySavings = (isPaid || record.total_pay > 0) 
         ? (record.accumulated_savings || 0) 
@@ -670,9 +777,10 @@ export default function PayrollPage() {
       const showOrderAndGas = record.profiles?.role !== 'kitchen';
       const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
       const autoGas = getAutoGasAllowance(currentOrders);
-      const displayGas = (record.payment_status === 'จ่ายแล้ว' || (record.gas_allowance && record.gas_allowance > 0)) ? record.gas_allowance : autoGas;
-
+      
       const isPaid = record.payment_status === 'จ่ายแล้ว';
+      const displayGas = (isPaid || record.total_pay > 0) ? (record.gas_allowance || 0) : autoGas;
+
       const displaySavings = isPaid ? (record.accumulated_savings || 0) : (record.accumulated_savings ?? (record.profiles?.default_savings ?? 50));
       const calculatedDisplayTotal = Math.max(0, displayBasePay + (showOrderAndGas ? displayGas : 0) + (record.diligence_bonus || 0) - displaySavings);
 
@@ -842,13 +950,13 @@ export default function PayrollPage() {
               }
 
               const showOrderAndGas = record.profiles?.role !== 'kitchen';
-              // Use the profile's hourly rate, otherwise fallback
               const currentRate = record.profiles?.hourly_rate || 40;
               const displayBasePay = (displayMinutes / 60) * currentRate;
 
               const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
               const autoGas = getAutoGasAllowance(currentOrders);
-              const displayGas = (isPaid || (record.gas_allowance && record.gas_allowance > 0)) ? record.gas_allowance : autoGas;
+              
+              const displayGas = (isPaid || record.total_pay > 0) ? (record.gas_allowance || 0) : autoGas;
 
               // 🌟 เปลี่ยนบรรทัด displaySavings ตรงนี้
               const displaySavings = (isPaid || record.total_pay > 0) 
@@ -978,7 +1086,7 @@ export default function PayrollPage() {
                     <div className="flex items-center gap-1.5"><PiggyBank size={14} className="text-indigo-500"/> สะสมวันนี้: <span className="text-indigo-600">฿{displaySavings.toLocaleString()}</span></div>
                   </div>
 
-                  <div className="flex items-stretch gap-2 relative z-10">
+                    <div className="flex items-stretch gap-2 relative z-10">
                     <button 
                       onClick={() => openEditModal(record)}
                       className={`grow py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer
@@ -995,6 +1103,13 @@ export default function PayrollPage() {
                       className="shrink-0 px-3 bg-white border border-slate-200 text-slate-500 rounded-xl hover:bg-slate-50 active:scale-95 transition-all flex items-center justify-center"
                     >
                         <Download size={18} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteAttendance(record)}
+                      title="ลบรายการเข้างาน (กรณีหลงกด/ถ่ายผิด)"
+                      className="shrink-0 px-3 bg-white border border-rose-200 text-rose-500 hover:bg-rose-50 hover:border-rose-300 rounded-xl active:scale-95 transition-all flex items-center justify-center cursor-pointer shadow-sm"
+                    >
+                        <Trash2 size={18} />
                     </button>
                   </div>
                 </div>
@@ -1077,29 +1192,19 @@ export default function PayrollPage() {
                     required
                     value={editForm.check_in_time}
                     onChange={(e) => {
-                      let val = e.target.value.replace(/[^0-9:]/g, ''); // พิมพ์ได้แค่เลขกับ :
-                      // เติม : อัตโนมัติถ้าพิมพ์ถึง 2 ตัว
-                      if (val.length === 2 && !val.includes(':') && editForm.check_in_time.length < val.length) {
-                        val += ':';
-                      }
+                      let val = e.target.value.replace(/[^0-9:]/g, ''); 
+                      const isTyping = val.length > editForm.check_in_time.length;
+                      
+                      if (val.length === 2 && !val.includes(':') && isTyping) val += ':';
+                      
                       const newForm = { ...editForm, check_in_time: val };
 
-                      // ถ้ารูปแบบครบ 5 ตัว (เช่น 08:30) ให้คำนวณเวลาใหม่
                       if (val.length === 5 && val.includes(':')) {
                         const [h, m] = val.split(':');
                         if (Number(h) < 24 && Number(m) < 60) {
                           const newDate = new Date(editForm.check_in);
                           newDate.setHours(Number(h), Number(m), 0, 0);
                           newForm.check_in = newDate.toISOString();
-
-                          let newMins = editForm.total_minutes;
-                          if (editForm.check_out) {
-                            newMins = Math.max(0, Math.floor((new Date(editForm.check_out).getTime() - newDate.getTime()) / 60000));
-                          } else {
-                            newMins = Math.max(0, Math.floor((new Date().getTime() - newDate.getTime()) / 60000));
-                          }
-                          newForm.total_minutes = newMins;
-                          newForm.manual_total = null;
                         }
                       }
                       setEditForm(newForm);
@@ -1116,9 +1221,10 @@ export default function PayrollPage() {
                     value={editForm.check_out_time}
                     onChange={(e) => {
                       let val = e.target.value.replace(/[^0-9:]/g, '');
-                      if (val.length === 2 && !val.includes(':') && editForm.check_out_time.length < val.length) {
-                        val += ':';
-                      }
+                      const isTyping = val.length > editForm.check_out_time.length;
+                      
+                      if (val.length === 2 && !val.includes(':') && isTyping) val += ':';
+                      
                       const newForm = { ...editForm, check_out_time: val };
 
                       if (val.length === 5 && val.includes(':')) {
@@ -1127,19 +1233,14 @@ export default function PayrollPage() {
                           const newDate = new Date(editForm.check_in);
                           newDate.setHours(Number(h), Number(m), 0, 0);
                           
-                          // ถ้าเวลาออกน้อยกว่าเวลาเข้า (ทำข้ามวัน) ให้บวกไป 1 วัน
+                          // จัดการกรณีข้ามคืน
                           if (newDate < new Date(editForm.check_in)) {
                             newDate.setDate(newDate.getDate() + 1);
                           }
                           newForm.check_out = newDate.toISOString();
-
-                          const newMins = Math.max(0, Math.floor((newDate.getTime() - new Date(editForm.check_in).getTime()) / 60000));
-                          newForm.total_minutes = newMins;
-                          newForm.manual_total = null;
                         }
                       } else if (val.length === 0) {
                         newForm.check_out = null;
-                        newForm.total_minutes = Math.max(0, Math.floor((new Date().getTime() - new Date(editForm.check_in).getTime()) / 60000));
                       }
                       setEditForm(newForm);
                     }}
@@ -1162,7 +1263,6 @@ export default function PayrollPage() {
                 <div>
                   <label className="flex justify-between text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">
                     <span>แก้ไขเวลาสุทธิ (นาที)</span>
-                    {/* 🌟 แสดงเวลาเป็น ชม. นาที ให้ดูง่ายๆ ข้างๆ */}
                     <span className="text-blue-500 text-[10px] bg-blue-50 px-1 rounded">{Math.floor(editForm.total_minutes / 60)} ชม. {editForm.total_minutes % 60} นาที</span>
                   </label>
                   <input 
@@ -1281,7 +1381,15 @@ export default function PayrollPage() {
                 </p>
               </div>
 
-              <div className="pt-4 flex gap-3 pb-2">
+              <div className="pt-4 flex items-center gap-2 pb-2">
+                <button 
+                  type="button" 
+                  onClick={() => handleDeleteAttendance(editingRecord)}
+                  title="ลบรายการเข้างานนี้"
+                  className="p-3.5 bg-rose-50 text-rose-600 border border-rose-200 font-bold rounded-xl hover:bg-rose-100 transition-colors cursor-pointer text-sm flex items-center justify-center shrink-0 active:scale-95"
+                >
+                  <Trash2 size={18} />
+                </button>
                 <button 
                   type="button" onClick={() => setEditingRecord(null)}
                   className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors cursor-pointer text-sm"
