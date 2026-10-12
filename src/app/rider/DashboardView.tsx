@@ -85,7 +85,7 @@ interface AttendanceRecord {
 // 🌟 คำนวณรายได้ของบันทึกการเข้างาน (ทั้งที่จ่ายแล้ว และยังไม่จ่าย/ค้างจ่าย)
 const calculateRecordPay = (
   record: AttendanceRecord,
-  rate: number,
+  fallbackRate: number,
   defSavings: number,
   ordersCount?: number,
   nowDate: Date = new Date()
@@ -100,35 +100,45 @@ const calculateRecordPay = (
     minutes = Math.max(0, Math.floor((new Date(record.check_out).getTime() - new Date(record.check_in).getTime()) / 60000));
   }
 
-  // หากจ่ายแล้วและมียอด total_pay บันทึกไว้แล้ว ให้ใช้ยอดจริงที่จ่าย
-  if (isPaid && (record.total_pay || 0) > 0) {
+  // คำนวณเรทค่าแรงจริง: ถ้ามี base_pay และ total_minutes บันทึกไว้แล้ว ให้คำนวณเรทจากยอดจริง
+  let rate = fallbackRate;
+  if ((record.base_pay || 0) > 0 && (record.total_minutes || 0) > 0) {
+    rate = (record.base_pay! / record.total_minutes!) * 60;
+  }
+
+  // ถ้ามี total_pay บันทึกไว้ใน DB แล้ว (> 0) และไม่ได้กำลังทำงาน ให้ใช้ยอดจริงจาก DB ทั้งหมด
+  if (!isWorking && record.total_pay && record.total_pay > 0) {
     return {
       minutes,
       gas: record.gas_allowance || 0,
-      savings: record.accumulated_savings ?? defSavings,
+      savings: (record.accumulated_savings !== null && record.accumulated_savings !== undefined) ? record.accumulated_savings : defSavings,
       bonus: record.diligence_bonus || 0,
-      basePay: (record.base_pay || 0) > 0 ? record.base_pay! : (minutes / 60) * rate,
-      totalPay: record.total_pay || 0,
-      isPaid: true,
+      basePay: (record.base_pay && record.base_pay > 0) ? record.base_pay : (minutes / 60) * rate,
+      totalPay: record.total_pay,
+      rate: Math.round(rate),
+      isPaid,
       isWorking: false
     };
   }
 
-  // กรณียังไม่จ่าย (ค้างจ่าย/รอชำระ) หรือกำลังทำงานอยู่
+  // กรณียังไม่บันทึกยอด หรือกำลังทำงานอยู่
   const orders = ordersCount ?? (record.order_count || 0);
-  const gas = (record.gas_allowance && record.gas_allowance > 0) 
-    ? record.gas_allowance 
-    : (minutes > 0 || isWorking ? getAutoGasAllowance(orders) : 0);
+  const autoGas = getAutoGasAllowance(orders);
+
+  // ค่าน้ำมัน: ถ้ามี gas_allowance บันทึกไว้แล้วและ > 0 ให้ใช้ค่าเดิม มิฉะนั้นคำนวณอัตโนมัติตามออเดอร์ (ขั้นต่ำ 50)
+  const gas = (!isWorking && record.gas_allowance !== null && record.gas_allowance !== undefined && record.gas_allowance > 0)
+    ? record.gas_allowance
+    : autoGas;
+
   const bonus = record.diligence_bonus || 0;
-  const savings = (record.accumulated_savings !== null && record.accumulated_savings !== undefined)
+  const savings = (record.accumulated_savings !== null && record.accumulated_savings !== undefined && record.accumulated_savings > 0)
     ? record.accumulated_savings
     : defSavings;
-  const basePay = (minutes / 60) * rate;
+  const basePay = (!isWorking && (record.base_pay || 0) > 0)
+    ? record.base_pay!
+    : (minutes / 60) * rate;
 
   const calculatedTotal = (minutes > 0 || isWorking) ? Math.max(0, basePay + gas + bonus - savings) : 0;
-  const totalPay = (!isWorking && record.total_pay && record.total_pay > 0)
-    ? record.total_pay
-    : calculatedTotal;
 
   return {
     minutes,
@@ -136,7 +146,8 @@ const calculateRecordPay = (
     savings,
     bonus,
     basePay,
-    totalPay,
+    totalPay: calculatedTotal,
+    rate: Math.round(rate),
     isPaid,
     isWorking
   };
@@ -187,11 +198,8 @@ export default function DashboardView({
     setShowHistory(true);
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
-      const { data: profile } = await supabase.from('profiles').select('default_savings, hourly_rate').eq('id', session.user.id).single();
+      const { data: profile } = await supabase.from('profiles').select('default_savings, hourly_rate').eq('id', session.user.id).maybeSingle();
       const defSavings = profile?.default_savings ?? 50;
-      const hRate = profile?.hourly_rate ?? 40;
-      setRiderHourlyRate(hRate);
-      setRiderDefaultSavings(defSavings);
 
       // ดึงรายวัน
       const { data: daily } = await supabase
@@ -200,13 +208,29 @@ export default function DashboardView({
         .eq('rider_id', session.user.id)
         .order('check_in', { ascending: false })
         .limit(60);
+
+      // คำนวณเรทจริงจากประวัติกะที่เคยได้รับค่าแรง ถ้าในโปรไฟล์ไม่ได้ตั้งไว้หรือเป็นค่าดีฟอลต์ 40
+      let effectiveRate = profile?.hourly_rate;
+      if (daily && daily.length > 0) {
+        const withRate = daily.find(r => (r.base_pay || 0) > 0 && (r.total_minutes || 0) > 0);
+        if (withRate) {
+          const calcRate = Math.round((withRate.base_pay! / withRate.total_minutes!) * 60);
+          if (calcRate > 0) {
+            effectiveRate = (profile?.hourly_rate && profile.hourly_rate !== 40) ? profile.hourly_rate : calcRate;
+          }
+        }
+      }
+      const hRate = effectiveRate || 40;
+      setRiderHourlyRate(hRate);
+      setRiderDefaultSavings(defSavings);
+
       if (daily) {
         setAttendanceHistory(daily as AttendanceRecord[]);
         const unpaid = daily.filter(r => r.payment_status !== 'จ่ายแล้ว');
         let sum = 0;
         unpaid.forEach(r => {
           const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hRate;
-          const pay = calculateRecordPay(r, rRate, defSavings);
+          const pay = calculateRecordPay(r, rRate, defSavings, r.order_count || 0);
           sum += pay.totalPay;
         });
         setUnpaidSummary({
@@ -314,6 +338,39 @@ export default function DashboardView({
     fetchHistoricalOrders();
   }, [filterMode, filterDate, filterMonth, businessDayStart]);
 
+  const todaysCompletedOrdersCount = useMemo(() => {
+    if (filterMode === 'yesterday') {
+      const now = new Date();
+      const shiftStart = new Date(now);
+      const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
+      if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) shiftStart.setDate(shiftStart.getDate() - 2);
+      else shiftStart.setDate(shiftStart.getDate() - 1);
+      shiftStart.setHours(bizHour, bizMin, 0, 0);
+      const shiftEnd = new Date(shiftStart);
+      shiftEnd.setDate(shiftEnd.getDate() + 1);
+
+      return (Array.isArray(historicalOrders) ? historicalOrders : []).filter(o => {
+        const d = new Date(o.end_time || o.created_at);
+        return d >= shiftStart && d < shiftEnd;
+      }).length;
+    } else if (filterMode !== 'today') {
+      return historicalOrders.length;
+    }
+
+    const now = new Date();
+    const shiftStart = new Date(now);
+    const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
+    if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) shiftStart.setDate(shiftStart.getDate() - 1);
+    shiftStart.setHours(bizHour, bizMin, 0, 0);
+    const shiftEnd = new Date(shiftStart);
+    shiftEnd.setDate(shiftEnd.getDate() + 1);
+
+    return (Array.isArray(allCompletedOrders) ? allCompletedOrders : []).filter(o => {
+      const d = new Date(o.end_time || o.created_at);
+      return d >= shiftStart && d < shiftEnd;
+    }).length;
+  }, [allCompletedOrders, businessDayStart, filterMode, historicalOrders]);
+
   useEffect(() => {
     const fetchPayroll = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -370,11 +427,8 @@ export default function DashboardView({
         .order('check_in', { ascending: false });
 
       // 🌟 2. ดึงค่า Default Savings และ Hourly Rate มาจากโปรไฟล์ของไรเดอร์
-      const { data: profile } = await supabase.from('profiles').select('default_savings, hourly_rate').eq('id', riderId).single();
+      const { data: profile } = await supabase.from('profiles').select('default_savings, hourly_rate').eq('id', riderId).maybeSingle();
       const defaultSavings = profile?.default_savings ?? 50;
-      const hourlyRate = profile?.hourly_rate ?? 40;
-      setRiderHourlyRate(hourlyRate);
-      setRiderDefaultSavings(defaultSavings);
 
       // 🌟 2.1 ดึงข้อมูลงานที่ค้างจ่ายทั้งหมด (ยังไม่จ่าย) มาคำนวณยอดค้างจ่ายรวม
       const { data: allAttendance } = await supabase
@@ -384,12 +438,27 @@ export default function DashboardView({
         .order('check_in', { ascending: false })
         .limit(100);
 
+      // คำนวณเรทจริงจากประวัติกะที่เคยได้รับค่าแรง ถ้าในโปรไฟล์ไม่ได้ตั้งไว้หรือเป็นค่าดีฟอลต์ 40
+      let effectiveHourlyRate = profile?.hourly_rate;
+      if (allAttendance && allAttendance.length > 0) {
+        const withRate = allAttendance.find(r => (r.base_pay || 0) > 0 && (r.total_minutes || 0) > 0);
+        if (withRate) {
+          const calcRate = Math.round((withRate.base_pay! / withRate.total_minutes!) * 60);
+          if (calcRate > 0) {
+            effectiveHourlyRate = (profile?.hourly_rate && profile.hourly_rate !== 40) ? profile.hourly_rate : calcRate;
+          }
+        }
+      }
+      const hourlyRate = effectiveHourlyRate || 40;
+      setRiderHourlyRate(hourlyRate);
+      setRiderDefaultSavings(defaultSavings);
+
       if (allAttendance) {
         const unpaidList = allAttendance.filter(r => r.payment_status !== 'จ่ายแล้ว');
         let unpaidSum = 0;
         unpaidList.forEach(r => {
           const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hourlyRate;
-          const pay = calculateRecordPay(r, rRate, defaultSavings);
+          const pay = calculateRecordPay(r, rRate, defaultSavings, r.order_count || 0);
           unpaidSum += pay.totalPay;
         });
         setUnpaidSummary({
@@ -427,7 +496,11 @@ export default function DashboardView({
           if ((dailyData.base_pay || 0) > 0 && (dailyData.total_minutes || 0) > 0) {
             rate = (dailyData.base_pay / dailyData.total_minutes) * 60;
           }
-          const payInfo = calculateRecordPay(dailyData, rate, defaultSavings);
+          const ordersCountForDaily = (filterMode === 'today') 
+            ? todaysCompletedOrdersCount 
+            : (dailyData.order_count || todaysCompletedOrdersCount);
+
+          const payInfo = calculateRecordPay(dailyData, rate, defaultSavings, ordersCountForDaily);
           setPayrollStats({
             isWorking: filterMode === 'today' ? !dailyData.check_out : false,
             checkInTime: dailyData.check_in,
@@ -447,7 +520,7 @@ export default function DashboardView({
           let allPaid = true;
           attendanceData.forEach(r => {
             const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hourlyRate;
-            const payInfo = calculateRecordPay(r, rRate, defaultSavings);
+            const payInfo = calculateRecordPay(r, rRate, defaultSavings, r.order_count ?? todaysCompletedOrdersCount);
             totalPay += payInfo.totalPay;
             totalGas += payInfo.gas;
             totalMinutes += payInfo.minutes;
@@ -482,7 +555,7 @@ export default function DashboardView({
       }
     };
     fetchPayroll();
-  }, [businessDayStart, filterMode, filterDate, filterMonth]);
+  }, [businessDayStart, filterMode, filterDate, filterMonth, todaysCompletedOrdersCount]);
 
   const getFilteredOrders = () => {
     const sourceOrders = filterMode === 'today' ? allCompletedOrders : historicalOrders;
@@ -551,38 +624,6 @@ export default function DashboardView({
 
   const displayOrders = Array.isArray(getFilteredOrders()) ? getFilteredOrders() : [];
 
-  const todaysCompletedOrdersCount = useMemo(() => {
-    if (filterMode === 'yesterday') {
-      const now = new Date();
-      const shiftStart = new Date(now);
-      const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-      if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) shiftStart.setDate(shiftStart.getDate() - 2);
-      else shiftStart.setDate(shiftStart.getDate() - 1);
-      shiftStart.setHours(bizHour, bizMin, 0, 0);
-      const shiftEnd = new Date(shiftStart);
-      shiftEnd.setDate(shiftEnd.getDate() + 1);
-
-      return (Array.isArray(historicalOrders) ? historicalOrders : []).filter(o => {
-        const d = new Date(o.end_time || o.created_at);
-        return d >= shiftStart && d < shiftEnd;
-      }).length;
-    } else if (filterMode !== 'today') {
-      return historicalOrders.length;
-    }
-
-    const now = new Date();
-    const shiftStart = new Date(now);
-    const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-    if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) shiftStart.setDate(shiftStart.getDate() - 1);
-    shiftStart.setHours(bizHour, bizMin, 0, 0);
-    const shiftEnd = new Date(shiftStart);
-    shiftEnd.setDate(shiftEnd.getDate() + 1);
-
-    return (Array.isArray(allCompletedOrders) ? allCompletedOrders : []).filter(o => {
-      const d = new Date(o.end_time || o.created_at);
-      return d >= shiftStart && d < shiftEnd;
-    }).length;
-  }, [allCompletedOrders, businessDayStart, filterMode, historicalOrders]); 
 
   const liveMinutes = useMemo(() => {
     if (payrollStats.isWorking && payrollStats.checkInTime) {
