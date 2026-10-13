@@ -19,7 +19,7 @@ const getCycleDetails = (businessDayStart: string) => {
   const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
 
   let cycleEndMonth = month;
-  const cycleEndYear = year; // เปลี่ยน let เป็น const
+  const cycleEndYear = year; 
   
   if (date > 26 || (date === 26 && (now.getHours() > bizHour || (now.getHours() === bizHour && now.getMinutes() >= bizMin)))) {
     cycleEndMonth = month + 1;
@@ -82,7 +82,7 @@ interface AttendanceRecord {
   base_pay?: number | null;
 }
 
-// 🌟 คำนวณรายได้ของบันทึกการเข้างาน (ทั้งที่จ่ายแล้ว และยังไม่จ่าย/ค้างจ่าย)
+// 🌟 คำนวณรายได้ของบันทึกการเข้างาน (ซิงค์ลอจิกกับหน้า Payroll 100%)
 const calculateRecordPay = (
   record: AttendanceRecord,
   fallbackRate: number,
@@ -100,45 +100,37 @@ const calculateRecordPay = (
     minutes = Math.max(0, Math.floor((new Date(record.check_out).getTime() - new Date(record.check_in).getTime()) / 60000));
   }
 
-  // คำนวณเรทค่าแรงจริง: ถ้ามี base_pay และ total_minutes บันทึกไว้แล้ว ให้คำนวณเรทจากยอดจริง
+  // 1. คำนวณเรทค่าแรงพื้นฐาน
   let rate = fallbackRate;
   if ((record.base_pay || 0) > 0 && (record.total_minutes || 0) > 0) {
     rate = (record.base_pay! / record.total_minutes!) * 60;
   }
+  const basePay = (!isWorking && (record.base_pay || 0) > 0) 
+    ? record.base_pay! 
+    : (minutes / 60) * rate;
 
-  // ถ้ามี total_pay บันทึกไว้ใน DB แล้ว (> 0) และไม่ได้กำลังทำงาน ให้ใช้ยอดจริงจาก DB ทั้งหมด
-  if (!isWorking && record.total_pay && record.total_pay > 0) {
-    return {
-      minutes,
-      gas: record.gas_allowance || 0,
-      savings: (record.accumulated_savings !== null && record.accumulated_savings !== undefined) ? record.accumulated_savings : defSavings,
-      bonus: record.diligence_bonus || 0,
-      basePay: (record.base_pay && record.base_pay > 0) ? record.base_pay : (minutes / 60) * rate,
-      totalPay: record.total_pay,
-      rate: Math.round(rate),
-      isPaid,
-      isWorking: false
-    };
-  }
-
-  // กรณียังไม่บันทึกยอด หรือกำลังทำงานอยู่
+  // 2. จำนวนออเดอร์
   const orders = ordersCount ?? (record.order_count || 0);
   const autoGas = getAutoGasAllowance(orders);
 
-  // ค่าน้ำมัน: ถ้ามี gas_allowance บันทึกไว้แล้วและ > 0 ให้ใช้ค่าเดิม มิฉะนั้นคำนวณอัตโนมัติตามออเดอร์ (ขั้นต่ำ 50)
-  const gas = (!isWorking && record.gas_allowance !== null && record.gas_allowance !== undefined && record.gas_allowance > 0)
-    ? record.gas_allowance
+  // 3. ค่าน้ำมัน (ถ้าจ่ายแล้วหรือบันทึกยอดแล้ว ให้ใช้ค่าในระบบ แม้จะเป็น 0 ก็ตาม)
+  const gas = (isPaid || (record.total_pay ?? 0) > 0) 
+    ? (record.gas_allowance || 0) 
     : autoGas;
 
-  const bonus = record.diligence_bonus || 0;
-  const savings = (record.accumulated_savings !== null && record.accumulated_savings !== undefined && record.accumulated_savings > 0)
-    ? record.accumulated_savings
-    : defSavings;
-  const basePay = (!isWorking && (record.base_pay || 0) > 0)
-    ? record.base_pay!
-    : (minutes / 60) * rate;
+  // 4. เงินหักสะสม (ถ้าจ่ายแล้วหรือบันทึกยอดแล้ว ให้ใช้ค่าในระบบ แม้จะเป็น 0 ก็ตาม)
+  const savings = (isPaid || (record.total_pay ?? 0) > 0)
+    ? (record.accumulated_savings || 0)
+    : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? defSavings : record.accumulated_savings);
 
+  // 5. โบนัสขยัน
+  const bonus = record.diligence_bonus || 0;
+
+  // 6. คำนวณยอดรวมสุทธิเบื้องต้น
   const calculatedTotal = (minutes > 0 || isWorking) ? Math.max(0, basePay + gas + bonus - savings) : 0;
+
+  // 7. เลือกยอดที่จะแสดงผล (ถ้ายกเลิกงาน/จ่ายแล้ว ให้ใช้ยอดจริงจาก Database)
+  const finalTotalPay = (!isWorking && (record.total_pay ?? 0) > 0) ? record.total_pay! : calculatedTotal;
 
   return {
     minutes,
@@ -146,7 +138,7 @@ const calculateRecordPay = (
     savings,
     bonus,
     basePay,
-    totalPay: calculatedTotal,
+    totalPay: finalTotalPay,
     rate: Math.round(rate),
     isPaid,
     isWorking
@@ -490,13 +482,16 @@ export default function DashboardView({
       }
 
       if (attendanceData && attendanceData.length > 0) {
-        if (filterMode === 'today' || filterMode === 'date') {
+        // ✅ แก้บัคที่ 2: เพิ่ม filterMode === 'yesterday' ลงในเงื่อนไขรายวัน
+        if (filterMode === 'today' || filterMode === 'yesterday' || filterMode === 'date') {
           const dailyData = attendanceData[0];
           let rate = hourlyRate;
           if ((dailyData.base_pay || 0) > 0 && (dailyData.total_minutes || 0) > 0) {
             rate = (dailyData.base_pay / dailyData.total_minutes) * 60;
           }
-          const ordersCountForDaily = (filterMode === 'today') 
+          
+          // ✅ จัดการ Order Count สำหรับโหมดที่ระบุ 1 วัน (รวม yesterday)
+          const ordersCountForDaily = (filterMode === 'today' || filterMode === 'yesterday') 
             ? todaysCompletedOrdersCount 
             : (dailyData.order_count || todaysCompletedOrdersCount);
 
@@ -520,7 +515,11 @@ export default function DashboardView({
           let allPaid = true;
           attendanceData.forEach(r => {
             const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hourlyRate;
-            const payInfo = calculateRecordPay(r, rRate, defaultSavings, r.order_count ?? todaysCompletedOrdersCount);
+            
+            // ✅ แก้บัคที่ 1: ป้องกันยอด order ทบไปเดือนอื่นๆ ในตอนที่ยังไม่จ่าย 
+            // ให้ใช้ fallback เป็น 0 สำหรับโหมดสรุปรวมหลายๆ วัน
+            const fallbackOrders = 0; // เปลี่ยนเป็น 0 ไปเลย
+            const payInfo = calculateRecordPay(r, rRate, defaultSavings, r.order_count ?? fallbackOrders)
             totalPay += payInfo.totalPay;
             totalGas += payInfo.gas;
             totalMinutes += payInfo.minutes;
@@ -1245,7 +1244,7 @@ export default function DashboardView({
                   src={url} 
                   className={`transition-all duration-300 origin-center cursor-zoom-in shadow-2xl rounded-lg ${imgScale > 1 ? 'm-auto' : ''}`}
                   style={{ 
-   width: imgScale > 1 ? `${imgScale * 100}%` : '100%', // ✅ แก้เป็นแบบนี้
+   width: imgScale > 1 ? `${imgScale * 100}%` : '100%', 
    height: imgScale > 1 ? 'auto' : '100%',
    objectFit: 'contain',
    maxWidth: imgScale > 1 ? 'none' : '100%' 
