@@ -221,10 +221,12 @@ export default function DashboardView({
         const unpaid = daily.filter(r => r.payment_status !== 'จ่ายแล้ว');
         let sum = 0;
         unpaid.forEach(r => {
-          const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hRate;
-          const pay = calculateRecordPay(r, rRate, defSavings, r.order_count || 0);
-          sum += pay.totalPay;
-        });
+  const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hRate;
+  // ดึงยอดออเดอร์จริง หากเป็นกะที่ยังไม่ Check-out
+  const actualOrdersCount = !r.check_out ? todaysCompletedOrdersCount : (r.order_count || 0);
+  const pay = calculateRecordPay(r, rRate, defSavings, actualOrdersCount);
+  sum += pay.totalPay;
+});
         setUnpaidSummary({
           totalAmount: Math.round(sum),
           count: unpaid.length
@@ -330,38 +332,41 @@ export default function DashboardView({
     fetchHistoricalOrders();
   }, [filterMode, filterDate, filterMonth, businessDayStart]);
 
-  const todaysCompletedOrdersCount = useMemo(() => {
-    if (filterMode === 'yesterday') {
-      const now = new Date();
-      const shiftStart = new Date(now);
-      const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-      if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) shiftStart.setDate(shiftStart.getDate() - 2);
-      else shiftStart.setDate(shiftStart.getDate() - 1);
-      shiftStart.setHours(bizHour, bizMin, 0, 0);
-      const shiftEnd = new Date(shiftStart);
-      shiftEnd.setDate(shiftEnd.getDate() + 1);
+  // 🌟 คำนวณจำนวนออเดอร์โดยตรง (ถอด useMemo ออกเพื่อแก้ React Compiler Warning)
+  let todaysCompletedOrdersCount = 0;
+  const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
 
-      return (Array.isArray(historicalOrders) ? historicalOrders : []).filter(o => {
-        const d = new Date(o.end_time || o.created_at);
-        return d >= shiftStart && d < shiftEnd;
-      }).length;
-    } else if (filterMode !== 'today') {
-      return historicalOrders.length;
+  if (filterMode === 'yesterday') {
+    const shiftStart = new Date(currentTime);
+    if (currentTime.getHours() < bizHour || (currentTime.getHours() === bizHour && currentTime.getMinutes() < bizMin)) {
+      shiftStart.setDate(shiftStart.getDate() - 2);
+    } else {
+      shiftStart.setDate(shiftStart.getDate() - 1);
     }
-
-    const now = new Date();
-    const shiftStart = new Date(now);
-    const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-    if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) shiftStart.setDate(shiftStart.getDate() - 1);
     shiftStart.setHours(bizHour, bizMin, 0, 0);
     const shiftEnd = new Date(shiftStart);
     shiftEnd.setDate(shiftEnd.getDate() + 1);
 
-    return (Array.isArray(allCompletedOrders) ? allCompletedOrders : []).filter(o => {
+    todaysCompletedOrdersCount = (Array.isArray(historicalOrders) ? historicalOrders : []).filter(o => {
       const d = new Date(o.end_time || o.created_at);
       return d >= shiftStart && d < shiftEnd;
     }).length;
-  }, [allCompletedOrders, businessDayStart, filterMode, historicalOrders]);
+  } else if (filterMode !== 'today') {
+    todaysCompletedOrdersCount = historicalOrders.length;
+  } else {
+    const shiftStart = new Date(currentTime);
+    if (currentTime.getHours() < bizHour || (currentTime.getHours() === bizHour && currentTime.getMinutes() < bizMin)) {
+      shiftStart.setDate(shiftStart.getDate() - 1);
+    }
+    shiftStart.setHours(bizHour, bizMin, 0, 0);
+    const shiftEnd = new Date(shiftStart);
+    shiftEnd.setDate(shiftEnd.getDate() + 1);
+
+    todaysCompletedOrdersCount = (Array.isArray(allCompletedOrders) ? allCompletedOrders : []).filter(o => {
+      const d = new Date(o.end_time || o.created_at);
+      return d >= shiftStart && d < shiftEnd;
+    }).length;
+  }
 
   useEffect(() => {
     const fetchPayroll = async () => {
@@ -449,10 +454,12 @@ export default function DashboardView({
         const unpaidList = allAttendance.filter(r => r.payment_status !== 'จ่ายแล้ว');
         let unpaidSum = 0;
         unpaidList.forEach(r => {
-          const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hourlyRate;
-          const pay = calculateRecordPay(r, rRate, defaultSavings, r.order_count || 0);
-          unpaidSum += pay.totalPay;
-        });
+  const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hourlyRate;
+  // ดึงยอดออเดอร์จริง หากเป็นกะที่ยังไม่ Check-out
+  const actualOrdersCount = !r.check_out ? todaysCompletedOrdersCount : (r.order_count || 0);
+  const pay = calculateRecordPay(r, rRate, defaultSavings, actualOrdersCount);
+  unpaidSum += pay.totalPay;
+});
         setUnpaidSummary({
           totalAmount: Math.round(unpaidSum),
           count: unpaidList.length
