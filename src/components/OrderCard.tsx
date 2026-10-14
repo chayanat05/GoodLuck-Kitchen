@@ -269,31 +269,42 @@ function OrderCard({
         )}
 
         {/* รูปภาพ Shopee ขนาดใหญ่ (แสดงผลแบบเดียวกับสลิป) */}
-        {isShopee && hasImages && (
-          <div className="mt-2 pt-2 border-t border-white/10">
-            <div className="text-sm font-black uppercase text-white/90 mb-3 flex items-center gap-1.5">
-            </div>
-            <div className="flex flex-col gap-3">
-              {images.map((url, i) => (
-                <div
-                  key={`shopee-img-${i}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (onViewImages) onViewImages(images, i);
-                    else onViewDetails?.();
-                  }}
-                  className="relative w-full rounded-xl overflow-hidden border border-white/20 shadow-md cursor-zoom-in"
-                >
-                  <Image
-                    src={url}
-                    alt={`Shopee Order ${i}`}
-                    width={1200}
-                    height={1600}
-                    className="w-full h-auto"
+        {hasImages && (
+          <div className="flex flex-col gap-2 shrink-0 items-center w-full">
+            {images.map((url, i) => (
+              <div 
+                key={i} 
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  if (onViewImages) onViewImages(images, i); 
+                  else onViewDetails?.(); 
+                }} 
+                // 🌟 แก้ไขตรงนี้: ใช้ self-stretch และดึงขอบซ้าย/ขวาแยกกัน
+                className={`relative overflow-hidden shadow-sm cursor-pointer group/img bg-black/10 ${
+                  isShopee 
+                    ? 'self-stretch -ml-2 -mr-3 border-0 rounded-lg' // -ml-2 ดึงซ้าย 8px, -mr-3 ดึงขวา 12px ชดเชยขอบ Scrollbar พอดี
+                    : 'w-full aspect-video rounded-xl border border-white/20'
+                }`}
+              >
+                {isShopee ? (
+                  <Image 
+                    src={url} 
+                    width={1200} 
+                    height={1600} 
+                    alt={`Shopee Order ${i}`} 
+                    className="w-full h-auto block" 
                   />
-                </div>
-              ))}
-            </div>
+                ) : (
+                  <Image 
+                    src={url} 
+                    fill 
+                    sizes="(max-width: 768px) 100vw, 33vw" 
+                    alt={`Order attachment ${i}`} 
+                    className="object-cover block group-hover/img:scale-105 transition-transform duration-500" 
+                  />
+                )}
+              </div>
+            ))}
           </div>
         )}
 
