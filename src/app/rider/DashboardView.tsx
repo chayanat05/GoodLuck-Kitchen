@@ -80,6 +80,7 @@ interface AttendanceRecord {
   total_minutes?: number | null;
   order_count?: number | null;
   base_pay?: number | null;
+  actual_orders_count?: number;
 }
 
 // 🌟 คำนวณรายได้ของบันทึกการเข้างาน (ซิงค์ลอจิกกับหน้า Payroll 100%)
@@ -168,6 +169,24 @@ export default function DashboardView({
 }: DashboardViewProps) {
   
   const [filterMode, setFilterMode] = useState<FilterMode>('today');
+
+  // 🌟 สร้างฟังก์ชันหา "ยอดออเดอร์สดของวันนี้จริงๆ" (เพื่อไม่ให้ยอดค้างจ่ายแกว่งตามตัวกรอง)
+  const getLiveTodayOrdersCount = () => {
+    const [bHour, bMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
+    const now = new Date();
+    const shiftStart = new Date(now);
+    if (now.getHours() < bHour || (now.getHours() === bHour && now.getMinutes() < bMin)) {
+      shiftStart.setDate(shiftStart.getDate() - 1);
+    }
+    shiftStart.setHours(bHour, bMin, 0, 0);
+    const shiftEnd = new Date(shiftStart);
+    shiftEnd.setDate(shiftEnd.getDate() + 1);
+
+    return (Array.isArray(allCompletedOrders) ? allCompletedOrders : []).filter(o => {
+      const d = new Date(o.end_time || o.created_at);
+      return d >= shiftStart && d < shiftEnd;
+    }).length;
+  };
   
   const [filterDate, setFilterDate] = useState<string>(getInitialBizDate(businessDayStart)); 
   const [filterMonth, setFilterMonth] = useState<string>(getInitialBizDate(businessDayStart).slice(0, 7)); 
@@ -217,20 +236,45 @@ export default function DashboardView({
       setRiderDefaultSavings(defSavings);
 
       if (daily) {
-        setAttendanceHistory(daily as AttendanceRecord[]);
-        const unpaid = daily.filter(r => r.payment_status !== 'จ่ายแล้ว');
+        // 🌟 1. นับออเดอร์แบบเหมาทั้งวัน (Business Day) เพื่อให้ตรงกับหน้าการ์ดหลัก 100%
+        const enrichedDaily = await Promise.all(daily.map(async (r) => {
+          let trueCount = r.order_count || 0;
+          
+          if (!trueCount && r.check_in) {
+            // คำนวณขอบเขตเวลาของวันทำงาน (Business Day)
+            const d = new Date(r.check_in);
+            const [bH, bM] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
+            const start = new Date(d);
+            if (d.getHours() < bH || (d.getHours() === bH && d.getMinutes() < bM)) {
+              start.setDate(start.getDate() - 1);
+            }
+            start.setHours(bH, bM, 0, 0);
+            const end = new Date(start);
+            end.setDate(end.getDate() + 1);
+
+            const { count } = await supabase
+              .from('orders')
+              .select('*', { count: 'exact', head: true })
+              .eq('rider_id', session.user.id)
+              .eq('status', 'ส่งแล้ว/เสร็จ')
+              .gte('created_at', start.toISOString())
+              .lt('created_at', end.toISOString());
+            trueCount = count || 0;
+          }
+          
+          return { ...r, actual_orders_count: trueCount };
+        }));
+
+        setAttendanceHistory(enrichedDaily as AttendanceRecord[]);
+        
+        const unpaid = enrichedDaily.filter(r => r.payment_status !== 'จ่ายแล้ว');
         let sum = 0;
         unpaid.forEach(r => {
-  const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hRate;
-  // ดึงยอดออเดอร์จริง หากเป็นกะที่ยังไม่ Check-out
-  const actualOrdersCount = !r.check_out ? todaysCompletedOrdersCount : (r.order_count || 0);
-  const pay = calculateRecordPay(r, rRate, defSavings, actualOrdersCount);
-  sum += pay.totalPay;
-});
-        setUnpaidSummary({
-          totalAmount: Math.round(sum),
-          count: unpaid.length
+          const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hRate;
+          const pay = calculateRecordPay(r, rRate, defSavings, r.actual_orders_count);
+          sum += pay.totalPay;
         });
+        setUnpaidSummary({ totalAmount: Math.round(sum), count: unpaid.length });
       }
 
       // 🌟 ดึงรายเดือน
@@ -278,55 +322,69 @@ export default function DashboardView({
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      let query = supabase
-        .from('orders')
-        .select('*')
-        .eq('rider_id', session.user.id)
-        .eq('status', 'ส่งแล้ว/เสร็จ');
-
       const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
 
-      if (filterMode === 'yesterday') {
-        const now = new Date();
-        const targetStart = new Date(now);
-        if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
-          targetStart.setDate(targetStart.getDate() - 2);
-        } else {
-          targetStart.setDate(targetStart.getDate() - 1);
+      // 🌟 1. แยกส่วนการสร้างเงื่อนไข Query ออกมาเป็นฟังก์ชัน
+      const buildQuery = () => {
+        let query = supabase
+          .from('orders')
+          .select('*')
+          .eq('rider_id', session.user.id)
+          .eq('status', 'ส่งแล้ว/เสร็จ');
+
+        if (filterMode === 'yesterday') {
+          const now = new Date();
+          const targetStart = new Date(now);
+          if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
+            targetStart.setDate(targetStart.getDate() - 2);
+          } else {
+            targetStart.setDate(targetStart.getDate() - 1);
+          }
+          targetStart.setHours(bizHour, bizMin, 0, 0);
+          const targetEnd = new Date(targetStart);
+          targetEnd.setDate(targetEnd.getDate() + 1);
+          query = query.gte('created_at', targetStart.toISOString()).lt('created_at', targetEnd.toISOString());
+        } else if (filterMode === 'date' && filterDate) {
+          const [y, m, d] = filterDate.split('-').map(Number);
+          const targetStart = new Date(y, m - 1, d);
+          targetStart.setHours(bizHour, bizMin, 0, 0);
+          const targetEnd = new Date(targetStart);
+          targetEnd.setDate(targetEnd.getDate() + 1);
+          query = query.gte('created_at', targetStart.toISOString()).lt('created_at', targetEnd.toISOString());
+        } else if (filterMode === 'month' && filterMonth) {
+          const [year, month] = filterMonth.split('-');
+          const targetStart = new Date(parseInt(year), parseInt(month) - 1, 1);
+          targetStart.setHours(bizHour, bizMin, 0, 0);
+          const targetEnd = new Date(parseInt(year), parseInt(month), 1);
+          targetEnd.setHours(bizHour, bizMin, 0, 0);
+          query = query.gte('created_at', targetStart.toISOString()).lt('created_at', targetEnd.toISOString());
         }
-        targetStart.setHours(bizHour, bizMin, 0, 0);
 
-        const targetEnd = new Date(targetStart);
-        targetEnd.setDate(targetEnd.getDate() + 1);
+        return query.order('created_at', { ascending: false });
+      };
 
-        query = query.gte('created_at', targetStart.toISOString()).lt('created_at', targetEnd.toISOString());
-      } else if (filterMode === 'date' && filterDate) {
-        const [y, m, d] = filterDate.split('-').map(Number);
-        const targetStart = new Date(y, m - 1, d);
-        targetStart.setHours(bizHour, bizMin, 0, 0);
+      // 🌟 2. ใช้ Loop ทยอยดึงข้อมูลทีละ 1000 รายการ จนกว่าจะหมด
+      let allData: Order[] = [];
+      let from = 0;
+      const limit = 1000;
+      let fetchMore = true;
 
-        const targetEnd = new Date(targetStart);
-        targetEnd.setDate(targetEnd.getDate() + 1);
-
-        query = query.gte('created_at', targetStart.toISOString()).lt('created_at', targetEnd.toISOString());
-      } else if (filterMode === 'month' && filterMonth) {
-        const [year, month] = filterMonth.split('-');
-        const targetStart = new Date(parseInt(year), parseInt(month) - 1, 1);
-        targetStart.setHours(bizHour, bizMin, 0, 0);
-
-        const targetEnd = new Date(parseInt(year), parseInt(month), 1);
-        targetEnd.setHours(bizHour, bizMin, 0, 0);
-
-        query = query.gte('created_at', targetStart.toISOString()).lt('created_at', targetEnd.toISOString());
+      while (fetchMore) {
+        const { data } = await buildQuery().range(from, from + limit - 1);
+        
+        if (data && data.length > 0) {
+          allData = [...allData, ...data];
+          from += limit;
+          // ถ้ารอบนี้ดึงมาได้ไม่ถึง 1000 แสดงว่าหมดแล้ว ให้หยุด Loop
+          if (data.length < limit) {
+            fetchMore = false;
+          }
+        } else {
+          fetchMore = false;
+        }
       }
 
-      query = query.order('created_at', { ascending: false });
-      if (filterMode === 'all') {
-        query = query.limit(500000);
-      }
-
-      const { data } = await query;
-      if (data) setHistoricalOrders(data as Order[]);
+      setHistoricalOrders(allData);
     };
 
     fetchHistoricalOrders();
@@ -452,17 +510,45 @@ export default function DashboardView({
 
       if (allAttendance) {
         const unpaidList = allAttendance.filter(r => r.payment_status !== 'จ่ายแล้ว');
+        
+        // 🌟 2. นับยอดออเดอร์ค้างจ่ายแบบเหมาทั้งวัน (Business Day) ให้ยอดรวมค้างจ่ายตรงกันเป๊ะ
+        const enrichedUnpaid = await Promise.all(unpaidList.map(async (r) => {
+          let trueCount = r.order_count || 0;
+          
+          if (!trueCount && r.check_in) {
+            const d = new Date(r.check_in);
+            const [bH, bM] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
+            const start = new Date(d);
+            if (d.getHours() < bH || (d.getHours() === bH && d.getMinutes() < bM)) {
+              start.setDate(start.getDate() - 1);
+            }
+            start.setHours(bH, bM, 0, 0);
+            const end = new Date(start);
+            end.setDate(end.getDate() + 1);
+
+            const { count } = await supabase
+              .from('orders')
+              .select('*', { count: 'exact', head: true })
+              .eq('rider_id', riderId)
+              .eq('status', 'ส่งแล้ว/เสร็จ')
+              .gte('created_at', start.toISOString())
+              .lt('created_at', end.toISOString());
+            trueCount = count || 0;
+          }
+          
+          return { ...r, actual_orders_count: trueCount };
+        }));
+
         let unpaidSum = 0;
-        unpaidList.forEach(r => {
-  const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hourlyRate;
-  // ดึงยอดออเดอร์จริง หากเป็นกะที่ยังไม่ Check-out
-  const actualOrdersCount = !r.check_out ? todaysCompletedOrdersCount : (r.order_count || 0);
-  const pay = calculateRecordPay(r, rRate, defaultSavings, actualOrdersCount);
-  unpaidSum += pay.totalPay;
-});
+        enrichedUnpaid.forEach(r => {
+          const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hourlyRate;
+          const pay = calculateRecordPay(r, rRate, defaultSavings, r.actual_orders_count);
+          unpaidSum += pay.totalPay;
+        });
+        
         setUnpaidSummary({
           totalAmount: Math.round(unpaidSum),
-          count: unpaidList.length
+          count: enrichedUnpaid.length
         });
       }
 
@@ -1143,7 +1229,11 @@ export default function DashboardView({
                       {attendanceHistory.map(record => {
                         const isPaid = record.payment_status === 'จ่ายแล้ว';
                         const rRate = (record.base_pay && record.total_minutes) ? (record.base_pay / record.total_minutes) * 60 : riderHourlyRate;
-                        const payInfo = calculateRecordPay(record, rRate, riderDefaultSavings);
+                        
+                        // 🌟 แก้บรรทัดนี้ ลบ as any ออก และเรียกใช้งานได้เลยตรงๆ
+                        const actualCount = record.actual_orders_count || record.order_count || 0;
+                        const payInfo = calculateRecordPay(record, rRate, riderDefaultSavings, actualCount);
+
                         return (
                           <div key={record.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
                             <div className="flex justify-between items-center mb-2">

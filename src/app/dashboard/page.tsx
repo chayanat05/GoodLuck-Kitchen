@@ -160,17 +160,33 @@ export default function GlobalDashboardPage() {
     const { data: branchData } = await supabase.from("branches").select("id, name").order("name");
     if (branchData) setBranches(branchData);
 
-    // ข้อมูลสำหรับกราฟและสถิติรายวัน (เอามาแค่ 5,000 พอให้เว็บไม่ช้า)
-    const { data: orderData } = await supabase
-      .from("orders")
-      .select("id, order_number, total_price, payment_method, status, job_type, branch_id, rider_name, menu, created_at, start_time, end_time, is_archived")
-      .not("is_deleted", "eq", true) 
-      .order("created_at", { ascending: false })
-      .limit(5000); 
+    // 🌟 แล้วแทนที่ด้วยโค้ดชุดนี้ เพื่อทยอยดึงข้อมูลทั้งหมดโดยไม่ติด Limit 5000
+    const allOrderData: OrderData[] = [];
+    let keepFetchingOrders = true;
+    let orderOffset = 0;
+    const orderLimit = 1000; // ทยอยดึงทีละ 1000 ตามมาตรฐาน Supabase
 
-    if (orderData) {
-      setOrders(orderData as OrderData[]);
+    while (keepFetchingOrders) {
+      const { data: orderData, error } = await supabase
+        .from("orders")
+        .select("id, order_number, total_price, payment_method, status, job_type, branch_id, rider_name, menu, created_at, start_time, end_time, is_archived")
+        .not("is_deleted", "eq", true) 
+        .order("created_at", { ascending: false })
+        .range(orderOffset, orderOffset + orderLimit - 1);
+
+      if (error || !orderData || orderData.length === 0) {
+        keepFetchingOrders = false;
+      } else {
+        allOrderData.push(...(orderData as OrderData[]));
+        if (orderData.length < orderLimit) {
+          keepFetchingOrders = false; // ถ้าดึงมาได้ไม่ถึง 1000 แปลว่าหมดฐานข้อมูลแล้ว
+        } else {
+          orderOffset += orderLimit; // เพิ่มออฟเซ็ตเพื่อไปดึงรอบต่อไป
+        }
+      }
     }
+
+    setOrders(allOrderData); // เซ็ตข้อมูลทั้งหมดลง State
 
     if (!isBackgroundSync) setLoading(false);
     if (isManualRefresh) {
