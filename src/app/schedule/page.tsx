@@ -1,9 +1,10 @@
 'use client'
 import React, { useState, useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { 
   Calendar as CalendarIcon, Edit, Trash2, Plus, Loader2, X, 
-  ChevronLeft, ChevronRight, Clock, Copy, ShieldCheck, AlertTriangle, Info, Wand2, Users, Check, Search, MapPin, CalendarRange, Settings
+  ChevronLeft, ChevronRight, Clock, Copy, ShieldCheck, AlertTriangle, Info, Wand2, Users, Check, Search, MapPin, CalendarRange, Settings,ArrowLeft
 } from "lucide-react";
 
 // --- 🌟 Interfaces ---
@@ -79,7 +80,9 @@ const getLocalFormattedDate = (year: number, month: number, day: number): string
   return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 };
 
+
 export default function SchedulePage() {
+  const router = useRouter();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -546,10 +549,21 @@ export default function SchedulePage() {
       
       {/* --- Header --- */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-top-4 duration-300">
-        <h1 className="text-2xl font-black flex items-center gap-3 text-slate-800">
-          <div className="p-3 bg-blue-100 text-blue-600 rounded-2xl"><CalendarIcon size={24} /></div>
-          {pageTitle}
-        </h1>
+        <div className="flex items-center gap-3">
+          {/* 🌟 ปุ่มย้อนกลับ */}
+          <button 
+            onClick={() => router.back()} 
+            className="p-2.5 hover:bg-slate-100 rounded-2xl transition-colors text-slate-500 bg-white shadow-sm border border-slate-200 cursor-pointer active:scale-95 shrink-0"
+            title="ย้อนกลับ"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <h1 className="text-2xl font-black flex items-center gap-3 text-slate-800">
+            <div className="p-3 bg-blue-100 text-blue-600 rounded-2xl"><CalendarIcon size={24} /></div>
+            {pageTitle}
+          </h1>
+        </div>
+
         <div className="flex items-center gap-2 md:gap-4 w-full md:w-auto">
           <button onClick={handlePrevMonth} className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-all cursor-pointer"><ChevronLeft size={20}/></button>
           <div className="text-lg font-bold text-slate-700 min-w-[150px] text-center">{monthNames[currentDate.getMonth()]} {currentDate.getFullYear() + 543}</div>
