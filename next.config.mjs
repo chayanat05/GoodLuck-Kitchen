@@ -11,6 +11,7 @@ const withPWA = withPWAInit({
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
+    unoptimized: true, // 🌟 1. เพิ่มบรรทัดนี้เพื่อปิดการคำนวณโควต้ารูปภาพของ Vercel
     remotePatterns: [
       {
         protocol: 'https',
@@ -18,10 +19,15 @@ const nextConfig = {
         port: '',
         pathname: '/**',
       },
+      // 🌟 2. (เผื่อไว้) ถ้าคุณย้ายไป R2 เมื่อไหร่ ให้มาเพิ่ม hostname ของ R2 ต่อท้ายตรงนี้ด้วยครับ
+      // {
+      //   protocol: 'https',
+      //   hostname: 'pub-xxxxxxxxxxxxxx.r2.dev',
+      // },
     ],
   },
   
-  // 🌟 เพิ่มส่วนนี้เข้าไปเพื่อแก้ปัญหา CSP บล็อก eval() ในโหมด Dev
+  // 🌟 ส่วนนี้คือแก้ปัญหา CSP บล็อก eval() ในโหมด Dev ของคุณ (คงไว้เหมือนเดิม)
   async headers() {
     return [
       {
@@ -29,7 +35,6 @@ const nextConfig = {
         headers: [
           {
             key: 'Content-Security-Policy',
-            // อนุญาต eval(), inline script และการดึงข้อมูลจากภายนอก (Google Maps, Supabase)
             value: "script-src 'self' 'unsafe-eval' 'unsafe-inline' https: http: wss:; worker-src 'self' blob:;"
           }
         ],
