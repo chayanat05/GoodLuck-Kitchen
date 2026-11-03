@@ -20,10 +20,10 @@ const nextConfig = {
         pathname: '/**',
       },
       // 🌟 2. (เผื่อไว้) ถ้าคุณย้ายไป R2 เมื่อไหร่ ให้มาเพิ่ม hostname ของ R2 ต่อท้ายตรงนี้ด้วยครับ
-      // {
-      //   protocol: 'https',
-      //   hostname: 'pub-xxxxxxxxxxxxxx.r2.dev',
-      // },
+        {
+          protocol: 'https',
+          hostname: 'pub-acb001788b1a451db956bd7b2db9aa6b.r2.dev',
+        },
     ],
   },
   

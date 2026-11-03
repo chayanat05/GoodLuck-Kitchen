@@ -72,6 +72,13 @@ const getAutoGasAllowance = (orders: number): number => {
   return 50; 
 };
 
+const getBusinessDate = (bizTime: string): string => {
+  const [h, m] = bizTime.split(':').map(Number);
+  const thaiNow = Date.now() + 7 * 60 * 60 * 1000; // เลื่อนให้ฟิลด์ UTC เท่ากับเวลาไทย
+  const shifted = new Date(thaiNow - (h * 60 + (m || 0)) * 60 * 1000);
+  return shifted.toISOString().split('T')[0];
+};
+
 export default function PayrollPage() {
   const router = useRouter();
   const [, setCurrentUser] = useState<SupabaseUser | null>(null);
@@ -80,9 +87,7 @@ export default function PayrollPage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   
-  const [selectedDate, setSelectedDate] = useState<string>(() => {
-    return new Date().toISOString().split('T')[0];
-  });
+  const [selectedDate, setSelectedDate] = useState<string>("");
 
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
 
@@ -254,11 +259,21 @@ export default function PayrollPage() {
   }, [router, showToast]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchRecords(selectedDate);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [selectedDate, fetchRecords]);
+  const initDate = async () => {
+    const { data: settings } = await supabase
+      .from('store_settings').select('business_day_start').eq('id', 1).single();
+    setSelectedDate(getBusinessDate(settings?.business_day_start || '07:00'));
+  };
+  initDate();
+}, []);
+
+useEffect(() => {
+  if (!selectedDate) return; // 🌟 รอวันที่ก่อน
+  const timer = setTimeout(() => {
+    fetchRecords(selectedDate);
+  }, 0);
+  return () => clearTimeout(timer);
+}, [selectedDate, fetchRecords]);
 
   const calculatedTotal = useMemo(() => {
     if (!editingRecord) return 0;
@@ -383,7 +398,7 @@ export default function PayrollPage() {
       .from('rider_attendance')
       .update(updateData)
       .eq('id', editingRecord.id)
-      .select('*, profiles(username, role)')
+      .select('*, profiles(username, role, hourly_rate, default_savings)')
       .single();
 
     setIsSaving(false);
@@ -961,7 +976,7 @@ export default function PayrollPage() {
               // 🌟 เปลี่ยนบรรทัด displaySavings ตรงนี้
               const displaySavings = (isPaid || record.total_pay > 0) 
                 ? (record.accumulated_savings || 0) 
-                : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? 50 : record.accumulated_savings);
+                : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? (record.profiles?.default_savings ?? 50) : record.accumulated_savings);
 
               const calculatedDisplayTotal = Math.max(0, displayBasePay + (showOrderAndGas ? displayGas : 0) + (record.diligence_bonus || 0) - displaySavings);
 
@@ -1026,11 +1041,19 @@ export default function PayrollPage() {
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <div className="text-2xl font-black text-emerald-600 tracking-tighter">
-                        ฿{Math.round(displayTotal).toLocaleString()}
-                      </div>
-                      <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">ยอดจ่ายรายวัน</div>
-                    </div>
+  <div className="text-2xl font-black text-emerald-600 tracking-tighter">
+    ฿{Math.round(displayTotal).toLocaleString()}
+  </div>
+  <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">ยอดจ่ายรายวัน</div>
+  <div className="text-[11px] font-bold text-slate-500 mt-0.5">
+    {new Date(record.check_in).toLocaleDateString('th-TH', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'Asia/Bangkok'
+    })}
+  </div>
+</div>
                   </div>
 
                   {/* 🌟 แสดงเวลาและรูปตอกบัตร */}

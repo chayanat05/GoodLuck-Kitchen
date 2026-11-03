@@ -34,6 +34,33 @@ interface EmployeeProfile {
   custom_order_limit?: number | null;
 }
 
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+
+interface TimeInput24Props {
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+}
+
+const TimeInput24 = ({ value, onChange, className = '' }: TimeInput24Props) => {
+  // ค่าจากฐานข้อมูลอาจมาเป็น "12:00:00" จึงตัดเอาแค่ HH:MM
+  const [h, m] = (value || '00:00').slice(0, 5).split(':');
+  const selectClass = 'flex-1 bg-transparent outline-none cursor-pointer text-center font-black';
+
+  return (
+    <div className={`flex items-center gap-1 ${className}`}>
+      <select value={h} onChange={(e) => onChange(`${e.target.value}:${m}`)} className={selectClass}>
+        {HOURS.map((x) => <option key={x} value={x}>{x}</option>)}
+      </select>
+      <span className="font-black">:</span>
+      <select value={m} onChange={(e) => onChange(`${h}:${e.target.value}`)} className={selectClass}>
+        {MINUTES.map((x) => <option key={x} value={x}>{x}</option>)}
+      </select>
+      <span className="text-xs font-bold opacity-60 shrink-0">น.</span>
+    </div>
+  );
+};
 export default function SettingPage() {
   const router = useRouter();
   const [, setCurrentUser] = useState<SupabaseUser | null>(null);
@@ -273,7 +300,7 @@ export default function SettingPage() {
       shift2_start: shift2Start,
       shift2_end: shift2End,
       business_day_start: businessDayStart,
-      cut_off_hour: parseInt(businessDayStart.split(':')[0]) || 4 
+      cut_off_hour: Number.isNaN(parseInt(businessDayStart.split(':')[0])) ? 4 : parseInt(businessDayStart.split(':')[0]) 
     }).eq('id', 1);
     
     setIsSavingTime(false);
@@ -550,12 +577,11 @@ export default function SettingPage() {
                     <label className="block text-xs font-black text-indigo-800 mb-2 uppercase tracking-wide">
                       🌅 เวลาเริ่มวันใหม่ของร้าน (Business Day Start)
                     </label>
-                    <input 
-                      type="time" 
-                      value={businessDayStart}
-                      onChange={(e) => setBusinessDayStart(e.target.value)}
-                      className="w-full bg-white border border-indigo-200 p-3 rounded-xl text-lg outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-black text-indigo-700 shadow-sm cursor-pointer"
-                    />
+                    <TimeInput24
+  value={businessDayStart}
+  onChange={setBusinessDayStart}
+  className="w-full bg-white border border-indigo-200 p-3 rounded-xl text-lg text-indigo-700 shadow-sm"
+/>
                     <p className="text-[10px] text-indigo-500 font-bold mt-2 leading-relaxed">
                       * สำคัญมาก: ยอดขายและการเข้างานหลังเที่ยงคืน จนถึงเวลานี้ จะถูกนับรวมเป็นสถิติของ &quot;เมื่อวาน&quot; อัตโนมัติ (เช่น ตั้ง 07:00 บิลตอนตี 3 จะอยู่ในยอดของเมื่อวาน)
                     </p>
@@ -564,42 +590,38 @@ export default function SettingPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">☀️ กะเช้า (เวลาเริ่ม)</label>
-                      <input 
-                        type="time" 
-                        value={shift1Start}
-                        onChange={(e) => setShift1Start(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-black text-slate-700 cursor-pointer"
-                      />
+                      <TimeInput24
+  value={shift1Start}
+  onChange={setShift1Start}
+  className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm text-slate-700"
+/>
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">กะเช้า (สิ้นสุด)</label>
-                      <input 
-                        type="time" 
-                        value={shift1End}
-                        onChange={(e) => setShift1End(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-black text-slate-700 cursor-pointer"
-                      />
+                      <TimeInput24
+  value={shift1End}
+  onChange={setShift1End}
+  className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm text-slate-700"
+/>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-5">
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">🌙 กะดึก (เวลาเริ่ม)</label>
-                      <input 
-                        type="time" 
-                        value={shift2Start}
-                        onChange={(e) => setShift2Start(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-black text-slate-700 cursor-pointer"
-                      />
+                      <TimeInput24
+  value={shift2Start}
+  onChange={setShift2Start}
+  className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm text-slate-700"
+/>
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 mb-1.5 uppercase tracking-wide">กะดึก (สิ้นสุดข้ามคืน)</label>
-                      <input 
-                        type="time" 
-                        value={shift2End}
-                        onChange={(e) => setShift2End(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-black text-slate-700 cursor-pointer"
-                      />
+                      <TimeInput24
+  value={shift2End}
+  onChange={setShift2End}
+  className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-sm text-slate-700"
+/>
                     </div>
                   </div>
                 </div>
