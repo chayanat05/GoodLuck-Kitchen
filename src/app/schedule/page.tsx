@@ -82,6 +82,7 @@ export default function SchedulePage() {
   const [globalBranch, setGlobalBranch] = useState("all");
   const [filterRole, setFilterRole] = useState("all");
   const [view, setView] = useState<'calendar' | 'list'>('calendar');
+  const [calDetail, setCalDetail] = useState(true); // ปฏิทิน: true = แสดงรายชื่อ (ค่าเริ่มต้น), false = สรุปจำนวน
   const [currentDate, setCurrentDate] = useState(new Date());
 
   const [multiMode, setMultiMode] = useState(false);
@@ -138,7 +139,13 @@ export default function SchedulePage() {
       finally { setIsSettingsLoaded(true); }
     })();
     if (typeof window !== 'undefined' && window.innerWidth < 768) setView('list');
+    try { if (localStorage.getItem('schedule_cal_detail') === '0') setCalDetail(false); } catch { /* ignore */ }
   }, []);
+
+  const changeCalDetail = (on: boolean) => {
+    setCalDetail(on);
+    try { localStorage.setItem('schedule_cal_detail', on ? '1' : '0'); } catch { /* ignore */ }
+  };
 
   useEffect(() => {
     if (!isSettingsLoaded) return;
@@ -220,6 +227,37 @@ export default function SchedulePage() {
     const out = [...counts.entries()].sort((a, b) => a[0] - b[0]).map(([i, n]) => ({ key: `g${i}`, label: `${i >= 0 ? shiftPresets[i].name : 'พิเศษ'} ${n}`, cls: pal(i).chip }));
     if (off) out.push({ key: 'off', label: `ลา/หยุด ${off}`, cls: 'bg-slate-100 text-slate-500' });
     return out;
+  };
+
+  // มุมมองรายชื่อในช่องปฏิทิน: จัดกลุ่มตามกะ + แยกคนลา/หยุดไว้ท้าย
+  const dayDetail = (list: Schedule[]) => {
+    const byRole = (a: Schedule, b: Schedule) => (a.profiles?.role || '').localeCompare(b.profiles?.role || '');
+    const working = list.filter(s => s.status === 'ทำงาน');
+    const off = list.filter(s => s.status !== 'ทำงาน');
+    return (
+      <div className="flex flex-col gap-1 w-full">
+        {groupByShift(working).map(([i, items]) => (
+          <div key={i} className={`rounded px-1 md:px-1.5 py-0.5 ${pal(i).chip}`}>
+            <p className="text-[9px] md:text-[11px] font-bold opacity-75 truncate">{i >= 0 ? shiftPresets[i].name : 'พิเศษ'} · {items.length}</p>
+            {[...items].sort(byRole).map(s => (
+              <p key={s.id} className="text-[10px] md:text-xs leading-tight truncate" title={`${s.profiles?.username || ''} ${hm(s.start_time)}–${hm(s.end_time)}`}>
+                {s.profiles?.username || 'พนักงาน'}
+              </p>
+            ))}
+          </div>
+        ))}
+        {off.length > 0 && (
+          <div className="rounded px-1 md:px-1.5 py-0.5 bg-slate-100 text-slate-500">
+            <p className="text-[9px] md:text-[11px] font-bold truncate">ลา/หยุด · {off.length}</p>
+            {off.map(s => (
+              <p key={s.id} className="text-[10px] md:text-xs leading-tight truncate line-through decoration-slate-400" title={s.status}>
+                {s.profiles?.username || 'พนักงาน'}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   };
 
   const calendarDays = useMemo(() => {
@@ -582,6 +620,12 @@ export default function SchedulePage() {
             <button onClick={() => setView('calendar')} className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 cursor-pointer ${view === 'calendar' ? 'bg-white text-slate-800 font-semibold shadow-sm' : 'text-slate-500'}`}><LayoutGrid size={15} />ปฏิทิน</button>
             <button onClick={() => setView('list')} className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 cursor-pointer ${view === 'list' ? 'bg-white text-slate-800 font-semibold shadow-sm' : 'text-slate-500'}`}><List size={15} />รายการ</button>
           </div>
+          {isAdmin && view === 'calendar' && (
+            <div className="flex rounded-xl bg-slate-100 p-1">
+              <button onClick={() => changeCalDetail(false)} aria-pressed={!calDetail} className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 cursor-pointer ${!calDetail ? 'bg-white text-slate-800 font-semibold shadow-sm' : 'text-slate-500'}`}><CheckSquare size={15} />สรุป</button>
+              <button onClick={() => changeCalDetail(true)} aria-pressed={calDetail} className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 cursor-pointer ${calDetail ? 'bg-white text-slate-800 font-semibold shadow-sm' : 'text-slate-500'}`}><Users size={15} />รายชื่อ</button>
+            </div>
+          )}
         </div>
         {isAdmin && (
           <div className="flex flex-wrap items-center gap-2">
@@ -607,20 +651,23 @@ export default function SchedulePage() {
           <div className="grid grid-cols-7 bg-slate-50 border-b border-slate-200">
             {DAYS.map((d, i) => <div key={i} className={`py-2.5 text-center text-xs md:text-sm font-semibold ${i === 0 || i === 6 ? 'text-rose-500' : 'text-slate-500'}`}>{d}</div>)}
           </div>
-          <div className="grid grid-cols-7 auto-rows-[84px] md:auto-rows-[120px]">
+          <div className={`grid grid-cols-7 ${isAdmin && calDetail ? 'auto-rows-[minmax(84px,auto)] md:auto-rows-[minmax(120px,auto)]' : 'auto-rows-[84px] md:auto-rows-[120px]'}`}>
             {calendarDays.map((dateStr, idx) => {
               if (!dateStr) return <div key={`e${idx}`} className="border-b border-r border-slate-100 bg-slate-50/40" />;
               const list = byDate[dateStr] || [];
               const chips = dayChips(list);
               const isToday = dateStr === todayStr, isSel = selectedDays.includes(dateStr);
+              const detail = isAdmin && calDetail;
               return (
                 <button key={dateStr} onClick={() => handleDayClick(dateStr)}
-                  className={`border-b border-r border-slate-100 p-1 md:p-2 text-left flex flex-col gap-1 overflow-hidden cursor-pointer transition ${isSel ? 'bg-violet-50 ring-2 ring-inset ring-violet-400' : 'hover:bg-blue-50/50'}`}>
+                  className={`border-b border-r border-slate-100 p-1 md:p-2 text-left flex flex-col gap-1 min-w-0 cursor-pointer transition ${detail ? '' : 'overflow-hidden'} ${isSel ? 'bg-violet-50 ring-2 ring-inset ring-violet-400' : 'hover:bg-blue-50/50'}`}>
                   <span className={`self-start text-xs md:text-sm font-semibold w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded-full ${isToday ? 'bg-blue-600 text-white' : 'text-slate-600'}`}>{parseInt(dateStr.split('-')[2])}</span>
-                  <div className="flex flex-col gap-0.5 w-full">
-                    {chips.slice(0, 3).map(c => <span key={c.key} className={`truncate px-1.5 py-0.5 rounded text-[10px] md:text-xs font-medium ${c.cls}`}>{c.label}</span>)}
-                    {chips.length > 3 && <span className="text-[10px] text-slate-400 px-1">+{chips.length - 3}</span>}
-                  </div>
+                  {detail ? dayDetail(list) : (
+                    <div className="flex flex-col gap-0.5 w-full">
+                      {chips.slice(0, 3).map(c => <span key={c.key} className={`truncate px-1.5 py-0.5 rounded text-[10px] md:text-xs font-medium ${c.cls}`}>{c.label}</span>)}
+                      {chips.length > 3 && <span className="text-[10px] text-slate-400 px-1">+{chips.length - 3}</span>}
+                    </div>
+                  )}
                 </button>
               );
             })}
