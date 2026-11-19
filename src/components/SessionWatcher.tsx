@@ -20,8 +20,10 @@ export default function SessionWatcher() {
           pathname === "/" || 
           pathname === "/login" || 
           pathname === "/register" || 
-          pathname === "/forgot-password" || 
-          pathname === "/reset-password";
+          pathname === "/forgot-password" ||
+          pathname === "/reset-password" ||
+          // หน้าใบสมัครงาน เปิดให้คนนอกกรอกได้โดยไม่ต้องล็อกอิน
+          pathname.startsWith("/apply");
         
         if (!isPublicPage) {
           Swal.fire({

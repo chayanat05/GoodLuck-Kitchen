@@ -297,14 +297,20 @@ export default function RiderPage() {
       setRiderName(profile?.username || "ไรเดอร์");
       setCurrentUserRole(profile?.role || "rider");
       
-      const { data: settings } = await supabase.from("store_settings").select("emergency_reveal_contacts").eq("id", 1).single();
-      if (settings) setIsEmergencyMode(settings.emergency_reveal_contacts);
+      const { data: settings } = await supabase.from("store_settings").select("emergency_reveal_contacts, business_day_start").eq("id", 1).single();
+      if (settings) {
+        setIsEmergencyMode(settings.emergency_reveal_contacts);
+        // เวลาเริ่มวันใหม่ใช้ค่ากลางจากหน้าตั้งค่าระบบ (ทุกสาขาอยู่ที่เดียวกัน)
+        const startHour = parseInt(String(settings.business_day_start || "").split(":")[0], 10);
+        if (!Number.isNaN(startHour)) setCutOffHour(startHour);
+      }
 
       const isSuper = profile?.role === 'superadmin' || profile?.role === 'admin';
       
       // 🌟 1. ดักจับพนักงานใหม่ หรือคนที่ถูกแอดมินบล็อกสิทธิ์
       // ถ้า is_approved เป็น false ให้เตะเข้าหน้าบล็อกทันที
-      if (profile?.is_approved === false && !isSuper) {
+      // ไม่มี profile (เช่น บัญชีที่ถูกลบแค่ profile) ก็ต้องบล็อกด้วย
+      if ((!profile || profile.is_approved === false) && !isSuper) {
         setIsCheckingAuth(false);
         setMyBranchId(null); 
         return;
@@ -326,9 +332,8 @@ export default function RiderPage() {
       // 🌟 3. กำหนดสาขาให้ไรเดอร์ (ถ้า branch_id เป็น null แต่ผ่านการอนุมัติแล้ว แปลว่าเห็นทุกสาขา)
       if (profile?.branch_id) {
         setMyBranchId(profile.branch_id);
-        const { data: branchData } = await supabase.from("branches").select("lat, lng, cut_off_hour").eq("id", profile.branch_id).single();
+        const { data: branchData } = await supabase.from("branches").select("lat, lng").eq("id", profile.branch_id).single();
         if (branchData) {
-          setCutOffHour(branchData.cut_off_hour || 4);
           setShopLocation({ lat: branchData.lat, lng: branchData.lng });
         }
       } else {

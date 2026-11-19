@@ -1,189 +1,144 @@
 'use client'
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Lock, AlertCircle, CheckCircle2, Eye, EyeOff, Save } from 'lucide-react';
-import { supabase } from '../../lib/supabase'; 
+import { Lock, ShieldCheck, LinkIcon, ArrowLeft } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { authErrorToThai } from '@/lib/authErrors';
+import { AuthShell, AuthAlert, AuthLoading, PasswordField, SubmitButton } from '@/components/auth/AuthUI';
+
+const MIN_PASSWORD = 6;
 
 export default function ResetPasswordPage() {
-    const router = useRouter();
-    const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
-    
-    const [loading, setLoading] = useState(false);
-    const [errorMsg, setErrorMsg] = useState<string | null>(null);
-    const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const router = useRouter();
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [isSessionActive, setIsSessionActive] = useState(false);
+  const [isChecking, setIsChecking] = useState(true);
 
-    const [showPassword, setShowPassword] = useState(false);
-    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  // ลิงก์ในอีเมลจะสร้าง session ชั่วคราวให้ (event PASSWORD_RECOVERY)
+  useEffect(() => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session && (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
+        setIsSessionActive(true);
+        setIsChecking(false);
+      }
+    });
 
-    // เช็ค Session จากลิงก์ในอีเมล
-    const [isSessionActive, setIsSessionActive] = useState(false);
-    const [isChecking, setIsChecking] = useState(true);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) setIsSessionActive(true);
+      setIsChecking(false);
+    });
 
-    useEffect(() => {
-        const checkSession = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session) setIsSessionActive(true);
-            setIsChecking(false);
-        };
-        checkSession();
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
-        const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
-            if (event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') {
-                setIsSessionActive(true);
-                setIsChecking(false);
-            }
-        });
+  const passwordTooShort = password.length > 0 && password.length < MIN_PASSWORD;
+  const mismatch = confirmPassword.length > 0 && password !== confirmPassword;
 
-        return () => authListener.subscription.unsubscribe();
-    }, []);
+  const handleUpdatePassword = async (e: FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+    if (password.length < MIN_PASSWORD) return setErrorMsg(`รหัสผ่านต้องมีอย่างน้อย ${MIN_PASSWORD} ตัวอักษร`);
+    if (password !== confirmPassword) return setErrorMsg('รหัสผ่านทั้งสองช่องไม่ตรงกัน');
 
-    const handleUpdatePassword = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setErrorMsg(null);
-        setSuccessMsg(null);
+    setLoading(true);
+    const { error } = await supabase.auth.updateUser({ password });
+    setLoading(false);
 
-        if (password !== confirmPassword) {
-            setErrorMsg('รหัสผ่านและการยืนยันรหัสผ่านไม่ตรงกันครับ');
-            return;
-        }
-        if (password.length < 6) {
-            setErrorMsg('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษรครับ');
-            return;
-        }
-
-        setLoading(true);
-
-        try {
-            // อัปเดตรหัสผ่านใหม่
-            const { error: updateError } = await supabase.auth.updateUser({
-                password: password
-            });
-
-            if (updateError) throw updateError;
-
-            setSuccessMsg('เปลี่ยนรหัสผ่านสำเร็จ! กรุณารอสักครู่ ระบบกำลังพากลับไปหน้าล็อกอิน...');
-            setPassword('');
-            setConfirmPassword('');
-            
-            // รอ 3 วิแล้วล็อกเอาท์กันเหนียว + เด้งกลับหน้าล็อกอิน
-            setTimeout(async () => {
-                await supabase.auth.signOut();
-                router.push('/login');
-            }, 3000);
-
-        } catch (err: unknown) {
-            if (err instanceof Error) setErrorMsg(err.message);
-            else setErrorMsg('เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    if (isChecking) {
-        return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-500 font-bold">กำลังตรวจสอบข้อมูล...</div>;
+    if (error) {
+      setErrorMsg(authErrorToThai(error, 'เปลี่ยนรหัสผ่านไม่สำเร็จ'));
+      return;
     }
 
+    setSuccess(true);
+    // ออกจากระบบแล้วให้ล็อกอินใหม่ด้วยรหัสผ่านใหม่
+    setTimeout(async () => {
+      await supabase.auth.signOut();
+      router.replace('/login');
+    }, 2500);
+  };
+
+  if (isChecking) return <AuthLoading text="กำลังตรวจสอบลิงก์..." />;
+
+  const backToLogin = (
+    <Link href="/login" className="inline-flex items-center gap-1.5 font-bold text-slate-700 hover:text-slate-900">
+      <ArrowLeft size={16} /> กลับไปหน้าเข้าสู่ระบบ
+    </Link>
+  );
+
+  if (!isSessionActive) {
     return (
-        <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-green-50 via-white to-blue-100 p-4">
-            <div className="w-full max-w-md bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 p-8 animate-in fade-in zoom-in-95 duration-500 my-8">
-                
-                <div className="text-center mb-8">
-                    <div className="mx-auto w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-4 shadow-inner">
-                        <Lock size={32} />
-                    </div>
-                    <h1 className="text-2xl font-bold text-gray-900 mb-1">ตั้งรหัสผ่านใหม่</h1>
-                    <p className="text-sm text-gray-500">
-                        {isSessionActive 
-                            ? "ยืนยันตัวตนสำเร็จแล้ว กรุณาตั้งรหัสผ่านใหม่" 
-                            : "เซสชั่นหมดอายุ กรุณากดขอลิงก์รีเซ็ตรหัสผ่านใหม่อีกครั้ง"}
-                    </p>
-                </div>
-
-                {errorMsg && (
-                    <div className="mb-6 bg-red-50 text-red-600 p-3 rounded-xl text-sm flex items-start border border-red-100 animate-in slide-in-from-top-2">
-                        <AlertCircle size={16} className="mr-2 mt-0.5 shrink-0" />
-                        <span>{errorMsg}</span>
-                    </div>
-                )}
-                {successMsg && (
-                    <div className="mb-6 bg-green-50 text-green-700 p-3 rounded-xl text-sm flex items-start border border-green-100 animate-in slide-in-from-top-2">
-                        <CheckCircle2 size={16} className="mr-2 mt-0.5 shrink-0" />
-                        <span>{successMsg}</span>
-                    </div>
-                )}
-
-                {isSessionActive ? (
-                    <form onSubmit={handleUpdatePassword} className="space-y-4">
-                        <div className="relative group">
-                            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400 group-focus-within:text-green-500 transition-colors">
-                                <Lock size={18} />
-                            </div>
-                            <input 
-                                type={showPassword ? "text" : "password"} 
-                                required
-                                placeholder="รหัสผ่านใหม่ (อย่างน้อย 6 ตัวอักษร)"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                className="w-full pl-10 pr-12 py-3.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:bg-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all"
-                            />
-                            <button 
-                                type="button"
-                                onClick={() => setShowPassword(!showPassword)}
-                                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600 transition-colors focus:outline-none cursor-pointer"
-                            >
-                                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                            </button>
-                        </div>
-
-                        <div className="relative group">
-                            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400 group-focus-within:text-green-500 transition-colors">
-                                <Lock size={18} />
-                            </div>
-                            <input 
-                                type={showConfirmPassword ? "text" : "password"} 
-                                required
-                                placeholder="ยืนยันรหัสผ่านใหม่อีกครั้ง"
-                                value={confirmPassword}
-                                onChange={(e) => setConfirmPassword(e.target.value)}
-                                className="w-full pl-10 pr-12 py-3.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:bg-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all"
-                            />
-                            <button 
-                                type="button"
-                                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600 transition-colors focus:outline-none cursor-pointer"
-                            >
-                                {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                            </button>
-                        </div>
-
-                        <button 
-                            type="submit" 
-                            disabled={loading || !!successMsg}
-                            className="w-full mt-6 bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-green-200 transition-all active:scale-[0.98] flex justify-center items-center group cursor-pointer"
-                        >
-                            {loading ? 'กำลังบันทึก...' : (
-                            <>
-                                ยืนยันการตั้งรหัสผ่านใหม่
-                                <Save size={18} className="ml-2" />
-                            </>
-                            )}
-                        </button>
-                    </form>
-                ) : (
-                    <div className="text-center mt-6">
-                        <button onClick={() => router.push('/forgot-password')} className="w-full bg-blue-50 text-blue-600 hover:bg-blue-100 font-bold py-3.5 rounded-xl transition-all">
-                            ขอลิงก์รีเซ็ตรหัสผ่านใหม่
-                        </button>
-                    </div>
-                )}
-
-                <div className="mt-8 text-center text-sm text-gray-500">
-                    <button onClick={() => router.push('/login')} className="font-bold text-gray-600 hover:text-gray-800 hover:underline transition-colors flex items-center justify-center w-full cursor-pointer">
-                        กลับไปหน้าเข้าสู่ระบบ
-                    </button>
-                </div>
-            </div>
+      <AuthShell title="ลิงก์หมดอายุ" footer={backToLogin}>
+        <div className="flex flex-col items-center text-center">
+          <div className="w-16 h-16 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mb-4">
+            <LinkIcon size={30} />
+          </div>
+          <p className="text-sm text-slate-600 leading-relaxed">
+            ลิงก์ตั้งรหัสผ่านนี้ใช้ไม่ได้แล้ว (หมดอายุ หรือถูกใช้ไปแล้ว)
+            <br />
+            กรุณาขอลิงก์ใหม่อีกครั้ง
+          </p>
         </div>
+        <Link
+          href="/forgot-password"
+          className="mt-6 w-full h-12 rounded-xl bg-slate-900 text-white font-bold flex items-center justify-center hover:bg-slate-800 transition"
+        >
+          ขอลิงก์ใหม่
+        </Link>
+      </AuthShell>
     );
+  }
+
+  if (success) {
+    return (
+      <AuthShell title="เปลี่ยนรหัสผ่านแล้ว">
+        <div className="flex flex-col items-center text-center">
+          <div className="w-16 h-16 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center mb-4">
+            <ShieldCheck size={32} />
+          </div>
+          <p className="text-sm text-slate-600">กำลังพาไปหน้าเข้าสู่ระบบ ให้ล็อกอินด้วยรหัสผ่านใหม่</p>
+        </div>
+      </AuthShell>
+    );
+  }
+
+  return (
+    <AuthShell title="ตั้งรหัสผ่านใหม่" subtitle="ยืนยันตัวตนแล้ว ตั้งรหัสผ่านใหม่ที่จำได้ง่ายแต่คนอื่นเดายาก" footer={backToLogin}>
+      {errorMsg && <AuthAlert type="error">{errorMsg}</AuthAlert>}
+      <form onSubmit={handleUpdatePassword} className="space-y-4">
+        <PasswordField
+          label="รหัสผ่านใหม่"
+          icon={Lock}
+          required
+          minLength={MIN_PASSWORD}
+          autoComplete="new-password"
+          placeholder={`อย่างน้อย ${MIN_PASSWORD} ตัวอักษร`}
+          invalid={passwordTooShort}
+          hint={passwordTooShort ? `อีก ${MIN_PASSWORD - password.length} ตัวอักษร` : undefined}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <PasswordField
+          label="ยืนยันรหัสผ่านใหม่"
+          icon={Lock}
+          required
+          autoComplete="new-password"
+          placeholder="พิมพ์รหัสผ่านอีกครั้ง"
+          invalid={mismatch}
+          hint={mismatch ? 'รหัสผ่านไม่ตรงกัน' : undefined}
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+        />
+        <div className="pt-2">
+          <SubmitButton loading={loading} loadingText="กำลังบันทึก..." disabled={mismatch || passwordTooShort}>
+            บันทึกรหัสผ่านใหม่
+          </SubmitButton>
+        </div>
+      </form>
+    </AuthShell>
+  );
 }

@@ -35,13 +35,18 @@ export default function CashClearancePage({ params }: { params: Promise<{ board_
   const [branchId, setBranchId] = useState<string | null>(null);
 
   const fetchOrders = useCallback(async () => {
-    const { data: branchData } = await supabase.from("branches").select("id, cut_off_hour").eq("slug", branchSlug).single();
+    const [{ data: branchData }, { data: settings }] = await Promise.all([
+      supabase.from("branches").select("id").eq("slug", branchSlug).single(),
+      supabase.from("store_settings").select("business_day_start").eq("id", 1).single(),
+    ]);
     if (!branchData) return;
     setBranchId(branchData.id);
 
     const now = new Date();
     const shiftStart = new Date(now);
-    const cutOff = branchData.cut_off_hour || 4; 
+    // เวลาเริ่มวันใหม่ใช้ค่ากลางจากหน้าตั้งค่าระบบ (ค่าเริ่มต้น 07:00 เหมือนหน้าบอร์ด)
+    const parsedHour = parseInt(String(settings?.business_day_start || "07:00").split(":")[0], 10);
+    const cutOff = Number.isNaN(parsedHour) ? 7 : parsedHour;
     if (now.getHours() < cutOff) { shiftStart.setDate(shiftStart.getDate() - 1); }
     shiftStart.setHours(cutOff, 0, 0, 0);
 

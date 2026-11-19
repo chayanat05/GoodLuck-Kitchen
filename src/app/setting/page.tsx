@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { 
-  ArrowLeft, PaintBucket, Image as ImageIcon, Trash2, MoonStar, Settings, CheckCircle2, ChevronRight, AlertTriangle, Palette, ImagePlus, Maximize, Minimize, LayoutGrid, Clock, UserCheck, Loader2
+  ArrowLeft, PaintBucket, Image as ImageIcon, Trash2, MoonStar, Settings, CheckCircle2, ChevronRight, AlertTriangle, Palette, ImagePlus, Maximize, Minimize, LayoutGrid, Clock, UserCheck
 } from 'lucide-react';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 
@@ -17,7 +17,7 @@ const COLORS = [
   '#faf4ed', '#f5eae1', '#eaddcf', '#e4d4c8', '#d6d3d1', '#a8a29e', '#57534e', '#292524'
 ];
 
-type SettingView = 'menu' | 'theme' | 'store' | 'cutoff' | 'access';
+type SettingView = 'menu' | 'theme' | 'store' | 'cutoff';
 type BgOption = 'cover' | 'contain' | 'repeat';
 
 interface Branch {
@@ -29,8 +29,6 @@ interface EmployeeProfile {
   id: string;
   username: string;
   role: string;
-  branch_id: string | null;
-  is_approved: boolean; // 🌟 เพิ่มฟิลด์สถานะอนุมัติ
   custom_order_limit?: number | null;
 }
 
@@ -92,9 +90,9 @@ export default function SettingPage() {
   const [clearTarget, setClearTarget] = useState("ALL");
   const [isClearing, setIsClearing] = useState(false);
 
-  // 🌟 State สำหรับจัดการสิทธิ์สาขา
+  // รายชื่อไรเดอร์สำหรับตั้งค่าจำกัดงานรายบุคคล
+  // (การเปิด/ปิดใช้งานและการเห็นสาขา ย้ายไปจัดการที่หน้า /users ที่เดียว)
   const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
-  const [isSavingAccess, setIsSavingAccess] = useState<string | null>(null);
   
   // 🌟 State สำหรับ Confirm Dialog กลางจอ
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -166,16 +164,14 @@ export default function SettingPage() {
     return () => { isMounted = false; };
   }, [selectedBranchId]);
 
-  // 🌟 ดึงข้อมูลพนักงานเมื่อเข้าหน้าตั้งค่าสิทธิ์
-  // 🌟 ดึงข้อมูลพนักงานเมื่อเข้าหน้าตั้งค่าสิทธิ์ หรือ หน้าตั้งค่าไรเดอร์
+  // ดึงรายชื่อไรเดอร์เมื่อเข้าหน้าตั้งค่าไรเดอร์
   useEffect(() => {
-    if (activeView === 'access' || activeView === 'store') {
+    if (activeView === 'store') {
       const fetchEmployees = async () => {
         const { data } = await supabase
           .from('profiles')
-          .select('id, username, role, branch_id, is_approved, custom_order_limit') // 🌟 ดึงฟิลด์ใหม่มา
-          .not('role', 'eq', 'superadmin')
-          .order('role', { ascending: true })
+          .select('id, username, role, custom_order_limit')
+          .eq('role', 'rider')
           .order('username', { ascending: true });
         
         if (data) setEmployees(data);
@@ -184,23 +180,19 @@ export default function SettingPage() {
     }
   }, [activeView]);
 
-  const saveThemeToDB = async (color: string, image: string | null, option: BgOption) => {
-    if (selectedBranchId === 'ALL') {
-      const promises = branches.map(b => 
-        supabase.from('branches').update({ 
-          theme_bg_color: color, 
-          theme_bg_image: image, 
-          theme_bg_option: option 
-        }).eq('id', b.id)
-      );
-      await Promise.all(promises);
-    } else {
-      await supabase.from('branches').update({ 
-        theme_bg_color: color, 
-        theme_bg_image: image, 
-        theme_bg_option: option 
-      }).eq('id', selectedBranchId);
+  // คืนค่า true เมื่อบันทึกสำเร็จทุกสาขา (Supabase ไม่ throw เวลา error ต้องเช็คเอง)
+  const saveThemeToDB = async (color: string, image: string | null, option: BgOption): Promise<boolean> => {
+    const payload = { theme_bg_color: color, theme_bg_image: image, theme_bg_option: option };
+    const targetIds = selectedBranchId === 'ALL' ? branches.map(b => b.id) : [selectedBranchId];
+    const results = await Promise.all(
+      targetIds.map(id => supabase.from('branches').update(payload).eq('id', id))
+    );
+    const failed = results.find(r => r.error);
+    if (failed?.error) {
+      console.error(failed.error);
+      return false;
     }
+    return true;
   };
 
   const processImageFile = async (file: File) => {
@@ -210,14 +202,13 @@ export default function SettingPage() {
     }
     const reader = new FileReader();
     reader.onloadend = async () => {
-      try {
-        const base64String = reader.result as string;
+      const base64String = reader.result as string;
+      const ok = await saveThemeToDB(bgColor, base64String, bgOption);
+      if (ok) {
         setBgImage(base64String);
-        await saveThemeToDB(bgColor, base64String, bgOption);
         showToast('อัปโหลดรูปพื้นหลังสำเร็จ!');
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      } catch (err) {
-        showToast('รูปภาพมีขนาดใหญ่เกินไป กรุณาใช้รูปที่มีขนาดเล็กลงครับ', 'error');
+      } else {
+        showToast('บันทึกรูปไม่สำเร็จ (รูปอาจใหญ่เกินไป) กรุณาลองรูปที่เล็กลงครับ', 'error');
       }
     };
     reader.readAsDataURL(file);
@@ -252,40 +243,45 @@ export default function SettingPage() {
 
   const handleColorSelect = async (color: string) => {
     setBgColor(color);
-    setBgImage(null); 
-    await saveThemeToDB(color, null, bgOption);
-    showToast('เปลี่ยนสีพื้นหลังสำเร็จ!');
+    setBgImage(null);
+    const ok = await saveThemeToDB(color, null, bgOption);
+    showToast(ok ? 'เปลี่ยนสีพื้นหลังสำเร็จ!' : 'บันทึกสีพื้นหลังไม่สำเร็จ', ok ? 'success' : 'error');
   };
 
   const handleRemoveImage = async () => {
     setBgImage(null);
-    await saveThemeToDB(bgColor, null, bgOption);
-    showToast('ลบรูปพื้นหลังสำเร็จ!');
+    const ok = await saveThemeToDB(bgColor, null, bgOption);
+    showToast(ok ? 'ลบรูปพื้นหลังสำเร็จ!' : 'ลบรูปพื้นหลังไม่สำเร็จ', ok ? 'success' : 'error');
   };
 
   const handleBgOptionSelect = async (option: BgOption) => {
     setBgOption(option);
-    await saveThemeToDB(bgColor, bgImage, option);
-    showToast('เปลี่ยนรูปแบบการจัดวางสำเร็จ!');
+    const ok = await saveThemeToDB(bgColor, bgImage, option);
+    showToast(ok ? 'เปลี่ยนรูปแบบการจัดวางสำเร็จ!' : 'บันทึกรูปแบบการจัดวางไม่สำเร็จ', ok ? 'success' : 'error');
   };
 
   const handleSaveRiderLimit = async () => {
+    // กันค่าว่าง/0/เกินช่วง ซึ่งจะทำให้ไรเดอร์รับงานไม่ได้
+    if (!Number.isInteger(riderOrderLimit) || riderOrderLimit < 1 || riderOrderLimit > 20) {
+      showToast('ค่าเริ่มต้นต้องเป็นตัวเลข 1 - 20 บิล', 'error');
+      return;
+    }
+
     setIsSavingLimit(true);
     // 1. เซฟค่าเริ่มต้นสำหรับทุกคน
     const { error: globalError } = await supabase.from('store_settings').update({ rider_order_limit: riderOrderLimit }).eq('id', 1);
-    
+
     // 2. เซฟค่าจำกัดรายบุคคล (อัปเดตเฉพาะไรเดอร์)
-    const riderUpdates = employees
-      .filter(emp => emp.role === 'rider')
-      .map(emp => 
-        supabase.from('profiles').update({ custom_order_limit: emp.custom_order_limit }).eq('id', emp.id)
-      );
-    
-    await Promise.all(riderUpdates);
+    const riderResults = await Promise.all(
+      employees
+        .filter(emp => emp.role === 'rider')
+        .map(emp => supabase.from('profiles').update({ custom_order_limit: emp.custom_order_limit }).eq('id', emp.id))
+    );
+    const riderError = riderResults.find(r => r.error)?.error;
 
     setIsSavingLimit(false);
-    if (globalError) {
-      console.error(globalError);
+    if (globalError || riderError) {
+      console.error(globalError || riderError);
       showToast('เกิดข้อผิดพลาดในการบันทึกข้อมูล', 'error');
     } else {
       showToast('บันทึกจำกัดงานไรเดอร์สำเร็จ!');
@@ -342,36 +338,6 @@ export default function SettingPage() {
     });
   };
 
-  // 🌟 ฟังก์ชันอัปเดตสิทธิ์สาขา (ปรับให้ทำงานร่วมกับ is_approved)
-  const handleUpdateBranchAccess = async (emp: EmployeeProfile, newValue: string) => {
-    setIsSavingAccess(emp.id);
-    
-    let newBranchId: string | null = null;
-    let newIsApproved = true;
-
-    if (newValue === 'BLOCKED') {
-      newBranchId = null;
-      newIsApproved = false; // บล็อก
-    } else if (newValue === 'ALL') {
-      newBranchId = null;
-      newIsApproved = true;  // ให้เห็นทุกสาขา
-    } else {
-      newBranchId = newValue;
-      newIsApproved = true;  // ให้เห็นเฉพาะสาขา
-    }
-
-    const { error } = await supabase.from('profiles').update({ branch_id: newBranchId, is_approved: newIsApproved }).eq('id', emp.id);
-    
-    if (error) {
-      console.error(error);
-      showToast('เกิดข้อผิดพลาดในการอัปเดตสิทธิ์', 'error');
-    } else {
-      setEmployees(prev => prev.map(p => p.id === emp.id ? { ...p, branch_id: newBranchId, is_approved: newIsApproved } : p));
-      showToast('อัปเดตการมองเห็นสาขาเรียบร้อย!');
-    }
-    setIsSavingAccess(null);
-  };
-
   if (loading) return <div className="min-h-screen bg-gray-50 flex justify-center items-center font-bold text-gray-400 animate-pulse">กำลังโหลดข้อมูล...</div>;
 
   return (
@@ -399,7 +365,6 @@ export default function SettingPage() {
               {activeView === 'theme' && <><PaintBucket className="mr-2 text-blue-500" size={24} /> ตั้งค่าธีมสาขา</>}
               {activeView === 'store' && <><MoonStar className="mr-2 text-indigo-500" size={24} /> ตั้งค่าไรเดอร์</>}
               {activeView === 'cutoff' && <><Clock className="mr-2 text-emerald-500" size={24} /> ตั้งเวลาทำการ (Shift)</>}
-              {activeView === 'access' && <><UserCheck className="mr-2 text-fuchsia-500" size={24} /> สิทธิ์การมองเห็นสาขา</>}
             </h1>
           </div>
         </div>
@@ -459,8 +424,9 @@ export default function SettingPage() {
                 <ChevronRight size={24} className="text-slate-300 group-hover:text-emerald-500 transition-colors group-hover:translate-x-1" />
               </button>
 
-              <button 
-                onClick={() => setActiveView('access')}
+              {/* การอนุมัติ/ปิดใช้งาน และการเห็นสาขา ย้ายไปอยู่หน้าจัดการพนักงานที่เดียว */}
+              <button
+                onClick={() => router.push('/users')}
                 className="w-full flex items-center justify-between p-5 bg-white border border-slate-100 hover:border-fuchsia-200 hover:bg-fuchsia-50/50 hover:shadow-md rounded-2xl transition-all cursor-pointer group"
               >
                 <div className="flex items-center gap-4">
@@ -468,8 +434,8 @@ export default function SettingPage() {
                     <UserCheck size={24} className="group-hover:animate-pulse" />
                   </div>
                   <div className="text-left">
-                    <h3 className="font-black text-slate-800 text-lg">สิทธิ์การมองเห็นสาขา</h3>
-                    <p className="text-xs font-medium text-slate-500 mt-0.5">กำหนดว่าพนักงานคนไหนเห็นงานกี่สาขา</p>
+                    <h3 className="font-black text-slate-800 text-lg">อนุมัติพนักงาน / สิทธิ์สาขา</h3>
+                    <p className="text-xs font-medium text-slate-500 mt-0.5">ไปที่หน้าจัดการพนักงาน / สาขา</p>
                   </div>
                 </div>
                 <ChevronRight size={24} className="text-slate-300 group-hover:text-fuchsia-500 transition-colors group-hover:translate-x-1" />
@@ -493,70 +459,6 @@ export default function SettingPage() {
             </div>
           )}
 
-          {/* 🌟 หน้าตั้งค่าสิทธิ์การมองเห็นสาขา */}
-          {activeView === 'access' && (
-            <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-6 py-4">
-              <div className="bg-fuchsia-50/50 rounded-4xl p-6 md:p-8 border border-fuchsia-100 relative overflow-hidden">
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm text-fuchsia-500 shrink-0">
-                    <UserCheck size={32} />
-                  </div>
-                  <div>
-                    <h4 className="font-black text-slate-800 text-xl">สิทธิ์การมองเห็นสาขา</h4>
-                    <p className="text-sm font-medium text-slate-500 mt-1">
-                      กำหนดให้พนักงานเห็นงานทุกสาขา หรือเห็นแค่สาขาเดียว (ถ้าบล็อกจะไม่สามารถเข้าแอปได้)
-                    </p>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-2xl border border-fuchsia-100 shadow-sm overflow-hidden">
-                  <div className="max-h-125 overflow-y-auto thin-scrollbar divide-y divide-slate-100">
-                    {employees.map(emp => {
-                      // 🌟 ตรรกะการแสดงผลสถานะใน Dropdown
-                      const currentValue = !emp.is_approved ? 'BLOCKED' : (emp.branch_id ? emp.branch_id : 'ALL');
-
-                      return (
-                        <div key={emp.id} className="p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-3 hover:bg-slate-50 transition-colors">
-                          <div>
-                            <div className="font-black text-slate-800">{emp.username}</div>
-                            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 flex items-center gap-1.5 mt-1">
-                              <span className={`px-1.5 py-0.5 rounded-md border ${emp.role === 'admin' ? 'bg-purple-50 text-purple-600 border-purple-100' : emp.role === 'kitchen' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
-                                {emp.role}
-                              </span>
-                              {!emp.is_approved && <span className="text-rose-500 animate-pulse">● รอจัดสรร</span>}
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-center gap-2">
-                            <select
-                              value={currentValue}
-                              onChange={(e) => handleUpdateBranchAccess(emp, e.target.value)}
-                              disabled={isSavingAccess === emp.id}
-                              className={`border text-sm font-bold p-2.5 rounded-xl outline-none focus:ring-2 focus:ring-fuchsia-500/20 focus:border-fuchsia-500 cursor-pointer shadow-sm min-w-40 transition-colors
-                                ${!emp.is_approved ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-slate-50 border-slate-200 text-slate-700'}
-                              `}
-                            >
-                              <option value="BLOCKED">🚫 รอจัดสรร (บล็อกการเข้าใช้)</option>
-                              <option value="ALL">🌐 อนุมัติ : เห็นทุกสาขา</option>
-                              {branches.map(b => (
-                                <option key={b.id} value={b.id}>🏠 อนุมัติ : เฉพาะสาขา {b.name}</option>
-                              ))}
-                            </select>
-                            {isSavingAccess === emp.id && <Loader2 size={16} className="text-fuchsia-500 animate-spin" />}
-                          </div>
-                        </div>
-                      )
-                    })}
-                    {employees.length === 0 && (
-                      <div className="p-8 text-center text-slate-400 font-bold">ไม่มีข้อมูลพนักงาน</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* หน้าอื่นๆ ... (ยังคงโค้ดเดิมทั้งหมด) ... */}
           {activeView === 'cutoff' && (
             <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-6 py-4">
               <div className="bg-emerald-50/50 rounded-4xl p-6 md:p-8 border border-emerald-100 relative overflow-hidden">
@@ -661,8 +563,8 @@ export default function SettingPage() {
                     <div className="flex items-center gap-3">
                       <input 
                         type="number" 
-                        min="1" max="20"
-                        value={riderOrderLimit}
+                        min="1" max="20" step="1"
+                        value={riderOrderLimit || ''}
                         onChange={(e) => setRiderOrderLimit(Number(e.target.value))}
                         className="w-24 text-center bg-slate-50 border border-slate-200 p-4 rounded-xl text-xl outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-black text-indigo-600 shadow-inner"
                       />
