@@ -310,7 +310,12 @@ export default function RiderPage() {
       // 🌟 1. ดักจับพนักงานใหม่ หรือคนที่ถูกแอดมินบล็อกสิทธิ์
       // ถ้า is_approved เป็น false ให้เตะเข้าหน้าบล็อกทันที
       // ไม่มี profile (เช่น บัญชีที่ถูกลบแค่ profile) ก็ต้องบล็อกด้วย
-      if ((!profile || profile.is_approved === false) && !isSuper) {
+      // ยังไม่อนุมัติ → หน้า /pending (จะพาเข้าหน้านี้เองเมื่ออนุมัติ)
+      if (profile && profile.is_approved !== true && !isSuper) {
+        window.location.href = "/pending";
+        return;
+      }
+      if (!profile && !isSuper) {
         setIsCheckingAuth(false);
         setMyBranchId(null); 
         return;

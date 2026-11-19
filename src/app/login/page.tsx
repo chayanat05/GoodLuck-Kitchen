@@ -5,38 +5,8 @@ import { useRouter } from 'next/navigation';
 import { User, Lock, ArrowRight } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { authErrorToThai } from '@/lib/authErrors';
+import { resolveHomePath } from '@/lib/homePath';
 import { AuthShell, AuthAlert, AuthLoading, Field, PasswordField, SubmitButton } from '@/components/auth/AuthUI';
-
-type RouteResult = { path: string } | { error: string };
-
-// เลือกหน้าปลายทางตาม role (ใช้ทั้งตอนเปิดแอปที่ล็อกอินค้างไว้ และหลังกดเข้าสู่ระบบ)
-async function resolveHomePath(userId: string): Promise<RouteResult> {
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, branch_id, is_approved')
-    .eq('id', userId)
-    .maybeSingle();
-
-  if (!profile) return { error: 'ไม่พบข้อมูลพนักงานของบัญชีนี้ กรุณาติดต่อแอดมิน' };
-
-  if (profile.role === 'admin' || profile.role === 'superadmin') return { path: '/home' };
-
-  if (profile.role === 'kitchen') {
-    if (profile.is_approved === false) {
-      return { error: 'บัญชีของคุณกำลังรอแอดมินอนุมัติ หรือถูกปิดใช้งานอยู่' };
-    }
-    // ทุกสาขาอยู่ที่เดียวกัน: ถ้าไม่ได้ระบุสาขา ให้เข้าบอร์ดสาขาแรก
-    const branchQuery = supabase.from('branches').select('id, slug');
-    const { data: branch } = profile.branch_id
-      ? await branchQuery.eq('id', profile.branch_id).maybeSingle()
-      : await branchQuery.order('created_at', { ascending: true }).limit(1).maybeSingle();
-    if (!branch) return { error: 'ยังไม่มีสาขาในระบบ กรุณาติดต่อแอดมิน' };
-    return { path: `/board/${branch.slug || branch.id}` };
-  }
-
-  // ไรเดอร์: หน้า /rider จะแสดงหน้ารออนุมัติเองถ้ายังไม่ได้รับอนุมัติ
-  return { path: '/rider' };
-}
 
 export default function LoginPage() {
   const router = useRouter();

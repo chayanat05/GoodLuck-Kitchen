@@ -1,6 +1,7 @@
 'use client'
 import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { User, Mail, Lock, ArrowRight, CheckCircle2, Clock } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { authErrorToThai } from '@/lib/authErrors';
@@ -9,6 +10,7 @@ import { AuthShell, AuthAlert, Field, PasswordField, SubmitButton } from '@/comp
 const MIN_PASSWORD = 6;
 
 export default function RegisterPage() {
+  const router = useRouter();
   const [nickname, setNickname] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -51,10 +53,13 @@ export default function RegisterPage() {
         return;
       }
 
-      const needsEmailConfirm = !data.session;
-      // ไม่ต้องค้าง session ไว้ เพราะยังเข้าใช้งานไม่ได้จนกว่าจะอนุมัติ
-      if (data.session) await supabase.auth.signOut();
-      setDone({ needsEmailConfirm });
+      if (data.session) {
+        // ล็อกอินค้างไว้เลย แล้วไปหน้ารออนุมัติ — พออนุมัติจะเข้าใช้งานได้ทันทีโดยไม่ต้องพิมพ์เข้าสู่ระบบ
+        router.replace('/pending');
+        return;
+      }
+      // Supabase เปิดยืนยันอีเมลอยู่ → ยังไม่มี session ต้องยืนยันอีเมลก่อน
+      setDone({ needsEmailConfirm: true });
     } catch (err) {
       setErrorMsg(authErrorToThai(err as { message?: string }, 'เกิดข้อผิดพลาดในการเชื่อมต่อ'));
     } finally {

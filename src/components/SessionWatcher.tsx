@@ -22,6 +22,8 @@ export default function SessionWatcher() {
           pathname === "/register" || 
           pathname === "/forgot-password" ||
           pathname === "/reset-password" ||
+          // หน้ารออนุมัติ: กดออกจากระบบเองได้ ไม่ต้องเด้งแจ้งเตือนเซสชันหมดอายุ
+          pathname === "/pending" ||
           // หน้าใบสมัครงาน เปิดให้คนนอกกรอกได้โดยไม่ต้องล็อกอิน
           pathname.startsWith("/apply");
         
