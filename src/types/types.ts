@@ -35,4 +35,8 @@ export interface Order {
   is_deleted?: boolean | null;
   deleted_at?: string | null;
   end_time?: string | null;
+
+  // ออเดอร์จากแอปลูกค้า (job_type = 'แอป')
+  customer_id?: string | null;
+  store_id?: string | null;
 }

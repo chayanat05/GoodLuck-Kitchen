@@ -917,6 +917,14 @@ const unlockOrder = (orderId: string) => {
     setExistingImages([]);
     setShowSuggestions(false);
     setIsModalOpen(true);
+
+    // ดึงเลขถัดไปจาก DB (นับรวมออเดอร์จากแอปลูกค้าด้วย) — ถ้าแอดมินยังไม่ได้แก้เลขเอง ให้แทนค่าที่คำนวณในเครื่อง
+    if (currentBranchId) {
+      supabase.rpc("next_order_number", { p_branch_id: currentBranchId }).then(({ data, error }) => {
+        if (error || !data) return;
+        setFormData(prev => (prev.order_number === nextNum ? { ...prev, order_number: String(data) } : prev));
+      });
+    }
   };
 
   const openEditModal = (order: Order & { contact_link?: string; contact_source?: string }) => {
@@ -995,7 +1003,8 @@ const unlockOrder = (orderId: string) => {
     const currentExisting = [...existingImages];
 
     let finalOrderNumber = formData.order_number.trim();
-    if (!finalOrderNumber) {
+    // ออเดอร์ใหม่ที่เว้นเลขว่าง → ส่งว่างไปให้ DB รันเลขเอง (trigger assign_order_number)
+    if (!finalOrderNumber && editingId) {
       const numberedOrders = orders.map(o => {
           const match = String(o.order_number).match(/\d+/);
           return match ? parseInt(match[0], 10) : NaN;
@@ -1048,37 +1057,8 @@ const unlockOrder = (orderId: string) => {
       }
     } else {
       // Logic for creating a new order
-      let finalNumToUse = orderData.order_number;
-      let isDuplicate = true;
-      let attempts = 0;
-
-      while (isDuplicate && attempts < 10) {
-        const { data: existing } = await supabase
-          .from("orders")
-          .select("id, is_deleted, is_archived")
-          .eq("order_number", finalNumToUse)
-          .eq("branch_id", currentBranchId);
-
-        const isExistingActive = existing && existing.some((o: Partial<Order>) => o.is_deleted !== true && o.is_archived !== true);
-
-        if (isExistingActive) {
-          const currentNumMatch = String(finalNumToUse).match(/\d+/);
-          if (currentNumMatch) {
-            const num = parseInt(currentNumMatch[0], 10);
-            finalNumToUse = String(finalNumToUse).replace(/\d+/, (num + 1).toString());
-          } else {
-            finalNumToUse = finalNumToUse + "-copy";
-          }
-          attempts++;
-        } else {
-          isDuplicate = false;
-        }
-      }
-
-      finalOrderNumber = finalNumToUse;
-      orderData.order_number = finalOrderNumber;
-
-      const { data, error } = await supabase.from("orders").insert([{ ...orderData, branch_id: currentBranchId, status: "ออเดอร์ใหม่" }]).select();
+      // DB (trigger assign_order_number) เป็นคนออกเลข: ว่าง = รันอัตโนมัติ, ซ้ำกับออเดอร์บนบอร์ด = เลื่อน +1 ให้
+      const { data, error } = await supabase.from("orders").insert([{ ...orderData, order_number: finalOrderNumber || null, branch_id: currentBranchId, status: "ออเดอร์ใหม่" }]).select();
       
       if (error) {
         console.error("Error inserting order:", error);
@@ -1089,6 +1069,7 @@ const unlockOrder = (orderId: string) => {
       
       if (data && data.length > 0) {
         targetId = data[0].id;
+        finalOrderNumber = data[0].order_number; // เลขจริงที่ DB ออกให้
         setOrders(prev => [data[0] as Order, ...prev]);
         showToast("สร้างออเดอร์สำเร็จ! 🚀");
         
