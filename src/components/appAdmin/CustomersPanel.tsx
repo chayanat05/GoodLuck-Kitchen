@@ -11,7 +11,6 @@ interface Customer {
   is_blocked?: boolean;
   blocked_reason?: string | null;
   blocked_at?: string | null;
-  admin_note?: string | null;
 }
 interface CustomerOrder {
   id: string;
@@ -36,6 +35,8 @@ export default function CustomersPanel({ storeNames }: { storeNames: Record<stri
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
   const [authInfo, setAuthInfo] = useState<AuthInfo>({});
   const [needsMigration, setNeedsMigration] = useState(false);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [notesReady, setNotesReady] = useState(true);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent_order");
   const [onlyBlocked, setOnlyBlocked] = useState(false);
@@ -45,7 +46,7 @@ export default function CustomersPanel({ storeNames }: { storeNames: Record<stri
   const load = useCallback(async () => {
     const full = await supabase
       .from("customers")
-      .select("id, display_name, phone, created_at, is_blocked, blocked_reason, blocked_at, admin_note")
+      .select("id, display_name, phone, created_at, is_blocked, blocked_reason, blocked_at")
       .order("created_at", { ascending: false });
     let rows: Customer[] | null = full.data;
     let err = full.error;
@@ -70,6 +71,14 @@ export default function CustomersPanel({ storeNames }: { storeNames: Record<stri
     const { data: s } = await supabase.auth.getSession();
     const res = await fetch("/api/app-admin/customers", { headers: { Authorization: `Bearer ${s.session?.access_token ?? ""}` } });
     if (res.ok) setAuthInfo((await res.json()).users ?? {});
+
+    // โน้ตภายในเก็บในตารางแยกที่แอดมินเท่านั้นอ่านได้ (migration 20261121b)
+    const { data: n, error: noteErr } = await supabase.from("customer_notes").select("customer_id, note");
+    if (noteErr) setNotesReady(false);
+    else {
+      setNotesReady(true);
+      setNotes(Object.fromEntries((n ?? []).map((r) => [r.customer_id as string, r.note as string])));
+    }
   }, []);
 
   useEffect(() => {
@@ -207,6 +216,9 @@ export default function CustomersPanel({ storeNames }: { storeNames: Record<stri
           orders={orders.filter((o) => o.customer_id === selected.id)}
           storeNames={storeNames}
           canEdit={!needsMigration}
+          note={notes[selected.id] ?? ""}
+          notesReady={notesReady}
+          onNoteSaved={(text) => setNotes((p) => ({ ...p, [selected.id]: text }))}
           onClose={() => setSelectedId(null)}
           onSaved={(c) => setCustomers((p) => p?.map((x) => (x.id === c.id ? { ...x, ...c } : x)) ?? p)}
         />
@@ -221,6 +233,9 @@ function CustomerDrawer({
   orders,
   storeNames,
   canEdit,
+  note,
+  notesReady,
+  onNoteSaved,
   onClose,
   onSaved,
 }: {
@@ -229,13 +244,16 @@ function CustomerDrawer({
   orders: CustomerOrder[];
   storeNames: Record<string, string>;
   canEdit: boolean;
+  note: string;
+  notesReady: boolean;
+  onNoteSaved: (text: string) => void;
   onClose: () => void;
   onSaved: (c: Customer) => void;
 }) {
   const [form, setForm] = useState({
     display_name: customer.display_name ?? "",
     phone: customer.phone ?? "",
-    admin_note: customer.admin_note ?? "",
+    admin_note: note,
     blocked_reason: customer.blocked_reason ?? "",
   });
   const [saving, setSaving] = useState(false);
@@ -303,10 +321,22 @@ function CustomerDrawer({
             <h3 className="text-sm font-black text-slate-700">ข้อมูลลูกค้า</h3>
             <input className={input} disabled={!canEdit} value={form.display_name} maxLength={100} placeholder="ชื่อ" onChange={(e) => setForm({ ...form, display_name: e.target.value })} />
             <input className={input} disabled={!canEdit} value={form.phone} maxLength={20} placeholder="เบอร์โทร" onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-            <textarea className={`${input} resize-none`} disabled={!canEdit} rows={2} value={form.admin_note} maxLength={500} placeholder="โน้ตภายใน (ลูกค้ามองไม่เห็น) เช่น ชอบเผ็ดน้อย / ตึก B" onChange={(e) => setForm({ ...form, admin_note: e.target.value })} />
+            <textarea className={`${input} resize-none`} disabled={!canEdit || !notesReady} rows={2} value={form.admin_note} maxLength={500} placeholder={notesReady ? "โน้ตภายใน (ลูกค้ามองไม่เห็น) เช่น ชอบเผ็ดน้อย / ตึก B" : "โน้ตภายใน: ต้องรัน migration 20261121b ก่อน"} onChange={(e) => setForm({ ...form, admin_note: e.target.value })} />
             <button
               disabled={!canEdit || saving}
-              onClick={() => save({ display_name: form.display_name.trim() || null, phone: form.phone.trim() || null, admin_note: form.admin_note.trim() || null })}
+              onClick={async () => {
+                await save({ display_name: form.display_name.trim() || null, phone: form.phone.trim() || null });
+                if (!notesReady || form.admin_note.trim() === note.trim()) return;
+                const { data: s } = await supabase.auth.getSession();
+                const { error } = await supabase.from("customer_notes").upsert({
+                  customer_id: customer.id,
+                  note: form.admin_note.trim(),
+                  updated_at: new Date().toISOString(),
+                  updated_by: s.session?.user.id ?? null,
+                });
+                if (error) setMsg("บันทึกโน้ตไม่สำเร็จ: " + error.message);
+                else onNoteSaved(form.admin_note.trim());
+              }}
               className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
             >
               {saving ? "กำลังบันทึก..." : "บันทึกข้อมูล"}
