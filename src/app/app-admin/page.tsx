@@ -2,13 +2,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Bike, ChevronLeft, ExternalLink, Loader2, Pencil, Plus, Search, Smartphone, Store, Trash2, Utensils,
+  Bike, ChevronLeft, ExternalLink, Loader2, Pencil, Plus, Search, Smartphone, Store, Trash2, Users, Utensils,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { mediaUrl } from "@/lib/media";
 import { setMenuAvailable, setStoreOpen } from "@/lib/appToggles";
 import Switch from "@/components/appAdmin/Switch";
 import StoreFormModal from "@/components/appAdmin/StoreFormModal";
+import CustomersPanel from "@/components/appAdmin/CustomersPanel";
 import MenuFormModal from "@/components/appAdmin/MenuFormModal";
 import type { AppStore, AppStoreMenu } from "@/types/appStore";
 
@@ -26,6 +27,7 @@ export default function AppAdminPage() {
   const [storeModal, setStoreModal] = useState<{ store: AppStore | null } | null>(null);
   const [menuModal, setMenuModal] = useState<{ menu: AppStoreMenu | null } | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const [tab, setTab] = useState<"stores" | "customers">("stores");
 
   const notify = useCallback((msg: string, ok = true) => {
     setToast({ msg, ok });
@@ -133,14 +135,32 @@ export default function AppAdminPage() {
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100"><Smartphone size={20} className="text-emerald-600" /></div>
           <div className="min-w-0 flex-1">
             <h1 className="text-lg font-black text-slate-800">จัดการแอป Delivery</h1>
-            <p className="text-xs font-bold text-slate-400">ร้าน · เมนู · ค่าส่ง · เปิด/ปิดร้าน</p>
+            <p className="text-xs font-bold text-slate-400">ร้าน · เมนู · ค่าส่ง · ลูกค้า</p>
           </div>
-          <button onClick={() => setStoreModal({ store: null })} className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-lg shadow-blue-200 hover:bg-blue-700">
-            <Plus size={18} /> <span className="hidden sm:inline">เพิ่มร้าน</span>
-          </button>
+          {tab === "stores" && (
+            <button onClick={() => setStoreModal({ store: null })} className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-lg shadow-blue-200 hover:bg-blue-700">
+              <Plus size={18} /> <span className="hidden sm:inline">เพิ่มร้าน</span>
+            </button>
+          )}
+        </div>
+        <div className="mx-auto flex max-w-6xl gap-1 px-4 sm:px-6">
+          {([["stores", "ร้านและเมนู", Store], ["customers", "ลูกค้า", Users]] as const).map(([key, label, Icon]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-black transition ${tab === key ? "border-blue-600 text-blue-600" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+            >
+              <Icon size={16} /> {label}
+            </button>
+          ))}
         </div>
       </div>
 
+      {tab === "customers" ? (
+        <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+          <CustomersPanel storeNames={Object.fromEntries(stores.map((s) => [s.id, s.name]))} />
+        </div>
+      ) : (
       <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6">
         {/* ---------- รายการร้าน ---------- */}
         {stores.length === 0 ? (
@@ -274,6 +294,7 @@ export default function AppAdminPage() {
           </div>
         )}
       </div>
+      )}
 
       {storeModal && (
         <StoreFormModal
