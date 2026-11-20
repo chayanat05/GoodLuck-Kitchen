@@ -1,6 +1,9 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-// 1. ตั้งค่าการเชื่อมต่อ R2
+// ใช้ฝั่ง server เท่านั้น (มี secret ของ R2)
+// bucket สาธารณะ  = R2_BUCKET_NAME          (เปิดผ่าน NEXT_PUBLIC_R2_PUBLIC_URL)
+// bucket ส่วนตัว   = R2_PRIVATE_BUCKET_NAME  (เปิดได้ผ่านลิงก์ชั่วคราวจาก /api/media/... เท่านั้น)
 const r2Client = new S3Client({
   region: "auto",
   endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
@@ -10,34 +13,38 @@ const r2Client = new S3Client({
   },
 });
 
-// 2. ฟังก์ชันหลักสำหรับอัปโหลดรูป
-// รับค่าเป็นไฟล์ (File object) และชื่อโฟลเดอร์ที่ต้องการเก็บ (เช่น 'slips' หรือ 'deliveries')
-export async function uploadImageToR2(file: File, folder: 'slips' | 'deliveries' | 'profiles'): Promise<string> {
-  try {
-    // แปลงไฟล์เป็น Buffer เพื่อเตรียมส่งขึ้น R2
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+export type R2Bucket = "public" | "private";
 
-    // สร้างชื่อไฟล์ใหม่ไม่ให้ซ้ำกัน (ใช้ เวลาปัจจุบัน + สุ่มตัวอักษร)
-    const extension = file.name.split('.').pop() || 'jpg';
-    const uniqueFileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${extension}`;
+const bucketName = (b: R2Bucket) => (b === "public" ? process.env.R2_BUCKET_NAME : process.env.R2_PRIVATE_BUCKET_NAME);
 
-    // คำสั่งอัปโหลด
-    const command = new PutObjectCommand({
-    Bucket: process.env.R2_BUCKET_NAME,
-    Key: uniqueFileName,
-    Body: buffer,
-    ContentType: file.type,
-    });
+export function r2Configured(b: R2Bucket) {
+  return !!(process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY && bucketName(b));
+}
 
-    // ส่งไฟล์ขึ้น R2
-    await r2Client.send(command);
+export async function putR2Object(bucket: R2Bucket, key: string, body: Uint8Array, contentType: string) {
+  await r2Client.send(
+    new PutObjectCommand({
+      Bucket: bucketName(bucket),
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+      // ชื่อไฟล์สุ่มไม่ซ้ำ → cache ได้ยาว
+      CacheControl: "public, max-age=31536000, immutable",
+    }),
+  );
+}
 
-    // คืนค่ากลับมาเป็น URL เต็มที่เปิดดูได้
-    return `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL}/${uniqueFileName}`;
-    
-  } catch (error) {
-    console.error("Error uploading to R2:", error);
-    throw new Error("อัปโหลดรูปภาพไม่สำเร็จ");
-  }
+/** ลิงก์ชั่วคราวสำหรับไฟล์ใน bucket ส่วนตัว */
+export function presignPrivate(key: string, expiresIn = 600) {
+  return getSignedUrl(r2Client, new GetObjectCommand({ Bucket: bucketName("private"), Key: key }), { expiresIn });
+}
+
+// ---------------------------------------------------------------------
+// ของเดิม (ใช้โดย /api/upload) — คืน URL เต็มของ bucket สาธารณะ
+// ---------------------------------------------------------------------
+export async function uploadImageToR2(file: File, folder: "slips" | "deliveries" | "profiles" | "stores"): Promise<string> {
+  const ext = ({ "image/webp": "webp", "image/png": "png", "image/jpeg": "jpg" } as Record<string, string>)[file.type] || "jpg";
+  const key = `${folder}/${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
+  await putR2Object("public", key, new Uint8Array(await file.arrayBuffer()), file.type);
+  return `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL}/${key}`;
 }

@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import Image from "next/image";
+import { uploadMedia } from "@/lib/mediaUpload";
+import { mediaUrl } from "@/lib/media";
 
 export default function ApplyKitchenPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -33,6 +35,8 @@ export default function ApplyKitchenPage() {
     null,
   );
   const [isDragging, setIsDragging] = useState(false);
+  // รูปใบสมัครอยู่ใน bucket ส่วนตัว ผู้สมัครเปิดลิงก์ไม่ได้ → พรีวิวจากไฟล์ในเครื่องแทน
+  const [localPreview, setLocalPreview] = useState<string>("");
 
   const [formData, setFormData] = useState({
     full_name: "",
@@ -70,21 +74,10 @@ export default function ApplyKitchenPage() {
     }
 
     setUploadingImage(true);
-    const fileExt = file.name.split(".").pop() || "png";
-    const fileName = `kitchen-profile-${Date.now()}.${fileExt}`;
-
     try {
-      // 🌟 ใช้ Bucket เดิมของไรเดอร์ได้เลย จะได้ไม่ต้องสร้างใหม่
-      const { error } = await supabase.storage
-        .from("rider-applications")
-        .upload(fileName, file);
-
-      if (error) throw error;
-
-      const { data } = supabase.storage
-        .from("rider-applications")
-        .getPublicUrl(fileName);
-      setFormData((prev) => ({ ...prev, fb_profile_image: data.publicUrl }));
+      const key = await uploadMedia(file, "application");
+      setLocalPreview(URL.createObjectURL(file));
+      setFormData((prev) => ({ ...prev, fb_profile_image: key }));
     } catch (error) {
       alert("เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ");
       console.error(error);
@@ -293,14 +286,14 @@ export default function ApplyKitchenPage() {
                 ) : formData.fb_profile_image ? (
                   <div className="relative w-full max-w-xs aspect-3/4 rounded-2xl overflow-hidden shadow-sm group border-4 border-white">
                     <Image
-                      src={formData.fb_profile_image}
+                      src={localPreview || mediaUrl(formData.fb_profile_image)}
                       alt="FB Profile"
                       fill
                       sizes="100vw"
                       className="object-cover cursor-zoom-in group-hover:scale-105 transition-transform duration-300"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedFullImage(formData.fb_profile_image);
+                        setSelectedFullImage(localPreview || mediaUrl(formData.fb_profile_image));
                       }}
                     />
                     <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">

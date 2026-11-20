@@ -4,6 +4,7 @@ import { Clock, Lock, MapPin, Edit2, ChefHat, PlayCircle, PackageCheck, Eye, Mor
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { motion } from "framer-motion";
 import Image from 'next/image';
+import { mediaUrl } from "@/lib/media";
 
 export interface Order {
   slip_image?: string | null;
@@ -288,7 +289,7 @@ function OrderCard({
               >
                 {isShopee ? (
                   <Image 
-                    src={url} 
+                    src={mediaUrl(url)} 
                     width={1200} 
                     height={1600} 
                     alt={`Shopee Order ${i}`} 
@@ -296,7 +297,7 @@ function OrderCard({
                   />
                 ) : (
                   <Image 
-                    src={url} 
+                    src={mediaUrl(url)} 
                     fill 
                     sizes="(max-width: 768px) 100vw, 33vw" 
                     alt={`Order attachment ${i}`} 
@@ -462,7 +463,7 @@ function OrderCard({
             className="relative w-full rounded-xl overflow-hidden border border-white/20 shadow-md cursor-zoom-in"
           >
             <Image
-  src={url}
+  src={mediaUrl(url)}
   alt={`Slip ${i}`}
   width={1200}
   height={1600}

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Order } from '../../components/OrderCard';
 import Image from 'next/image';
+import { mediaUrl } from "@/lib/media";
 import { supabase } from '../../lib/supabase'; 
 
 // 🌟 1. แก้ไขระบบตัดรอบเดือนให้ตรงกับเวลาเปิดร้าน
@@ -1086,7 +1087,7 @@ export default function DashboardView({
                   <div className="grid grid-cols-2 gap-3">
                     {selectedOrder.image_url.split(',').filter(Boolean).map((imgUrl, i) => (
                       <div key={i} onClick={() => setImageGallery({ urls: selectedOrder.image_url!.split(',').filter(Boolean), startIndex: i })} className="relative h-32 rounded-2xl overflow-hidden border border-slate-200 cursor-pointer hover:shadow-md transition-all active:scale-95 group/img">
-                        <Image src={imgUrl} fill className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500" alt={`Attachment ${i}`} sizes="256px"  />
+                        <Image src={mediaUrl(imgUrl)} fill className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500" alt={`Attachment ${i}`} sizes="256px"  />
                       </div>
                     ))}
                   </div>
@@ -1101,7 +1102,7 @@ export default function DashboardView({
                   <div className="grid grid-cols-2 gap-3">
                     {selectedOrder.slip_image.split(',').filter(Boolean).map((imgUrl, i) => (
                       <div key={i} onClick={() => setImageGallery({ urls: selectedOrder.slip_image!.split(',').filter(Boolean), startIndex: i })} className="relative h-32 rounded-2xl overflow-hidden border border-slate-200 cursor-pointer hover:shadow-md transition-all active:scale-95 group/img">
-                        <Image src={imgUrl} fill className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500" alt={`Slip ${i}`} sizes="256px"  />
+                        <Image src={mediaUrl(imgUrl)} fill className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500" alt={`Slip ${i}`} sizes="256px"  />
                       </div>
                     ))}
                   </div>
@@ -1338,7 +1339,7 @@ export default function DashboardView({
               <div key={i} className={`w-full h-full shrink-0 snap-center p-2 flex overflow-auto ${imgScale > 1 ? 'items-start justify-start' : 'items-center justify-center'}`} onClick={(e) => e.stopPropagation()}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img 
-                  src={url} 
+                  src={mediaUrl(url)} 
                   className={`transition-all duration-300 origin-center cursor-zoom-in shadow-2xl rounded-lg ${imgScale > 1 ? 'm-auto' : ''}`}
                   style={{ 
    width: imgScale > 1 ? `${imgScale * 100}%` : '100%', 

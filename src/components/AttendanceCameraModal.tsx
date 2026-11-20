@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Camera, X, Loader2, RefreshCw, RefreshCcw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { uploadMedia } from "@/lib/mediaUpload";
 import { toast } from "sonner";
 import Swal from "sweetalert2";
 
@@ -182,19 +183,7 @@ export default function AttendanceCameraModal({
 
     setIsProcessing(true);
     try {
-      const folderPrefix = userRole === "rider" ? "attendance-rider" : "attendance-kitchen";
-      const fileExt = photoFile.name.split(".").pop() || "jpg";
-      const fileName = `${folderPrefix}/${userId}-${Date.now()}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("rider-applications")
-        .upload(fileName, photoFile);
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage
-        .from("rider-applications")
-        .getPublicUrl(fileName);
-      const imageUrl = urlData.publicUrl;
+      const imageUrl = await uploadMedia(photoFile, "attendance");
 
       if (action === "in") {
         const { data, error } = await supabase

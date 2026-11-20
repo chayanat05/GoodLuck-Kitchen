@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import { mediaUrl } from "@/lib/media";
+import { uploadMedia } from "@/lib/mediaUpload";
 import JobMap from "@/components/JobMap"; 
 import { 
   ArrowLeft, Search, MapPin, Plus, X, 
@@ -101,20 +103,10 @@ export default function DormDatabasePage() {
     if (!file) return;
 
     setIsUploading(true);
-    const fileExt = file.name.split('.').pop();
-    const fileName = `dorm-${Math.random()}.${fileExt}`;
-    const filePath = `dorms/${fileName}`;
-
     try {
-      const { error: uploadError } = await supabase.storage
-        .from('order-images')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data } = supabase.storage.from('order-images').getPublicUrl(filePath);
-      setFormData(prev => ({ ...prev, image_url: data.publicUrl }));
-      setPreviewUrl(data.publicUrl);
+      const key = await uploadMedia(file, "dorm");
+      setFormData(prev => ({ ...prev, image_url: key }));
+      setPreviewUrl(key);
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
       alert("อัปโหลดรูปภาพไม่สำเร็จ");
@@ -245,7 +237,7 @@ export default function DormDatabasePage() {
             <div key={dorm.id} className="bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-xl transition-all group flex flex-col h-full">
               <div className="relative aspect-video bg-slate-100 overflow-hidden cursor-zoom-in" onClick={() => dorm.image_url && setSelectedFullImage(dorm.image_url)}>
                 {dorm.image_url ? (
-                  <Image src={dorm.image_url} alt={dorm.name} fill sizes="(max-width: 768px) 100vw, 300px" className="object-cover group-hover:scale-110 transition-transform duration-500" />
+                  <Image src={mediaUrl(dorm.image_url)} alt={dorm.name} fill sizes="(max-width: 768px) 100vw, 300px" className="object-cover group-hover:scale-110 transition-transform duration-500" />
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-slate-300">
                     <ImageIcon size={48} strokeWidth={1} />
@@ -348,7 +340,7 @@ export default function DormDatabasePage() {
             <X size={32} />
           </button>
           <div className="relative w-full max-w-5xl h-full max-h-[80vh]">
-            <Image src={selectedFullImage} alt="Preview" fill sizes="100vw" className="object-contain rounded-2xl" />
+            <Image src={mediaUrl(selectedFullImage)} alt="Preview" fill sizes="100vw" className="object-contain rounded-2xl" />
           </div>
         </div>
       )}
@@ -376,7 +368,7 @@ export default function DormDatabasePage() {
                       className={`relative aspect-video rounded-3xl border-2 border-dashed transition-all flex flex-col items-center justify-center cursor-pointer overflow-hidden ${previewUrl ? 'border-indigo-500 bg-white' : 'border-slate-300 bg-slate-100 hover:bg-white hover:border-indigo-400'}`}
                     >
                       {previewUrl ? (
-                        <Image src={previewUrl} alt="Preview" fill className="object-cover" />
+                        <Image src={mediaUrl(previewUrl)} alt="Preview" fill className="object-cover" />
                       ) : (
                         <>
                           {isUploading ? <Loader2 className="animate-spin text-indigo-500" size={32} /> : <ImagePlus size={40} className="text-slate-400" />}

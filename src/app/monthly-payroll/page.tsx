@@ -2,6 +2,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { mediaUrl } from "@/lib/media";
+import { uploadMedia } from "@/lib/mediaUpload";
 import { 
   ArrowLeft, Calendar, Loader2, CheckCircle2, AlertTriangle, 
   Search, Edit3, X, DollarSign, Trophy, User, ImagePlus, Check,
@@ -269,22 +271,17 @@ export default function MonthlyPayrollPage() {
       return;
     }
     setIsUploading(true);
-    const fileExt = file.name.split(".").pop();
-    const fileName = `slip-monthly-${Math.random()}.${fileExt}`;
-    const filePath = `monthly-slips/${fileName}`;
-    
-    const { error: uploadError } = await supabase.storage.from("order-images").upload(filePath, file);
-    
-    if (uploadError) {
+    let key: string;
+    try {
+      key = await uploadMedia(file, "payroll-slip");
+    } catch (uploadError) {
       console.error("Upload error:", uploadError);
       showToast("อัปโหลดรูปล้มเหลว", "error");
       setIsUploading(false);
       return;
     }
-
-    const { data } = supabase.storage.from("order-images").getPublicUrl(filePath);
     // 🌟 เปลี่ยนสถานะเป็น จ่ายแล้ว อัตโนมัติเมื่ออัปสลิป
-    setEditForm(prev => ({ ...prev, slip_url: data.publicUrl, payment_status: "จ่ายแล้ว" })); 
+    setEditForm(prev => ({ ...prev, slip_url: key, payment_status: "จ่ายแล้ว" })); 
     showToast('อัปโหลดสลิปสำเร็จ! 📸');
     setIsUploading(false);
   };
@@ -642,7 +639,7 @@ export default function MonthlyPayrollPage() {
                 <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase tracking-wide">หลักฐานการโอนเงิน (สลิปเงินเดือน)</label>
                 {editForm.slip_url ? (
                   <div className="relative w-full h-32 bg-slate-100 rounded-2xl border border-slate-200 overflow-hidden group">
-                    <Image src={editForm.slip_url} alt="Slip" fill className="object-contain" />
+                    <Image src={mediaUrl(editForm.slip_url)} alt="Slip" fill className="object-contain" />
                     <button 
                       type="button" 
                       // 🌟 ถ้าลบรูปออก ให้เปลี่ยนสถานะกลับเป็น รอชำระ ให้ด้วย
@@ -723,7 +720,7 @@ export default function MonthlyPayrollPage() {
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img 
-              src={viewSlip} 
+              src={mediaUrl(viewSlip)} 
               alt="Slip Full View" 
               className={`transition-all duration-300 rounded-2xl m-auto shadow-2xl ${isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'}`}
               style={{ 

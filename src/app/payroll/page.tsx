@@ -2,6 +2,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { mediaUrl } from "@/lib/media";
+import { uploadMedia } from "@/lib/mediaUpload";
 import { 
   ArrowLeft, Banknote, Calendar, Loader2, CheckCircle2, AlertTriangle, 
   Search, Edit3, X, Save, Clock, Package, DollarSign, Fuel, Trophy, User, ImagePlus, Check,
@@ -337,21 +339,16 @@ useEffect(() => {
       return;
     }
     setIsUploading(true);
-    const fileExt = file.name.split(".").pop();
-    const fileName = `slip-payroll-${Math.random()}.${fileExt}`;
-    const filePath = `payroll-slips/${fileName}`;
-    
-    const { error: uploadError } = await supabase.storage.from("order-images").upload(filePath, file);
-    
-    if (uploadError) {
+    let key: string;
+    try {
+      key = await uploadMedia(file, "payroll-slip");
+    } catch (uploadError) {
       console.error("Upload error:", uploadError);
       showToast("อัปโหลดรูปล้มเหลว", "error");
       setIsUploading(false);
       return;
     }
-
-    const { data } = supabase.storage.from("order-images").getPublicUrl(filePath);
-    setEditForm(prev => ({ ...prev, payment_slip_url: data.publicUrl, payment_status: "จ่ายแล้ว" })); 
+    setEditForm(prev => ({ ...prev, payment_slip_url: key, payment_status: "จ่ายแล้ว" })); 
     showToast('อัปโหลดสลิปสำเร็จ! 📸');
     setIsUploading(false);
   };
@@ -816,8 +813,8 @@ useEffect(() => {
         displayTotal.toFixed(2),
         record.payment_status || 'รอชำระ',
         record.payment_slip_url || 'N/A',
-        record.check_in_image || 'N/A',
-        record.check_out_image || 'N/A'
+        record.check_in_image ? new URL(mediaUrl(record.check_in_image), location.origin).href : 'N/A',
+        record.check_out_image ? new URL(mediaUrl(record.check_out_image), location.origin).href : 'N/A'
       ];
     });
 
@@ -1182,7 +1179,7 @@ useEffect(() => {
                   <span className="text-[9px] font-bold text-slate-500 mb-1 absolute top-2 left-2 z-10 bg-white/80 px-1.5 py-0.5 rounded shadow-sm">เข้างาน</span>
                   {editingRecord.check_in_image ? (
                     <div className="relative w-full h-24 rounded-lg overflow-hidden mt-1 cursor-zoom-in" onClick={() => { setViewSlip(editingRecord.check_in_image!); setIsZoomed(false); }}>
-                      <Image src={editingRecord.check_in_image} alt="Check In" fill className="object-cover hover:scale-105 transition-transform"/>
+                      <Image src={mediaUrl(editingRecord.check_in_image)} alt="Check In" fill className="object-cover hover:scale-105 transition-transform"/>
                     </div>
                   ) : (
                     <div className="w-full h-24 rounded-lg bg-slate-100 flex items-center justify-center mt-1 border border-dashed border-slate-300">
@@ -1194,7 +1191,7 @@ useEffect(() => {
                   <span className="text-[9px] font-bold text-slate-500 mb-1 absolute top-2 left-2 z-10 bg-white/80 px-1.5 py-0.5 rounded shadow-sm">เลิกงาน</span>
                   {editingRecord.check_out_image ? (
                     <div className="relative w-full h-24 rounded-lg overflow-hidden mt-1 cursor-zoom-in" onClick={() => { setViewSlip(editingRecord.check_out_image!); setIsZoomed(false); }}>
-                      <Image src={editingRecord.check_out_image} alt="Check Out" fill className="object-cover hover:scale-105 transition-transform"/>
+                      <Image src={mediaUrl(editingRecord.check_out_image)} alt="Check Out" fill className="object-cover hover:scale-105 transition-transform"/>
                     </div>
                   ) : (
                     <div className="w-full h-24 rounded-lg bg-slate-100 flex items-center justify-center mt-1 border border-dashed border-slate-300">
@@ -1368,7 +1365,7 @@ useEffect(() => {
                 <label className="block text-[10px] font-black text-slate-500 mb-2 uppercase tracking-wide">หลักฐานการโอนเงินรายวัน (สลิป)</label>
                 {editForm.payment_slip_url ? (
                   <div className="relative w-full h-32 bg-slate-100 rounded-2xl border border-slate-200 overflow-hidden group">
-                    <Image src={editForm.payment_slip_url} alt="Slip" fill className="object-contain" />
+                    <Image src={mediaUrl(editForm.payment_slip_url)} alt="Slip" fill className="object-contain" />
                     <button 
                       type="button" 
                       onClick={() => setEditForm(prev => ({...prev, payment_slip_url: null, payment_status: "รอชำระ"}))}
@@ -1557,7 +1554,7 @@ useEffect(() => {
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img 
-                    src={viewSlip} 
+                    src={mediaUrl(viewSlip)} 
                     alt="Full View" 
                     className={`transition-all duration-300 rounded-2xl m-auto shadow-2xl ${isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'}`}
                     style={{ 

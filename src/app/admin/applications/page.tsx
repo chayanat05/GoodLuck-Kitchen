@@ -14,6 +14,7 @@ import {
   Clock,
 } from "lucide-react";
 import Image from "next/image";
+import { mediaUrl } from "@/lib/media";
 import Link from "next/link";
 
 interface Application {
@@ -224,7 +225,7 @@ export default function ApplicationsDashboard() {
                   >
                     <div className="relative w-12 h-12 rounded-full overflow-hidden shrink-0 bg-slate-200 shadow-sm border border-white">
                       <Image
-                        src={app.fb_profile_image}
+                        src={mediaUrl(app.fb_profile_image)}
                         alt="Profile"
                         fill
                         sizes="48px"
@@ -257,7 +258,7 @@ export default function ApplicationsDashboard() {
                       }
                     >
                       <Image
-                        src={selectedApp.fb_profile_image}
+                        src={mediaUrl(selectedApp.fb_profile_image)}
                         width={96}
                         height={96}
                         alt="Profile"
@@ -505,7 +506,7 @@ export default function ApplicationsDashboard() {
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={selectedFullImage}
+              src={mediaUrl(selectedFullImage)}
               alt="Full view"
               className={`transition-all duration-300 rounded-2xl m-auto shadow-2xl ${isZoomed ? "cursor-zoom-out" : "cursor-zoom-in"}`}
               style={{

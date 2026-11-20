@@ -2,10 +2,13 @@
 "use client";
 import { useState, useEffect, useRef, useMemo, useCallback, use } from "react";
 import Link from "next/link";
+import AppStockPanel from "@/components/appAdmin/AppStockPanel";
 import OrderCard, { Order } from "@/components/OrderCard";
 import SharedGallery from "@/components/SharedGallery";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { mediaUrl } from "@/lib/media";
+import { uploadMedia } from "@/lib/mediaUpload";
 import {
   X,
   ClipboardCheck,
@@ -48,6 +51,7 @@ import {
   Globe,
   RefreshCw,
   Banknote,
+  Smartphone,
 } from "lucide-react";
 
 import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from '@react-google-maps/api';
@@ -184,6 +188,7 @@ export default function BranchBoardPage({ params }: { params: Promise<{ board_ho
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [existingImages, setExistingImages] = useState<string[]>([]);
   const [showRiderMap, setShowRiderMap] = useState<boolean>(false);
+  const [showAppStock, setShowAppStock] = useState<boolean>(false); // แผงเปิด/ปิดร้าน + เมนูหมด ของแอป delivery
   const [selectedRiderMapInfo, setSelectedRiderMapInfo] = useState<RiderLocation | null>(null);
   const [menuModalSearchQuery, setMenuModalSearchQuery] = useState("");
   const [calcInput, setCalcInput] = useState("");
@@ -796,13 +801,11 @@ const unlockOrder = (orderId: string) => {
 
 
   const uploadImage = async (file: File): Promise<string | null> => {
-    const fileExt = file.name.split(".").pop();
-    const fileName = `${Math.random()}.${fileExt}`;
-    const filePath = `order-photos/${fileName}`;
-    const { error: uploadError } = await supabase.storage.from("order-images").upload(filePath, file);
-    if (uploadError) return null;
-    const { data } = supabase.storage.from("order-images").getPublicUrl(filePath);
-    return data.publicUrl;
+    try {
+      return await uploadMedia(file, "order");
+    } catch {
+      return null;
+    }
   };
 
   const handleLocationSearch = (text: string) => {
@@ -1778,6 +1781,16 @@ const unlockOrder = (orderId: string) => {
                 </>
               )}
 
+              <button
+                onClick={() => { setIsMenuOpen(false); setShowAppStock(true); }}
+                className="w-full flex items-center p-4 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 rounded-2xl transition-all font-bold border border-transparent hover:border-emerald-100 group cursor-pointer"
+              >
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                  <Smartphone size={20} className="text-emerald-600" />
+                </div>
+                แอป Delivery: เมนูหมด / ปิดร้าน
+              </button>
+
               {(currentUserRole === "admin" || currentUserRole === "superadmin") && (
                 <Link
                   href="/home"
@@ -1944,6 +1957,8 @@ const unlockOrder = (orderId: string) => {
       )}
 
       {/* 🌟 Rider Map Modal */}
+      {showAppStock && <AppStockPanel onClose={() => setShowAppStock(false)} />}
+
       {showRiderMap && (currentUserRole === "admin" || currentUserRole === "superadmin" || currentUserRole === "kitchen") && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm z-50">
           <div className="bg-white rounded-4xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 border border-slate-100 flex flex-col h-5/6 relative">
@@ -2191,20 +2206,14 @@ const unlockOrder = (orderId: string) => {
                                 return;
                               }
                               const loadingToast = toast.loading("กำลังอัปโหลดสลิป...");
-                              const fileExt = file.name.split(".").pop();
-                              const fileName = `slip-quick-${Date.now()}.${fileExt}`;
-                              const filePath = `order-photos/${fileName}`;
-                              
-                              const { error: uploadError } = await supabase.storage.from("order-images").upload(filePath, file);
-                              
-                              if (uploadError) {
+                              let newSlipUrl: string;
+                              try {
+                                newSlipUrl = await uploadMedia(file, "slip");
+                              } catch {
                                 toast.dismiss(loadingToast);
                                 toast.error("อัปโหลดสลิปไม่สำเร็จ ❌");
                                 return;
                               }
-
-                              const { data } = supabase.storage.from("order-images").getPublicUrl(filePath);
-                              const newSlipUrl = data.publicUrl;
 
                               const updatedSlips = targetOrder?.slip_image ? `${targetOrder.slip_image},${newSlipUrl}` : newSlipUrl;
 
@@ -2526,7 +2535,7 @@ const unlockOrder = (orderId: string) => {
                         className="relative w-12 h-12 rounded-lg overflow-hidden shadow-sm border border-slate-700 group"
                       >
                         <Image
-                          src={url}
+                          src={mediaUrl(url)}
                           fill
                           sizes="48px"
                           className="object-cover"
@@ -2547,7 +2556,7 @@ const unlockOrder = (orderId: string) => {
                         className="relative w-12 h-12 rounded-lg overflow-hidden shadow-sm border-2 border-blue-500 border-dashed group"
                       >
                         <Image
-                          src={url}
+                          src={mediaUrl(url)}
                           fill
                           sizes="48px"
                           className="object-cover opacity-80"
@@ -2997,7 +3006,7 @@ const unlockOrder = (orderId: string) => {
                           className="relative w-full h-48 rounded-2xl overflow-hidden shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-zoom-in bg-black/10"
                         >
                           <Image
-                            src={imgUrl}
+                            src={mediaUrl(imgUrl)}
                             fill
                             sizes="(max-width: 768px) 100vw, 33vw"
                             className="object-contain"
@@ -3159,7 +3168,7 @@ const unlockOrder = (orderId: string) => {
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={url}
+                  src={mediaUrl(url)}
                   className={`transition-all duration-300 origin-center cursor-zoom-in shadow-2xl rounded-lg ${imgScale > 1 ? "m-auto" : ""}`}
                   style={{
                     width: imgScale > 1 ? `${imgScale * 100}%` : "100%",

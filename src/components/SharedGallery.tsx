@@ -1,6 +1,8 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
+import { mediaUrl } from "@/lib/media";
+import { uploadMedia } from "@/lib/mediaUpload";
 import { ImagePlus, X, Loader2, Trash2, Filter, FolderPlus, Tag, Camera } from "lucide-react";
 import Image from "next/image";
 
@@ -101,14 +103,7 @@ export default function SharedGallery({ branchId = null, userName, userRole, onC
         await fetchGallery(); // รอให้ดึงข้อมูลหมวดหมู่ใหม่เสร็จก่อน
       }
 
-      const fileExt = file.name.split('.').pop();
-      const fileName = `gallery-${Date.now()}.${fileExt}`;
-      const filePath = `shared/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage.from("order-images").upload(filePath, file);
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage.from("order-images").getPublicUrl(filePath);
+      const publicUrl = await uploadMedia(file, "gallery");
       
       const { error: insertError } = await supabase.from("shared_gallery").insert([{
         image_url: publicUrl,
@@ -206,7 +201,7 @@ export default function SharedGallery({ branchId = null, userName, userRole, onC
                   className="aspect-square relative cursor-zoom-in overflow-hidden bg-slate-100"
                   onClick={() => setViewImage(img.image_url)}
                 >
-                  <Image src={img.image_url} fill sizes="(max-width: 768px) 50vw, 250px" className="object-cover group-hover:scale-110 transition-transform duration-500" alt={img.title} />
+                  <Image src={mediaUrl(img.image_url)} fill sizes="(max-width: 768px) 50vw, 250px" className="object-cover group-hover:scale-110 transition-transform duration-500" alt={img.title} />
                 </div>
                 <div className="p-3 flex-1 flex flex-col bg-white">
                   <h3 className="text-sm font-black text-slate-800 line-clamp-1 mb-1">{img.title}</h3>
@@ -303,7 +298,7 @@ export default function SharedGallery({ branchId = null, userName, userRole, onC
             <X size={32} />
           </button>
           <div className="relative w-full max-w-5xl h-full max-h-[80vh] animate-in zoom-in-95">
-            <Image src={viewImage} alt="Preview" fill sizes="100vw" className="object-contain rounded-2xl" />
+            <Image src={mediaUrl(viewImage)} alt="Preview" fill sizes="100vw" className="object-contain rounded-2xl" />
           </div>
         </div>
       )}

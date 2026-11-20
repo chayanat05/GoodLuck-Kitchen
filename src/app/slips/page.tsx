@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { mediaUrl } from "@/lib/media";
 import {
   ChevronLeft,
   Search,
@@ -538,7 +539,7 @@ export default function SlipsManagementPage() {
                       {order.slip_image ? (
                         <>
                           <Image
-                            src={order.slip_image.split(",")[0]}
+                            src={mediaUrl(order.slip_image.split(",")[0])}
                             alt="Slip"
                             fill
                             className={`object-cover transition-transform duration-700 ${isSelected ? 'scale-105 brightness-90' : 'group-hover:scale-105'}`}
@@ -642,7 +643,7 @@ export default function SlipsManagementPage() {
           </button>
           <div className="relative w-full h-full max-w-4xl max-h-screen p-8 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={selectedImage} alt="Slip Fullsize" className="max-w-full max-h-full object-contain rounded-4xl shadow-2xl animate-in zoom-in-95 duration-300 border border-white/10" />
+            <img src={mediaUrl(selectedImage)} alt="Slip Fullsize" className="max-w-full max-h-full object-contain rounded-4xl shadow-2xl animate-in zoom-in-95 duration-300 border border-white/10" />
           </div>
         </div>
       )}

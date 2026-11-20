@@ -41,3 +41,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# บันทึกการย้ายรูป (มีลิงก์รูปเก่า)
+/scripts/migration-logs/

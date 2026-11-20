@@ -36,6 +36,7 @@ import { Order } from "../../components/OrderCard";
 import { User as SupabaseUser, RealtimeChannel } from "@supabase/supabase-js";
 import DashboardView from "./DashboardView";
 import Image from "next/image";
+import { mediaUrl } from "@/lib/media";
 import Link from "next/link";
 import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from "@react-google-maps/api"; 
 import Swal from "sweetalert2";
@@ -1029,7 +1030,7 @@ export default function RiderPage() {
             <div className="flex flex-col gap-1.5 shrink-0 mb-2 items-center">
               {order.image_url.split(",").filter(Boolean).map((url, i) => (
                 <div key={i} onClick={(e) => { e.stopPropagation(); setImageGallery({ urls: order.image_url!.split(",").filter(Boolean), startIndex: i }); }} className="relative w-[65%] rounded-lg overflow-hidden border border-white/20 shadow-sm cursor-pointer group/img bg-black/10" style={{ aspectRatio: "9/16" }}>
-                  <Image src={url} fill sizes="(max-width: 768px) 100vw, 33vw" alt="Order Evidence" className="object-cover block group-hover/img:scale-105 transition-transform duration-500" />
+                  <Image src={mediaUrl(url)} fill sizes="(max-width: 768px) 100vw, 33vw" alt="Order Evidence" className="object-cover block group-hover/img:scale-105 transition-transform duration-500" />
                 </div>
               ))}
             </div>
@@ -1644,7 +1645,7 @@ export default function RiderPage() {
                   <div className="flex flex-col gap-2">
                     {selectedViewOrder.image_url.split(",").filter(Boolean).map((url, i) => (
                       <div key={i} onClick={() => setImageGallery({ urls: selectedViewOrder.image_url!.split(",").filter(Boolean), startIndex: i })} className="relative w-full h-48 rounded-xl overflow-hidden border border-slate-200 cursor-pointer hover:shadow-lg transition-all bg-slate-100">
-                        <Image src={url} fill sizes="(max-width: 768px) 100vw, 33vw" className="object-contain" alt={`Detail ${i}`} />
+                        <Image src={mediaUrl(url)} fill sizes="(max-width: 768px) 100vw, 33vw" className="object-contain" alt={`Detail ${i}`} />
                       </div>
                     ))}
                   </div>
@@ -1715,7 +1716,7 @@ export default function RiderPage() {
                 <div className={`m-auto flex ${imgScale > 1 ? "items-start justify-start" : "items-center justify-center w-full h-full"}`}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={url}
+                    src={mediaUrl(url)}
                     className={`transition-all duration-300 origin-center rounded-lg shadow-2xl ${imgScale > 1 ? "cursor-zoom-out" : "cursor-zoom-in"}`}
                     style={{ 
                       width: imgScale > 1 ? `${imgScale * 100}%` : "100%", 

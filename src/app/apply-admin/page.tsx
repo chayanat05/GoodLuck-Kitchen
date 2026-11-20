@@ -2,6 +2,8 @@
 
 import { useState, ChangeEvent, FormEvent } from "react";
 import { supabase } from "@/lib/supabase";
+import { uploadMedia } from "@/lib/mediaUpload";
+import { mediaUrl } from "@/lib/media";
 import { 
   ShieldCheck, AlertCircle, CheckCircle2, 
   Loader2, Trash2 
@@ -38,6 +40,8 @@ export default function ApplyAdminPage() {
   const [uploadingImage, setUploadingImage] = useState<boolean>(false);
   const [selectedFullImage, setSelectedFullImage] = useState<string | null>(null);
 
+  // รูปใบสมัครอยู่ใน bucket ส่วนตัว ผู้สมัครเปิดลิงก์ไม่ได้ → พรีวิวจากไฟล์ในเครื่องแทน
+  const [localPreview, setLocalPreview] = useState<string>("");
   const [formData, setFormData] = useState<AdminFormData>({
     full_name: "",
     age: "",
@@ -60,14 +64,10 @@ export default function ApplyAdminPage() {
     if (!file.type.startsWith('image/')) { toast.error("กรุณาอัปโหลดไฟล์รูปภาพเท่านั้น"); return; }
     
     setUploadingImage(true);
-    const fileName = `admin-profile-${Date.now()}.${file.name.split('.').pop()}`;
-    
     try {
-      const { error: uploadError } = await supabase.storage.from('rider-applications').upload(fileName, file);
-      if (uploadError) throw uploadError;
-
-      const { data } = supabase.storage.from('rider-applications').getPublicUrl(fileName);
-      setFormData(prev => ({ ...prev, fb_profile_image: data.publicUrl }));
+      const key = await uploadMedia(file, "application");
+      setLocalPreview(URL.createObjectURL(file));
+      setFormData(prev => ({ ...prev, fb_profile_image: key }));
       toast.success("อัปโหลดรูปภาพสำเร็จ");
     } catch (error) {
       console.error(error);
@@ -156,7 +156,7 @@ export default function ApplyAdminPage() {
               
               {formData.fb_profile_image && !uploadingImage && (
                 <div className="relative w-40 h-40 mt-4 rounded-xl overflow-hidden border-4 border-white shadow-lg">
-                  <Image src={formData.fb_profile_image} alt="Profile" fill className="object-cover" />
+                  <Image src={localPreview || mediaUrl(formData.fb_profile_image)} alt="Profile" fill className="object-cover" />
                   <button 
                     type="button" 
                     onClick={() => setFormData({...formData, fb_profile_image: ""})} 

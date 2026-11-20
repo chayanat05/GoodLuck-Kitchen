@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Image from 'next/image';
+import { mediaUrl } from "@/lib/media";
+import { uploadMedia } from "@/lib/mediaUpload";
 import Tesseract from 'tesseract.js';
 
 interface SlipScannerProps {
@@ -116,15 +118,7 @@ export default function SlipScanner({ orderId, expectedAmount, initialImageUrls,
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const fileExt = file.name.split('.').pop();
-        const fileName = `slip-${orderId}-${Date.now()}-${i}.${fileExt}`;
-        const filePath = `slips/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage.from('order-images').upload(filePath, file);
-        if (uploadError) throw new Error('ไม่สามารถอัปโหลดรูปภาพได้');
-
-        const { data: publicUrlData } = supabase.storage.from('order-images').getPublicUrl(filePath);
-        uploadedUrls.push(publicUrlData.publicUrl);
+        uploadedUrls.push(await uploadMedia(file, "slip"));
       }
       setUploadedImageUrls(uploadedUrls); 
 
@@ -371,7 +365,7 @@ export default function SlipScanner({ orderId, expectedAmount, initialImageUrls,
                 {previewUrls.map((url, idx) => (
                   <div key={idx} className="relative h-48 w-full rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 shadow-inner flex items-center justify-center group">
                     <Image 
-                      src={url} 
+                      src={mediaUrl(url)} 
                       alt={`Slip Preview ${idx + 1}`} 
                       fill 
                       className={`object-contain transition-all duration-500 ${status === 'success' ? 'scale-105 brightness-110' : ''}`}

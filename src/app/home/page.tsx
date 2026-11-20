@@ -12,7 +12,8 @@ import {
   Utensils,
   Calendar,
   UserSquare2,
-  History
+  History,
+  Smartphone
 } from "lucide-react";
 import SharedGallery from "@/components/SharedGallery";
 
@@ -485,6 +486,16 @@ export default function BranchSelectorPage() {
                       <Utensils size={20} className="text-pink-600" />
                     </div>
                     จัดการเมนูและราคา
+                  </Link>
+                  <Link
+                    href="/app-admin"
+                    prefetch={false}
+                    className="w-full flex items-center p-4 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 rounded-2xl transition-all font-bold border border-transparent hover:border-emerald-100 group"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                      <Smartphone size={20} className="text-emerald-600" />
+                    </div>
+                    จัดการแอป Delivery
                   </Link>
                   <div className="h-px bg-slate-100 my-2"></div>
                   
