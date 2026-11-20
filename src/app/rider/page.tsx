@@ -38,13 +38,13 @@ import DashboardView from "./DashboardView";
 import Image from "next/image";
 import { mediaUrl } from "@/lib/media";
 import Link from "next/link";
-import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from "@react-google-maps/api"; 
+import { useJsApiLoader, GoogleMap } from "@react-google-maps/api";
 import Swal from "sweetalert2";
 import { toast } from "sonner";
 import { useFCM } from "@/hooks/useFCM";
 
 import AttendanceCameraModal from "@/components/AttendanceCameraModal";
-import SmoothMarker from "@/components/SmoothMarker";
+import RiderMapPin from "@/components/RiderMapPin";
 import { useRiderLiveMap, useRiderLiveSender } from "@/hooks/useRiderLive";
 
 const SHOP_LAT = 16.24813;
@@ -873,12 +873,6 @@ export default function RiderPage() {
       "ออกจากระบบ?", "คุณต้องการออกจากระบบใช่หรือไม่?",
       async () => { await supabase.auth.signOut(); window.location.href = "/login"; }, "ออกจากระบบ", "ยกเลิก"
     );
-  };
-
-  const isOnline = (lastSeen: string | null) => {
-    if (!lastSeen) return false;
-    const diffMins = (new Date().getTime() - new Date(lastSeen).getTime()) / 60000;
-    return diffMins < 5;
   };
 
   const availableOrders = orders.filter((o) => {
@@ -1743,65 +1737,34 @@ export default function RiderPage() {
                   center={shopLocation} 
                   zoom={14}
                   mapTypeId="satellite"
-                  options={{ disableDefaultUI: true, zoomControl: true }}
+                  options={{ disableDefaultUI: true, zoomControl: true, clickableIcons: false }}
+                  onClick={() => setSelectedRiderMapInfo(null)}
                 >
-                  <MarkerF
-                    position={{ lat: shopLocation.lat, lng: shopLocation.lng }}
-                    icon={{ url: "https://maps.google.com/mapfiles/ms/icons/red-dot.png" }}
-                    label={{
-                      text: "ร้านที่ประจำอยู่",
-                      color: "#b91c1c",
-                      className: "bg-white/90 px-2 py-0.5 rounded-full shadow-sm text-xs font-black mt-8 border border-red-200",
-                    }}
-                    onClick={() =>
-                      setSelectedRiderMapInfo({
-                        id: "shop",
-                        username: "ร้านที่ประจำอยู่",
-                        last_lat: shopLocation.lat,
-                        last_lng: shopLocation.lng,
-                        last_seen: null,
-                      })
-                    }
+                  <RiderMapPin
+                    lat={shopLocation.lat}
+                    lng={shopLocation.lng}
+                    name="ร้านที่ประจำอยู่"
+                    lastSeen={null}
+                    now={currentTime}
+                    isShop
                   />
 
-                  {/* 🌟 โค้ดที่โดนตัด: นำกลับมาครบถ้วนพร้อมเช็ค isMe และ isOnline */}
-                  {ridersLoc.map((rider) => {
-                    if (!rider.last_lat || !rider.last_lng) return null;
-                    const isMe = rider.id === currentUser?.id;
-                    const isRiderOnline = isOnline(rider.last_seen);
-                    
-                    return (
-                      <SmoothMarker
+                  {ridersLoc.map((rider) =>
+                    rider.last_lat && rider.last_lng ? (
+                      <RiderMapPin
                         key={rider.id}
-                        position={{ lat: rider.last_lat, lng: rider.last_lng }}
-                        icon={{
-                          url: isMe 
-                            ? "https://maps.google.com/mapfiles/ms/icons/blue-dot.png" 
-                            : isRiderOnline ? "https://maps.google.com/mapfiles/ms/icons/green-dot.png" : "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
-                        }}
-                        onClick={() => setSelectedRiderMapInfo(rider)}
-                        zIndex={isMe ? 100 : 1}
+                        lat={rider.last_lat}
+                        lng={rider.last_lng}
+                        name={rider.username}
+                        lastSeen={rider.last_seen}
+                        now={currentTime}
+                        isMe={rider.id === currentUser?.id}
+                        selected={selectedRiderMapInfo?.id === rider.id}
+                        onClick={() =>
+                          setSelectedRiderMapInfo((prev) => (prev?.id === rider.id ? null : rider))
+                        }
                       />
-                    );
-                  })}
-
-                  {selectedRiderMapInfo && selectedRiderMapInfo.last_lat && selectedRiderMapInfo.last_lng && (
-                    <InfoWindowF
-                      position={{ lat: selectedRiderMapInfo.last_lat, lng: selectedRiderMapInfo.last_lng }}
-                      onCloseClick={() => setSelectedRiderMapInfo(null)}
-                    >
-                      <div className="p-2 text-slate-800 text-xs min-w-35">
-                        <div className="font-black mb-1 text-sm border-b border-slate-100 pb-1">{selectedRiderMapInfo.username}</div>
-                        {selectedRiderMapInfo.id !== "shop" && (
-                          <div className="flex items-center gap-1.5 mt-1.5 font-medium">
-                            <Clock size={12} className={isOnline(selectedRiderMapInfo.last_seen) ? "text-emerald-500" : "text-slate-400"} /> 
-                            <span className={isOnline(selectedRiderMapInfo.last_seen) ? "text-emerald-600 font-bold" : "text-slate-500"}>
-                              {isOnline(selectedRiderMapInfo.last_seen) ? "กำลังออนไลน์" : selectedRiderMapInfo.last_seen ? `ออฟไลน์ (${new Date(selectedRiderMapInfo.last_seen).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.)` : "ไม่ทราบ"}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </InfoWindowF>
+                    ) : null,
                   )}
                 </GoogleMap>
               ) : (
@@ -1821,7 +1784,7 @@ export default function RiderPage() {
                 <div className="w-3 h-3 bg-slate-400 rounded-full shadow-inner"></div> ออฟไลน์
               </div>
               <span className="text-xs text-slate-400 my-auto ml-auto pl-4 whitespace-nowrap">
-                *พิกัดอัปเดตทุก 30 วินาที*
+                แตะหมุดเพื่อดูวันเวลาออนไลน์ล่าสุด · พิกัดอัปเดตสด
               </span>
             </div>
           </div>

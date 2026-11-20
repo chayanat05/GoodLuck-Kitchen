@@ -54,13 +54,14 @@ import {
   Smartphone,
 } from "lucide-react";
 
-import { useJsApiLoader, GoogleMap, InfoWindowF } from '@react-google-maps/api';
+import { useJsApiLoader, GoogleMap } from '@react-google-maps/api';
 import { toast } from 'sonner';
 import Image from 'next/image';
 import Swal from 'sweetalert2';
 
 import AttendanceCameraModal from "@/components/AttendanceCameraModal";
-import SmoothMarker from "@/components/SmoothMarker";
+import RiderMapPin from "@/components/RiderMapPin";
+import { isOnlineAt } from "@/lib/lastSeen";
 import { useRiderLiveMap } from "@/hooks/useRiderLive";
 
 export default function BranchBoardPage({ params }: { params: Promise<{ board_home: string }> }) {
@@ -1960,88 +1961,25 @@ const unlockOrder = (orderId: string) => {
                   mapContainerStyle={{ width: "100%", height: "100%" }}
                   center={defaultMapCenter}
                   zoom={13}
-                  options={{ disableDefaultUI: true, zoomControl: true, mapTypeId: "satellite" }}
+                  options={{ disableDefaultUI: true, zoomControl: true, mapTypeId: "satellite", clickableIcons: false }}
+                  onClick={() => setSelectedRiderMapInfo(null)}
                 >
-                  {/* Shop marker removed as requested */}
-
-                  {ridersLoc.map(
-                    (rider) =>
-                      rider.last_lat &&
-                      rider.last_lng && (
-                        <SmoothMarker
-                          key={rider.id}
-                          position={{
-                            lat: rider.last_lat,
-                            lng: rider.last_lng,
-                          }}
-                          icon={{
-                            url: "http://maps.google.com/mapfiles/ms/icons/blue-dot.png",
-                          }}
-                          label={{
-                            text: rider.username,
-                            color: "#1e293b",
-                            className:
-                              "bg-white/80 px-2 py-0.5 rounded-full shadow-sm text-xs font-bold mt-8 border border-slate-200 backdrop-blur-sm",
-                          }}
-                          onClick={() => setSelectedRiderMapInfo(rider)}
-                        />
-                      ),
+                  {ridersLoc.map((rider) =>
+                    rider.last_lat && rider.last_lng ? (
+                      <RiderMapPin
+                        key={rider.id}
+                        lat={rider.last_lat}
+                        lng={rider.last_lng}
+                        name={rider.username}
+                        lastSeen={rider.last_seen}
+                        now={currentTime}
+                        selected={selectedRiderMapInfo?.id === rider.id}
+                        onClick={() =>
+                          setSelectedRiderMapInfo((prev) => (prev?.id === rider.id ? null : rider))
+                        }
+                      />
+                    ) : null,
                   )}
-
-                  {selectedRiderMapInfo &&
-                    selectedRiderMapInfo.last_lat &&
-                    selectedRiderMapInfo.last_lng && (
-                      <InfoWindowF
-                        position={{
-                          lat: selectedRiderMapInfo.last_lat,
-                          lng: selectedRiderMapInfo.last_lng,
-                        }}
-                        onCloseClick={() => setSelectedRiderMapInfo(null)}
-                      >
-                        <div className="p-1 min-w-32 text-center">
-                          <div className="font-bold text-base text-slate-800 mb-1">
-                            {selectedRiderMapInfo.username}
-                          </div>
-                          {selectedRiderMapInfo.id !== "shop" &&
-                            (() => {
-                              const isOnline =
-                                selectedRiderMapInfo.last_seen &&
-                                (new Date().getTime() -
-                                  new Date(
-                                    selectedRiderMapInfo.last_seen,
-                                  ).getTime()) /
-                                  60000 <
-                                  5;
-                              return (
-                                <div className="flex flex-col items-center gap-1">
-                                  <div
-                                    className={`text-sm font-bold px-2 py-0.5 rounded-full inline-block ${
-                                      isOnline
-                                        ? "bg-green-100 text-green-700"
-                                        : "bg-slate-100 text-slate-500"
-                                    }`}
-                                  >
-                                    {isOnline ? "🟢 ออนไลน์" : "⚫️ ออฟไลน์"}
-                                  </div>
-                                  {!isOnline &&
-                                    selectedRiderMapInfo.last_seen && (
-                                      <div className="text-xs text-slate-500 font-medium mt-1">
-                                        {new Date(
-                                          selectedRiderMapInfo.last_seen,
-                                        ).toLocaleTimeString("th-TH", {
-                                          hour: "2-digit",
-                                          minute: "2-digit",
-                                          hour12: false,
-                                        })}{" "}
-                                        น.
-                                      </div>
-                                    )}
-                                </div>
-                              );
-                            })()}
-                        </div>
-                      </InfoWindowF>
-                    )}
                 </GoogleMap>
               ) : (
                 <div className="w-full h-full flex items-center justify-center animate-pulse text-slate-400 font-bold">
@@ -2050,16 +1988,16 @@ const unlockOrder = (orderId: string) => {
               )}
             </div>
             <div className="p-4 bg-white shrink-0 border-t border-slate-100 flex gap-2 overflow-x-auto thin-scrollbar">
-              <div className="px-3 py-1.5 bg-red-50 text-red-700 text-sm font-bold rounded-lg border border-red-100 shrink-0 flex items-center gap-1.5">
-                <div className="w-3 h-3 bg-red-500 rounded-full shadow-inner"></div>{" "}
-                ร้านของเรา
+              <div className="px-3 py-1.5 bg-emerald-50 text-emerald-700 text-sm font-bold rounded-lg border border-emerald-100 shrink-0 flex items-center gap-1.5">
+                <div className="w-3 h-3 bg-emerald-500 rounded-full shadow-inner animate-pulse"></div>
+                ออนไลน์ ({ridersLoc.filter((r) => isOnlineAt(r.last_seen, currentTime)).length})
               </div>
-              <div className="px-3 py-1.5 bg-blue-50 text-blue-700 text-sm font-bold rounded-lg border border-blue-100 shrink-0 flex items-center gap-1.5">
-                <div className="w-3 h-3 bg-blue-500 rounded-full shadow-inner animate-pulse"></div>{" "}
-                ไรเดอร์
+              <div className="px-3 py-1.5 bg-slate-50 text-slate-500 text-sm font-bold rounded-lg border border-slate-200 shrink-0 flex items-center gap-1.5">
+                <div className="w-3 h-3 bg-slate-400 rounded-full shadow-inner"></div>
+                ออฟไลน์ ({ridersLoc.filter((r) => r.last_lat && r.last_lng && !isOnlineAt(r.last_seen, currentTime)).length})
               </div>
               <span className="text-sm text-slate-400 my-auto ml-auto pl-4 whitespace-nowrap">
-                *พิกัดอัปเดตทุกๆ 15 วินาที*
+                แตะหมุดเพื่อดูวันเวลาออนไลน์ล่าสุด · พิกัดอัปเดตสด
               </span>
             </div>
           </div>
