@@ -48,7 +48,13 @@ const recordDay = (checkIn: string, biz: BizTime) => {
 async function fetchDoneOrders(riderId: string, from: Date | null, to: Date | null) {
   const out: RiderOrderRow[] = [];
   for (let offset = 0; ; offset += PAGE) {
-    let q = supabase.from("orders").select(ORDER_COLS).eq("rider_id", riderId).eq("status", DONE);
+    // ไม่นับออเดอร์ที่ถูกลบ (ทั้งในรายการ และในการคิดค่าน้ำมัน — ตรงกับ /payroll)
+    let q = supabase
+      .from("orders")
+      .select(ORDER_COLS)
+      .eq("rider_id", riderId)
+      .eq("status", DONE)
+      .not("is_deleted", "is", true);
     if (from) q = q.gte("created_at", from.toISOString());
     if (to) q = q.lt("created_at", to.toISOString());
     const { data, error } = await q

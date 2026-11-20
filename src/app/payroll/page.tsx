@@ -220,11 +220,12 @@ export default function PayrollPage() {
       profiles: Array.isArray(item.profiles) ? item.profiles[0] : item.profiles
     })) as AttendanceRecord[];
 
-    // 2. ดึงออเดอร์ทั้งหมดของ "ทุกคนในวันนี้" ภายใน 1 Query
+    // 2. ดึงออเดอร์ทั้งหมดของ "ทุกคนในวันนี้" ภายใน 1 Query (ไม่นับออเดอร์ที่ถูกลบ)
     const { data: allTodayOrders, error: orderError } = await supabase
       .from('orders')
       .select('rider_id, created_at, end_time')
       .eq('status', 'ส่งแล้ว/เสร็จ')
+      .not('is_deleted', 'is', true)
       .gte('created_at', startOfDayThailand.toISOString())
       .lt('created_at', endOfDayThailand.toISOString()); 
 
