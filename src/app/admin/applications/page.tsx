@@ -224,13 +224,19 @@ export default function ApplicationsDashboard() {
                     className={`p-4 border-b border-slate-100 cursor-pointer flex items-center gap-3 transition-colors ${selectedApp?.id === app.id ? "bg-indigo-50/80 border-l-4 border-l-indigo-500" : "hover:bg-white border-l-4 border-l-transparent"}`}
                   >
                     <div className="relative w-12 h-12 rounded-full overflow-hidden shrink-0 bg-slate-200 shadow-sm border border-white">
-                      <Image
-                        src={mediaUrl(app.fb_profile_image)}
-                        alt="Profile"
-                        fill
-                        sizes="48px"
-                        className="object-cover"
-                      />
+                      {app.fb_profile_image ? (
+                        <Image
+                          src={mediaUrl(app.fb_profile_image)}
+                          alt="Profile"
+                          fill
+                          sizes="48px"
+                          className="object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center text-lg font-black text-slate-400">
+                          {(app.full_name || "?").slice(0, 1)}
+                        </span>
+                      )}
                     </div>
                     <div className="min-w-0 flex-1">
                       <h4 className="text-sm font-black text-slate-800 truncate">
@@ -254,16 +260,22 @@ export default function ApplicationsDashboard() {
                     <div
                       className="relative group cursor-zoom-in shrink-0"
                       onClick={() =>
-                        setSelectedFullImage(selectedApp.fb_profile_image)
+                        selectedApp.fb_profile_image && setSelectedFullImage(selectedApp.fb_profile_image)
                       }
                     >
-                      <Image
-                        src={mediaUrl(selectedApp.fb_profile_image)}
-                        width={96}
-                        height={96}
-                        alt="Profile"
-                        className="rounded-2xl object-cover transition-opacity group-hover:opacity-80 shadow-md border-2 border-white aspect-square"
-                      />
+                      {selectedApp.fb_profile_image ? (
+                        <Image
+                          src={mediaUrl(selectedApp.fb_profile_image)}
+                          width={96}
+                          height={96}
+                          alt="Profile"
+                          className="rounded-2xl object-cover transition-opacity group-hover:opacity-80 shadow-md border-2 border-white aspect-square"
+                        />
+                      ) : (
+                        <div className="flex h-24 w-24 items-center justify-center rounded-2xl border-2 border-white bg-slate-100 text-xs font-bold text-slate-400 shadow-md">
+                          ไม่มีรูป
+                        </div>
+                      )}
                       <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity">
                         <ZoomIn className="text-white" size={24} />
                       </div>
