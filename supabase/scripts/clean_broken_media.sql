@@ -1,7 +1,8 @@
 -- =====================================================================
 -- ล้างลิงก์รูปที่เสีย (ไฟล์ไม่มีอยู่ใน Supabase Storage แล้ว) หลังย้ายรูปไป R2
 -- - ลบเฉพาะลิงก์ Supabase ที่ "ไม่มีไฟล์จริง" — ลิงก์ R2 และลิงก์ที่ยังมีไฟล์ไม่ถูกแตะ
--- - ช่องที่เก็บหลายรูป (คั่นด้วย ,) ลบเฉพาะรูปที่เสีย ถ้าไม่เหลือเลยจะเป็นค่าว่าง (null)
+-- - ช่องที่เก็บหลายรูป (คั่นด้วย ,) ลบเฉพาะรูปที่เสีย ถ้าไม่เหลือเลยจะเป็นค่าว่าง
+--   (null / หรือ '' สำหรับคอลัมน์ที่ห้ามเป็น null เช่นรูปในใบสมัคร)
 -- - สำรองค่าเดิมทุกแถวไว้ในตาราง public._broken_media_backup ก่อนแก้
 --   คืนค่าได้ด้วยคำสั่งท้ายไฟล์ / ตรวจครบแล้วค่อย drop table ทิ้ง
 -- รันทั้งไฟล์ได้เลย (ทำในธุรกรรมเดียว ถ้าพังกลางทางจะไม่มีอะไรเปลี่ยน)
@@ -42,14 +43,21 @@ $$;
 
 create or replace function pg_temp.clean_column(p_table text, p_column text) returns int
 language plpgsql as $$
-declare n int;
+declare
+  n int;
+  empty_value text;
 begin
+  -- คอลัมน์ที่ห้ามเป็น null (รูปในใบสมัคร) ใช้ค่าว่าง '' แทน — หน้าเว็บถือว่า "ไม่มีรูป" เหมือนกัน
+  select case when is_nullable = 'NO' then '' end into empty_value
+  from information_schema.columns
+  where table_schema = 'public' and table_name = p_table and column_name = p_column;
+
   execute format($q$
     insert into public._broken_media_backup (table_name, row_id, column_name, old_value, new_value)
-    select %1$L, id, %2$L, %2$I, pg_temp.clean(%2$I)
+    select %1$L, id, %2$L, %2$I, coalesce(pg_temp.clean(%2$I), %4$L)
     from public.%3$I
-    where %2$I like '%%/storage/v1/object/%%' and pg_temp.clean(%2$I) is distinct from %2$I
-  $q$, p_table, p_column, p_table);
+    where %2$I like '%%/storage/v1/object/%%' and coalesce(pg_temp.clean(%2$I), %4$L) is distinct from %2$I
+  $q$, p_table, p_column, p_table, empty_value);
 
   execute format($q$
     update public.%1$I t set %2$I = b.new_value
