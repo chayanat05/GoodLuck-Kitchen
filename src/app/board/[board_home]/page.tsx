@@ -1095,11 +1095,8 @@ const unlockOrder = (orderId: string) => {
 
     // This part now runs for both new and edited orders if there are images.
     if (filesToUpload.length > 0 && targetId) {
-      const uploadedUrls: string[] = [];
-      for (const file of filesToUpload) {
-        const url = await uploadImage(file);
-        if (url) uploadedUrls.push(url);
-      }
+      // อัปโหลดทุกรูปพร้อมกัน (เดิมทีละรูป) — ลำดับรูปยังเหมือนที่เลือก
+      const uploadedUrls = (await Promise.all(filesToUpload.map(uploadImage))).filter((u): u is string => !!u);
       if (uploadedUrls.length > 0) {
         const finalUrls = [...currentExisting, ...uploadedUrls].join(",");
         await supabase.from("orders").update({ image_url: finalUrls }).eq("id", targetId);

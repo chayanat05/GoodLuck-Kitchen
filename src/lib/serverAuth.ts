@@ -27,12 +27,16 @@ export async function checkToken(token: string | null, level: Level): Promise<Re
       auth: { persistSession: false, autoRefreshToken: false },
       global: { headers: { Authorization: `Bearer ${token}` } },
     });
-    const { data: userData, error } = await sb.auth.getUser(token);
+    // ยิงพร้อมกัน 3 อย่าง (เดิมรอทีละขั้น) — ลดเวลารอเหลือรอบเดียว
+    const [{ data: userData, error }, { data: staff }, { data: admin }] = await Promise.all([
+      sb.auth.getUser(token),
+      sb.rpc("is_staff"),
+      sb.rpc("is_admin"),
+    ]);
     if (error || !userData.user) {
       cache.delete(token);
       return { ok: false, status: 401, error: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่" };
     }
-    const [{ data: staff }, { data: admin }] = await Promise.all([sb.rpc("is_staff"), sb.rpc("is_admin")]);
     entry = { exp: now + TTL_MS, userId: userData.user.id, staff: staff === true, admin: admin === true };
     if (cache.size > 500) cache.clear();
     cache.set(token, entry);
