@@ -44,6 +44,8 @@ import { toast } from "sonner";
 import { useFCM } from "@/hooks/useFCM";
 
 import AttendanceCameraModal from "@/components/AttendanceCameraModal";
+import SmoothMarker from "@/components/SmoothMarker";
+import { useRiderLiveMap, useRiderLiveSender } from "@/hooks/useRiderLive";
 
 const SHOP_LAT = 16.24813;
 const SHOP_LNG = 103.242206;
@@ -118,7 +120,6 @@ export default function RiderPage() {
 
   const [myBranchId, setMyBranchId] = useState<string | null>(null);
   const [cutOffHour, setCutOffHour] = useState<number>(4);
-  const lastGpsUpdateRef = useRef<number>(0);
 
   const [isCheckingAuth, setIsCheckingAuth] = useState(true); 
 
@@ -480,6 +481,8 @@ export default function RiderPage() {
     };
   }, [currentUser, currentUserRole, fetchOrdersAndBranches]);
 
+  const reportLocation = useRiderLiveSender(currentUser?.id);
+
   useEffect(() => {
     if (!currentUser) return;
     if (!navigator.geolocation) {
@@ -494,11 +497,7 @@ export default function RiderPage() {
           setGpsEnabled(true);
           setLocationError(null);
           setMyLocation({ lat: position.coords.latitude, lng: position.coords.longitude });
-          supabase.from("profiles").update({
-            last_lat: position.coords.latitude,
-            last_lng: position.coords.longitude,
-            last_seen: new Date().toISOString(),
-          }).eq("id", currentUser.id);
+          reportLocation(position.coords.latitude, position.coords.longitude);
         },
         (error) => {
           console.error("GPS Init Error:", error);
@@ -525,7 +524,7 @@ export default function RiderPage() {
     initLocation(); 
 
     const watchId = navigator.geolocation.watchPosition(
-      async (position) => {
+      (position) => {
         if (position.coords.accuracy > 150) {
           console.warn(`[GPS] Ignore low accuracy: ${position.coords.accuracy}m`);
           return;
@@ -534,16 +533,8 @@ export default function RiderPage() {
         setGpsEnabled(true);
         setLocationError(null);
         setMyLocation({ lat: position.coords.latitude, lng: position.coords.longitude });
-
-        const now = Date.now();
-        if (now - lastGpsUpdateRef.current > 15000) {
-          lastGpsUpdateRef.current = now;
-          await supabase.from("profiles").update({
-            last_lat: position.coords.latitude,
-            last_lng: position.coords.longitude,
-            last_seen: new Date().toISOString(),
-          }).eq("id", currentUser.id);
-        }
+        // ส่งพิกัดสด (เฉพาะตอนมีคนเปิดแผนที่) + บันทึก DB ไม่เกินนาทีละครั้ง
+        reportLocation(position.coords.latitude, position.coords.longitude);
       },
       (error) => {
         console.error("GPS Watch Error:", error);
@@ -560,35 +551,16 @@ export default function RiderPage() {
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [currentUser]);
+  }, [currentUser, reportLocation]);
 
-  useEffect(() => {
-    if (showRiderMap) {
-      const initMap = async () => {
-        await fetchRidersLocation();
-      };
-      initMap();
-      const interval = setInterval(fetchRidersLocation, 30000);
-      const profileChannel = supabase.channel("public:profiles:rider-map")
-        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles" }, (payload) => {
-          setRidersLoc((prev) => {
-            const exists = prev.some(r => r.id === payload.new.id);
-            if (!exists && payload.new.last_lat) {
-              return [...prev, payload.new as RiderLocation];
-            }
-            return prev.map(r => r.id === payload.new.id ? { ...r, ...payload.new as RiderLocation } : r);
-          });
-          setSelectedRiderMapInfo((prev) => {
-            if (prev && prev.id === payload.new.id) {
-              return { ...prev, ...payload.new as RiderLocation };
-            }
-            return prev;
-          });
-        })
-        .subscribe();
-      return () => { clearInterval(interval); supabase.removeChannel(profileChannel); };
-    }
-  }, [showRiderMap, fetchRidersLocation]);
+  // แผนที่ไรเดอร์: ดึงจาก DB ครั้งเดียวตอนเปิด แล้วอัปเดตสดผ่าน Realtime Broadcast
+  useRiderLiveMap({
+    active: showRiderMap,
+    riders: ridersLoc,
+    refetch: fetchRidersLocation,
+    setRiders: setRidersLoc,
+    setSelected: setSelectedRiderMapInfo,
+  });
 
   useEffect(() => {
     if (imageGallery && galleryRef.current) {
@@ -1799,7 +1771,7 @@ export default function RiderPage() {
                     const isRiderOnline = isOnline(rider.last_seen);
                     
                     return (
-                      <MarkerF
+                      <SmoothMarker
                         key={rider.id}
                         position={{ lat: rider.last_lat, lng: rider.last_lng }}
                         icon={{

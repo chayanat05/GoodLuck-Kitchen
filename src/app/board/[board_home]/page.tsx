@@ -54,12 +54,14 @@ import {
   Smartphone,
 } from "lucide-react";
 
-import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from '@react-google-maps/api';
+import { useJsApiLoader, GoogleMap, InfoWindowF } from '@react-google-maps/api';
 import { toast } from 'sonner';
 import Image from 'next/image';
 import Swal from 'sweetalert2';
 
 import AttendanceCameraModal from "@/components/AttendanceCameraModal";
+import SmoothMarker from "@/components/SmoothMarker";
+import { useRiderLiveMap } from "@/hooks/useRiderLive";
 
 export default function BranchBoardPage({ params }: { params: Promise<{ board_home: string }> }) {
   const resolvedParams = use(params);
@@ -674,35 +676,14 @@ const unlockOrder = (orderId: string) => {
     };
   }, [fetchOrdersAndLocations, showToast, currentBranchId, playSound, fetchAllBranchesTodaysOrders]);
 
-  useEffect(() => {
-    if (showRiderMap && currentBranchId) {
-      const timer = setTimeout(() => fetchRidersLocation(), 0);
-      const interval = setInterval(fetchRidersLocation, 15000);
-      const profileChannel = supabase
-        .channel(`profiles-map-${currentBranchId}`)
-        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles" }, (payload) => {
-          setRidersLoc((prev) => {
-            const exists = prev.some(r => r.id === payload.new.id);
-            if (!exists && payload.new.last_lat) {
-              return [...prev, payload.new as RiderLocation];
-            }
-            return prev.map(r => r.id === payload.new.id ? { ...r, ...payload.new as RiderLocation } : r);
-          });
-          setSelectedRiderMapInfo((prev) => {
-            if (prev && prev.id === payload.new.id) {
-              return { ...prev, ...payload.new as RiderLocation };
-            }
-            return prev;
-          });
-        })
-        .subscribe();
-      return () => {
-        clearInterval(interval);
-        clearTimeout(timer);
-        supabase.removeChannel(profileChannel);
-      };
-    }
-  }, [showRiderMap, fetchRidersLocation, currentBranchId]);
+  // แผนที่ไรเดอร์: ดึงจาก DB ครั้งเดียวตอนเปิด แล้วอัปเดตสดผ่าน Realtime Broadcast (ไม่ผ่าน DB)
+  useRiderLiveMap({
+    active: showRiderMap && !!currentBranchId,
+    riders: ridersLoc,
+    refetch: fetchRidersLocation,
+    setRiders: setRidersLoc,
+    setSelected: setSelectedRiderMapInfo,
+  });
 
   useEffect(() => {
     if (imageGallery && galleryRef.current) {
@@ -1987,7 +1968,7 @@ const unlockOrder = (orderId: string) => {
                     (rider) =>
                       rider.last_lat &&
                       rider.last_lng && (
-                        <MarkerF
+                        <SmoothMarker
                           key={rider.id}
                           position={{
                             lat: rider.last_lat,
