@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import Swal from "sweetalert2";
+import { splitBizTime } from "@/hooks/useBusinessDayStart";
 
 interface CashOrder {
   id: string;
@@ -44,11 +45,12 @@ export default function CashClearancePage({ params }: { params: Promise<{ board_
 
     const now = new Date();
     const shiftStart = new Date(now);
-    // เวลาเริ่มวันใหม่ใช้ค่ากลางจากหน้าตั้งค่าระบบ (ค่าเริ่มต้น 07:00 เหมือนหน้าบอร์ด)
-    const parsedHour = parseInt(String(settings?.business_day_start || "07:00").split(":")[0], 10);
-    const cutOff = Number.isNaN(parsedHour) ? 7 : parsedHour;
-    if (now.getHours() < cutOff) { shiftStart.setDate(shiftStart.getDate() - 1); }
-    shiftStart.setHours(cutOff, 0, 0, 0);
+    // เวลาเริ่มวันใหม่ใช้ค่ากลางจากหน้าตั้งค่าระบบ (รวมนาที เช่น 06:30)
+    const cutOff = splitBizTime(String(settings?.business_day_start || "07:00"));
+    if (now.getHours() < cutOff.h || (now.getHours() === cutOff.h && now.getMinutes() < cutOff.m)) {
+      shiftStart.setDate(shiftStart.getDate() - 1);
+    }
+    shiftStart.setHours(cutOff.h, cutOff.m, 0, 0);
 
     const { data, error } = await supabase
       .from("orders")

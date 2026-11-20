@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { mediaUrl } from "@/lib/media";
 import { uploadMedia } from "@/lib/mediaUpload";
+import { autoGasFor, defaultSavingsFor } from "@/lib/riderPay";
 import { 
   ArrowLeft, Banknote, Calendar, Loader2, CheckCircle2, AlertTriangle, 
   Search, Edit3, X, Save, Clock, Package, DollarSign, Fuel, Trophy, User, ImagePlus, Check,
@@ -37,6 +38,8 @@ interface AttendanceRecord {
     default_savings?: number;
   } | null;
   real_time_order_count?: number;
+  /** กะควบ: ไม่ใช่กะแรกของวันของพนักงานคนนี้ → ไม่ได้ค่าน้ำมัน/ไม่หักเงินเก็บซ้ำ */
+  is_extra_shift?: boolean;
 }
 
 interface EditForm {
@@ -64,15 +67,6 @@ interface ProfileForWageEdit {
   role: string;
 }
 
-const getAutoGasAllowance = (orders: number): number => {
-  if (orders >= 71) return 350;
-  if (orders >= 65) return 300;
-  if (orders >= 55) return 250;
-  if (orders >= 41) return 200;
-  if (orders >= 31) return 150;
-  if (orders >= 21) return 100;
-  return 50; 
-};
 
 const getBusinessDate = (bizTime: string): string => {
   const [h, m] = bizTime.split(':').map(Number);
@@ -236,24 +230,27 @@ export default function PayrollPage() {
 
     if (orderError) console.error(orderError);
 
-    // 3. จับคู่ออเดอร์กับไรเดอร์
-    const recordsWithOrders = formattedData.map((record) => {
-      if (record.profiles?.role !== 'kitchen') {
-        let count = 0;
-        if (allTodayOrders) {
-          count = allTodayOrders.filter(o => {
-            const d = new Date(o.end_time || o.created_at);
-            return o.rider_id === record.rider_id && d.getTime() >= startOfDayThailand.getTime() && d.getTime() < endOfDayThailand.getTime();
-          }).length;
-        }
+    // 3. ควบกะ: กะแรกของวัน (เข้างานเร็วสุด) ของแต่ละคนเป็นกะหลัก กะที่เหลือเป็นกะควบ
+    const firstShift = new Map<string, AttendanceRecord>();
+    for (const r of formattedData) {
+      const cur = firstShift.get(r.rider_id);
+      if (!cur || new Date(r.check_in) < new Date(cur.check_in)) firstShift.set(r.rider_id, r);
+    }
 
+    // 4. จับคู่ออเดอร์กับไรเดอร์ — นับตามเวลาที่ออเดอร์เข้า (created_at อยู่ในวันนี้ ตาม query ด้านบน)
+    //    ออเดอร์ที่เข้าก่อนตัดรอบแต่ส่งเสร็จหลังตัดรอบ นับเป็นของวันที่ออเดอร์เข้า
+    const recordsWithOrders = formattedData.map((record) => {
+      const is_extra_shift = firstShift.get(record.rider_id)?.id !== record.id;
+      if (record.profiles?.role !== 'kitchen') {
+        const count = (allTodayOrders ?? []).filter(o => o.rider_id === record.rider_id).length;
         return { 
           ...record, 
+          is_extra_shift,
           real_time_order_count: (record.payment_status === 'จ่ายแล้ว' && record.order_count > 0) ? record.order_count : count 
         };
       }
       
-      return { ...record, real_time_order_count: 0 };
+      return { ...record, is_extra_shift, real_time_order_count: 0 };
     });
 
     setRecords(recordsWithOrders);
@@ -308,7 +305,7 @@ useEffect(() => {
     
     const isKitchen = record.profiles?.role === 'kitchen';
     const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
-    const autoGas = getAutoGasAllowance(currentOrders);
+    const autoGas = autoGasFor(currentOrders, !!record.is_extra_shift);
     const proposedGas = (record.payment_status === 'จ่ายแล้ว' || record.total_pay > 0) 
   ? (record.gas_allowance || 0) 
   : autoGas;
@@ -321,7 +318,7 @@ useEffect(() => {
       diligence_bonus: record.diligence_bonus || 0,
       accumulated_savings: (record.payment_status === 'จ่ายแล้ว' || record.total_pay > 0) 
         ? (record.accumulated_savings || 0) 
-        : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? (record.profiles?.default_savings ?? 50) : record.accumulated_savings),
+        : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? defaultSavingsFor(record.profiles?.default_savings, !!record.is_extra_shift) : record.accumulated_savings),
       manual_total: record.total_pay || null,
       payment_status: record.payment_status || "รอชำระ",
       payment_slip_url: record.payment_slip_url || null,
@@ -487,10 +484,10 @@ useEffect(() => {
     const finalBasePay = (finalMinutes / 60) * currentRate;
 
     const finalOrders = record.real_time_order_count ?? (record.order_count || 0);
-    const autoGas = getAutoGasAllowance(finalOrders);
+    const autoGas = autoGasFor(finalOrders, !!record.is_extra_shift);
     
     const finalGas = record.total_pay > 0 ? (record.gas_allowance || 0) : autoGas;
-    const finalSavings = (record.accumulated_savings === 0 || record.accumulated_savings == null) ? (record.profiles?.default_savings ?? 50) : record.accumulated_savings;
+    const finalSavings = (record.accumulated_savings === 0 || record.accumulated_savings == null) ? defaultSavingsFor(record.profiles?.default_savings, !!record.is_extra_shift) : record.accumulated_savings;
     const finalBonus = record.diligence_bonus || 0;
 
     const calculatedTotal = Math.max(0, finalBasePay + (showOrderAndGas ? finalGas : 0) + finalBonus - finalSavings);
@@ -625,14 +622,14 @@ useEffect(() => {
       const displayBasePay = (displayMinutes / 60) * currentRate;
 
       const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
-      const autoGas = getAutoGasAllowance(currentOrders);
+      const autoGas = autoGasFor(currentOrders, !!record.is_extra_shift);
       const isPaid = record.payment_status === 'จ่ายแล้ว';
       
       const displayGas = (isPaid || record.total_pay > 0) ? (record.gas_allowance || 0) : autoGas;
 
       const displaySavings = (isPaid || record.total_pay > 0) 
         ? (record.accumulated_savings || 0) 
-        : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? (record.profiles?.default_savings ?? 50) : record.accumulated_savings);
+        : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? defaultSavingsFor(record.profiles?.default_savings, !!record.is_extra_shift) : record.accumulated_savings);
 
       const calculatedDisplayTotal = Math.max(0, displayBasePay + (showOrderAndGas ? displayGas : 0) + (record.diligence_bonus || 0) - displaySavings);
 
@@ -788,12 +785,12 @@ useEffect(() => {
 
       const showOrderAndGas = record.profiles?.role !== 'kitchen';
       const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
-      const autoGas = getAutoGasAllowance(currentOrders);
+      const autoGas = autoGasFor(currentOrders, !!record.is_extra_shift);
       
       const isPaid = record.payment_status === 'จ่ายแล้ว';
       const displayGas = (isPaid || record.total_pay > 0) ? (record.gas_allowance || 0) : autoGas;
 
-      const displaySavings = isPaid ? (record.accumulated_savings || 0) : (record.accumulated_savings ?? (record.profiles?.default_savings ?? 50));
+      const displaySavings = isPaid ? (record.accumulated_savings || 0) : (record.accumulated_savings ?? defaultSavingsFor(record.profiles?.default_savings, !!record.is_extra_shift));
       const calculatedDisplayTotal = Math.max(0, displayBasePay + (showOrderAndGas ? displayGas : 0) + (record.diligence_bonus || 0) - displaySavings);
 
       const displayTotal = isWorking
@@ -966,14 +963,14 @@ useEffect(() => {
               const displayBasePay = (displayMinutes / 60) * currentRate;
 
               const currentOrders = record.real_time_order_count ?? (record.order_count || 0);
-              const autoGas = getAutoGasAllowance(currentOrders);
+              const autoGas = autoGasFor(currentOrders, !!record.is_extra_shift);
               
               const displayGas = (isPaid || record.total_pay > 0) ? (record.gas_allowance || 0) : autoGas;
 
               // 🌟 เปลี่ยนบรรทัด displaySavings ตรงนี้
               const displaySavings = (isPaid || record.total_pay > 0) 
                 ? (record.accumulated_savings || 0) 
-                : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? (record.profiles?.default_savings ?? 50) : record.accumulated_savings);
+                : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? defaultSavingsFor(record.profiles?.default_savings, !!record.is_extra_shift) : record.accumulated_savings);
 
               const calculatedDisplayTotal = Math.max(0, displayBasePay + (showOrderAndGas ? displayGas : 0) + (record.diligence_bonus || 0) - displaySavings);
 
@@ -1025,6 +1022,15 @@ useEffect(() => {
                           <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border ${isPaid ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}>
                             {isPaid ? <Check size={10}/> : null} {record.payment_status || 'รอชำระ'}
                           </span>
+
+                          {record.is_extra_shift && (
+                            <span
+                              title="กะที่ 2 ของวันเดียวกัน — นับรวมเป็นกะเดียว: ไม่ได้ค่าน้ำมันซ้ำ และไม่หักเงินเก็บซ้ำ"
+                              className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border bg-violet-50 text-violet-600 border-violet-200"
+                            >
+                              กะควบ
+                            </span>
+                          )}
 
                           {record.payment_slip_url && (
                             <button 
@@ -1306,7 +1312,7 @@ useEffect(() => {
                             setEditForm({
                               ...editForm, 
                               order_count: newCount,
-                              gas_allowance: getAutoGasAllowance(newCount),
+                              gas_allowance: autoGasFor(newCount, !!editingRecord.is_extra_shift),
                               manual_total: null
                             });
                           }}

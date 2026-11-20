@@ -45,6 +45,7 @@ import { useFCM } from "@/hooks/useFCM";
 
 import AttendanceCameraModal from "@/components/AttendanceCameraModal";
 import RiderMapPin from "@/components/RiderMapPin";
+import { splitBizTime, useBusinessDayStart } from "@/hooks/useBusinessDayStart";
 import { useRiderLiveMap, useRiderLiveSender } from "@/hooks/useRiderLive";
 
 const SHOP_LAT = 16.24813;
@@ -119,7 +120,9 @@ export default function RiderPage() {
   const [riderName, setRiderName] = useState<string>("กำลังโหลด...");
 
   const [myBranchId, setMyBranchId] = useState<string | null>(null);
-  const [cutOffHour, setCutOffHour] = useState<number>(4);
+  // เวลาตัดรอบจากหน้าตั้งค่าแอดมิน (รวมนาที) อัปเดตเองเมื่อแอดมินเปลี่ยน
+  const businessDayStart = useBusinessDayStart();
+  const cutOff = splitBizTime(businessDayStart);
 
   const [isCheckingAuth, setIsCheckingAuth] = useState(true); 
 
@@ -299,12 +302,9 @@ export default function RiderPage() {
       setRiderName(profile?.username || "ไรเดอร์");
       setCurrentUserRole(profile?.role || "rider");
       
-      const { data: settings } = await supabase.from("store_settings").select("emergency_reveal_contacts, business_day_start").eq("id", 1).single();
+      const { data: settings } = await supabase.from("store_settings").select("emergency_reveal_contacts").eq("id", 1).single();
       if (settings) {
         setIsEmergencyMode(settings.emergency_reveal_contacts);
-        // เวลาเริ่มวันใหม่ใช้ค่ากลางจากหน้าตั้งค่าระบบ (ทุกสาขาอยู่ที่เดียวกัน)
-        const startHour = parseInt(String(settings.business_day_start || "").split(":")[0], 10);
-        if (!Number.isNaN(startHour)) setCutOffHour(startHour);
       }
 
       const isSuper = profile?.role === 'superadmin' || profile?.role === 'admin';
@@ -891,8 +891,10 @@ export default function RiderPage() {
   const shiftCompletedOrders = useMemo(() => {
     const now = new Date();
     const shiftStart = new Date(now);
-    if (now.getHours() < cutOffHour) { shiftStart.setDate(shiftStart.getDate() - 1); }
-    shiftStart.setHours(cutOffHour, 0, 0, 0);
+    if (now.getHours() < cutOff.h || (now.getHours() === cutOff.h && now.getMinutes() < cutOff.m)) {
+      shiftStart.setDate(shiftStart.getDate() - 1);
+    }
+    shiftStart.setHours(cutOff.h, cutOff.m, 0, 0);
 
     return completedOrders
       .filter((order) => {
@@ -904,7 +906,7 @@ export default function RiderPage() {
         const timeB = new Date(b.end_time || b.created_at).getTime();
         return timeB - timeA;
       });
-  }, [completedOrders, cutOffHour]);
+  }, [completedOrders, cutOff.h, cutOff.m]);
 
   const getRiderStatusDisplay = (status: string) => {
     if (status === "New" || status === "ออเดอร์ใหม่") return { text: "ออเดอร์เข้าใหม่", color: "bg-blue-500/20 text-blue-300 border-blue-400/30" };
@@ -1154,7 +1156,7 @@ export default function RiderPage() {
         onBack={() => setShowDashboard(false)}
         activeOrdersCount={activeOrders.length}
         allCompletedOrders={completedOrders}
-        businessDayStart={`${String(cutOffHour).padStart(2, '0')}:00`} 
+        businessDayStart={businessDayStart}
       />
     );
   }

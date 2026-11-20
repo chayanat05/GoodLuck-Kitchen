@@ -1,1378 +1,784 @@
 'use client'
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { 
-  ArrowLeft, LayoutDashboard, CheckCircle2, 
-  MapPinned, X, ClipboardList,
-  ImageIcon, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Calendar, CalendarDays,
-  Banknote, Coins, Clock, Package, Trophy, PiggyBank, Fuel, Landmark, AlertCircle
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  AlertCircle, ArrowLeft, Banknote, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList,
+  Clock, Coins, CreditCard, Fuel, ImageIcon, Landmark, Loader2, MapPinned, Package, PiggyBank, RefreshCw,
+  Smartphone, Trophy, Wallet, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
-import { Order } from '../../components/OrderCard';
 import Image from 'next/image';
-import { mediaUrl } from "@/lib/media";
-import { supabase } from '../../lib/supabase'; 
+import { Order } from '../../components/OrderCard';
+import { mediaUrl } from '@/lib/media';
+import { supabase } from '../../lib/supabase';
+import { payKind } from '@/lib/dashboard/stats';
+import { fmtMinutes, getAutoGasAllowance, GAS_TIERS, type AttendanceRecord, type RecordPay } from '@/lib/riderPay';
+import {
+  fetchPayHistory,
+  useRiderDashboard,
+  type MonthlyPaymentRecord,
+  type RiderRange,
+} from '@/hooks/useRiderDashboard';
 
-// 🌟 1. แก้ไขระบบตัดรอบเดือนให้ตรงกับเวลาเปิดร้าน
-const getCycleDetails = (businessDayStart: string) => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth(); 
-  const date = now.getDate();
-  const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-
-  let cycleEndMonth = month;
-  const cycleEndYear = year; 
-  
-  if (date > 26 || (date === 26 && (now.getHours() > bizHour || (now.getHours() === bizHour && now.getMinutes() >= bizMin)))) {
-    cycleEndMonth = month + 1;
-  }
-  
-  const startOfCycle = new Date(cycleEndYear, cycleEndMonth - 1, 26, bizHour, bizMin, 0, 0);
-  const endOfCycle = new Date(cycleEndYear, cycleEndMonth, 26, bizHour, bizMin, 0, 0);
-
-  return { startDateStr: startOfCycle.toISOString(), endDateStr: endOfCycle.toISOString() };
-};
-
-const getLocalYMD = (date: Date) => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
-
-const getInitialBizDate = (businessDayStart: string) => {
-  const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-  const now = new Date();
-  if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
-    now.setDate(now.getDate() - 1);
-  }
-  return getLocalYMD(now);
-};
-
-export const getAutoGasAllowance = (orders: number): number => {
-  if (orders >= 71) return 350;
-  if (orders >= 65) return 300;
-  if (orders >= 55) return 250;
-  if (orders >= 41) return 200;
-  if (orders >= 31) return 150;
-  if (orders >= 21) return 100;
-  return 50; 
-};
+// ยังมีที่อื่น import จากไฟล์นี้ได้
+export { getAutoGasAllowance };
 
 interface DashboardViewProps {
   riderName: string;
   onBack: () => void;
   activeOrdersCount: number;
-  allCompletedOrders: Order[]; 
-  businessDayStart: string; 
+  allCompletedOrders: Order[];
+  businessDayStart: string;
 }
 
-interface AttendanceRecord {
-  id: string;
-  rider_id: string;
-  check_in: string;
-  check_out: string | null; 
-  created_at?: string;
-  payment_status?: string | null; 
-  total_pay?: number | null;      
-  payment_slip_url?: string | null;
-  diligence_bonus?: number | null;
-  accumulated_savings?: number | null;
-  gas_allowance?: number | null;
-  total_minutes?: number | null;
-  order_count?: number | null;
-  base_pay?: number | null;
-  actual_orders_count?: number;
-}
+const baht = (n: number) => `฿${Math.round(n).toLocaleString('th-TH')}`;
+const timeOf = (s: string) => new Date(s).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false });
+const shortDate = (d: Date) => d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
 
-// 🌟 คำนวณรายได้ของบันทึกการเข้างาน (ซิงค์ลอจิกกับหน้า Payroll 100%)
-const calculateRecordPay = (
-  record: AttendanceRecord,
-  fallbackRate: number,
-  defSavings: number,
-  ordersCount?: number,
-  nowDate: Date = new Date()
-) => {
-  const isPaid = record.payment_status === 'จ่ายแล้ว';
-  const isWorking = !record.check_out;
+const RANGES: { id: RiderRange; label: string }[] = [
+  { id: 'today', label: 'วันนี้' },
+  { id: 'yesterday', label: 'เมื่อวาน' },
+  { id: 'date', label: 'เลือกวัน' },
+  { id: 'month', label: 'รายเดือน' },
+  { id: 'all', label: 'ทั้งหมด' },
+];
 
-  let minutes = record.total_minutes || 0;
-  if (isWorking && record.check_in) {
-    minutes = Math.max(0, Math.floor((nowDate.getTime() - new Date(record.check_in).getTime()) / 60000));
-  } else if (!minutes && record.check_in && record.check_out) {
-    minutes = Math.max(0, Math.floor((new Date(record.check_out).getTime() - new Date(record.check_in).getTime()) / 60000));
-  }
-
-  // 1. คำนวณเรทค่าแรงพื้นฐาน
-  let rate = fallbackRate;
-  if ((record.base_pay || 0) > 0 && (record.total_minutes || 0) > 0) {
-    rate = (record.base_pay! / record.total_minutes!) * 60;
-  }
-  const basePay = (!isWorking && (record.base_pay || 0) > 0) 
-    ? record.base_pay! 
-    : (minutes / 60) * rate;
-
-  // 2. จำนวนออเดอร์
-  const orders = ordersCount ?? (record.order_count || 0);
-  const autoGas = getAutoGasAllowance(orders);
-
-  // 3. ค่าน้ำมัน (ถ้าจ่ายแล้วหรือบันทึกยอดแล้ว ให้ใช้ค่าในระบบ แม้จะเป็น 0 ก็ตาม)
-  const gas = (isPaid || (record.total_pay ?? 0) > 0) 
-    ? (record.gas_allowance || 0) 
-    : autoGas;
-
-  // 4. เงินหักสะสม (ถ้าจ่ายแล้วหรือบันทึกยอดแล้ว ให้ใช้ค่าในระบบ แม้จะเป็น 0 ก็ตาม)
-  const savings = (isPaid || (record.total_pay ?? 0) > 0)
-    ? (record.accumulated_savings || 0)
-    : ((record.accumulated_savings === 0 || record.accumulated_savings == null) ? defSavings : record.accumulated_savings);
-
-  // 5. โบนัสขยัน
-  const bonus = record.diligence_bonus || 0;
-
-  // 6. คำนวณยอดรวมสุทธิเบื้องต้น
-  const calculatedTotal = (minutes > 0 || isWorking) ? Math.max(0, basePay + gas + bonus - savings) : 0;
-
-  // 7. เลือกยอดที่จะแสดงผล (ถ้ายกเลิกงาน/จ่ายแล้ว ให้ใช้ยอดจริงจาก Database)
-  const finalTotalPay = (!isWorking && (record.total_pay ?? 0) > 0) ? record.total_pay! : calculatedTotal;
-
-  return {
-    minutes,
-    gas,
-    savings,
-    bonus,
-    basePay,
-    totalPay: finalTotalPay,
-    rate: Math.round(rate),
-    isPaid,
-    isWorking
-  };
+const PAY_CHIP: Record<string, { label: string; cls: string; icon: ReactNode }> = {
+  transfer: { label: 'โอน', cls: 'bg-blue-50 text-blue-700', icon: <CreditCard size={11} /> },
+  copay: { label: 'คนละครึ่ง', cls: 'bg-orange-50 text-orange-700', icon: <Smartphone size={11} /> },
+  cash: { label: 'เงินสด', cls: 'bg-emerald-50 text-emerald-700', icon: <Wallet size={11} /> },
 };
 
-// 🌟 เพิ่ม Interface สำหรับประวัติรายเดือน
-interface MonthlyPaymentRecord {
-  id: string;
-  month_key: string;
-  total_amount: number;
-  total_bonus: number;
-  total_savings: number;
-  status: string;
-  slip_url: string;
-  paid_at: string;
-}
+export default function DashboardView({ riderName, onBack, activeOrdersCount, allCompletedOrders, businessDayStart }: DashboardViewProps) {
+  // ส่งงานสำเร็จเพิ่ม → โหลดใหม่
+  const dash = useRiderDashboard({ businessDayStart, refreshKey: allCompletedOrders.length });
+  const s = dash.summary;
 
-type FilterMode = 'today' | 'yesterday' | 'date' | 'month' | 'all';
-
-export default function DashboardView({ 
-  riderName, 
-  onBack, 
-  activeOrdersCount, 
-  allCompletedOrders,
-  businessDayStart
-}: DashboardViewProps) {
-  
-  const [filterMode, setFilterMode] = useState<FilterMode>('today');
-
-  // 🌟 สร้างฟังก์ชันหา "ยอดออเดอร์สดของวันนี้จริงๆ" (เพื่อไม่ให้ยอดค้างจ่ายแกว่งตามตัวกรอง)
-  const getLiveTodayOrdersCount = () => {
-    const [bHour, bMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-    const now = new Date();
-    const shiftStart = new Date(now);
-    if (now.getHours() < bHour || (now.getHours() === bHour && now.getMinutes() < bMin)) {
-      shiftStart.setDate(shiftStart.getDate() - 1);
-    }
-    shiftStart.setHours(bHour, bMin, 0, 0);
-    const shiftEnd = new Date(shiftStart);
-    shiftEnd.setDate(shiftEnd.getDate() + 1);
-
-    return (Array.isArray(allCompletedOrders) ? allCompletedOrders : []).filter(o => {
-      const d = new Date(o.end_time || o.created_at);
-      return d >= shiftStart && d < shiftEnd;
-    }).length;
-  };
-  
-  const [filterDate, setFilterDate] = useState<string>(getInitialBizDate(businessDayStart)); 
-  const [filterMonth, setFilterMonth] = useState<string>(getInitialBizDate(businessDayStart).slice(0, 7)); 
-  
-  const [jobTypeFilter, setJobTypeFilter] = useState<string>('all'); 
+  const [showCount, setShowCount] = useState(50);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-
-  const [imageGallery, setImageGallery] = useState<{urls: string[], startIndex: number} | null>(null);
-  const [imgScale, setImgScale] = useState(1);
-  const galleryRef = useRef<HTMLDivElement>(null);
-
+  const [loadingOrderId, setLoadingOrderId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [historyTab, setHistoryTab] = useState<'daily' | 'monthly'>('daily'); // 🌟 ระบบ Tab ในหน้าประวัติ
-  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);  
-  const [monthlyHistory, setMonthlyHistory] = useState<MonthlyPaymentRecord[]>([]); // 🌟 State ประวัติรายเดือน
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [imageGallery, setImageGallery] = useState<{ urls: string[]; startIndex: number } | null>(null);
 
-  const fetchAttendanceHistory = async () => {
-    setLoadingHistory(true);
-    setShowHistory(true);
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      const { data: profile } = await supabase.from('profiles').select('default_savings, hourly_rate').eq('id', session.user.id).maybeSingle();
-      const defSavings = profile?.default_savings ?? 50;
-
-      // ดึงรายวัน
-      const { data: daily } = await supabase
-        .from('rider_attendance')
-        .select('*')
-        .eq('rider_id', session.user.id)
-        .order('check_in', { ascending: false })
-        .limit(60);
-
-      // คำนวณเรทจริงจากประวัติกะที่เคยได้รับค่าแรง ถ้าในโปรไฟล์ไม่ได้ตั้งไว้หรือเป็นค่าดีฟอลต์ 40
-      let effectiveRate = profile?.hourly_rate;
-      if (daily && daily.length > 0) {
-        const withRate = daily.find(r => (r.base_pay || 0) > 0 && (r.total_minutes || 0) > 0);
-        if (withRate) {
-          const calcRate = Math.round((withRate.base_pay! / withRate.total_minutes!) * 60);
-          if (calcRate > 0) {
-            effectiveRate = (profile?.hourly_rate && profile.hourly_rate !== 40) ? profile.hourly_rate : calcRate;
-          }
-        }
-      }
-      const hRate = effectiveRate || 40;
-      setRiderHourlyRate(hRate);
-      setRiderDefaultSavings(defSavings);
-
-      if (daily) {
-        // 🌟 1. นับออเดอร์แบบเหมาทั้งวัน (Business Day) เพื่อให้ตรงกับหน้าการ์ดหลัก 100%
-        const enrichedDaily = await Promise.all(daily.map(async (r) => {
-          let trueCount = r.order_count || 0;
-          
-          if (!trueCount && r.check_in) {
-            // คำนวณขอบเขตเวลาของวันทำงาน (Business Day)
-            const d = new Date(r.check_in);
-            const [bH, bM] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-            const start = new Date(d);
-            if (d.getHours() < bH || (d.getHours() === bH && d.getMinutes() < bM)) {
-              start.setDate(start.getDate() - 1);
-            }
-            start.setHours(bH, bM, 0, 0);
-            const end = new Date(start);
-            end.setDate(end.getDate() + 1);
-
-            const { count } = await supabase
-              .from('orders')
-              .select('*', { count: 'exact', head: true })
-              .eq('rider_id', session.user.id)
-              .eq('status', 'ส่งแล้ว/เสร็จ')
-              .gte('created_at', start.toISOString())
-              .lt('created_at', end.toISOString());
-            trueCount = count || 0;
-          }
-          
-          return { ...r, actual_orders_count: trueCount };
-        }));
-
-        setAttendanceHistory(enrichedDaily as AttendanceRecord[]);
-        
-        const unpaid = enrichedDaily.filter(r => r.payment_status !== 'จ่ายแล้ว');
-        let sum = 0;
-        unpaid.forEach(r => {
-          const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hRate;
-          const pay = calculateRecordPay(r, rRate, defSavings, r.actual_orders_count);
-          sum += pay.totalPay;
-        });
-        setUnpaidSummary({ totalAmount: Math.round(sum), count: unpaid.length });
-      }
-
-      // 🌟 ดึงรายเดือน
-      const { data: monthly } = await supabase
-        .from('monthly_payments')
-        .select('*')
-        .eq('rider_id', session.user.id)
-        .order('month_key', { ascending: false });
-      if (monthly) setMonthlyHistory(monthly as MonthlyPaymentRecord[]);
-    }
-    setLoadingHistory(false);
+  const openOrder = async (id: string) => {
+    setLoadingOrderId(id);
+    const { data } = await supabase.from('orders').select('*').eq('id', id).maybeSingle();
+    setLoadingOrderId(null);
+    if (data) setSelectedOrder(data as Order);
   };
 
-  const [currentTime, setCurrentTime] = useState<Date>(new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 30000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const [riderHourlyRate, setRiderHourlyRate] = useState<number>(40);
-  const [riderDefaultSavings, setRiderDefaultSavings] = useState<number>(50);
-  const [unpaidSummary, setUnpaidSummary] = useState<{ totalAmount: number; count: number }>({
-    totalAmount: 0,
-    count: 0
-  });
-
-  const [payrollStats, setPayrollStats] = useState({
-    isWorking: false,
-    checkInTime: null as string | null,
-    hourlyRate: 40,
-    monthlyBonus: 0,
-    monthlySavings: 0,
-    dailyFixedPay: 0, 
-    dailyFixedGas: 0,
-    dailyFixedMinutes: 0,
-    paymentStatus: '' as string,
-    isPaid: false
-  });
-
-  const [historicalOrders, setHistoricalOrders] = useState<Order[]>([]);
-
-  useEffect(() => {
-    if (filterMode === 'today') return;
-    const fetchHistoricalOrders = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-
-      const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-
-      // 🌟 1. แยกส่วนการสร้างเงื่อนไข Query ออกมาเป็นฟังก์ชัน
-      const buildQuery = () => {
-        let query = supabase
-          .from('orders')
-          .select('*')
-          .eq('rider_id', session.user.id)
-          .eq('status', 'ส่งแล้ว/เสร็จ');
-
-        if (filterMode === 'yesterday') {
-          const now = new Date();
-          const targetStart = new Date(now);
-          if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
-            targetStart.setDate(targetStart.getDate() - 2);
-          } else {
-            targetStart.setDate(targetStart.getDate() - 1);
-          }
-          targetStart.setHours(bizHour, bizMin, 0, 0);
-          const targetEnd = new Date(targetStart);
-          targetEnd.setDate(targetEnd.getDate() + 1);
-          query = query.gte('created_at', targetStart.toISOString()).lt('created_at', targetEnd.toISOString());
-        } else if (filterMode === 'date' && filterDate) {
-          const [y, m, d] = filterDate.split('-').map(Number);
-          const targetStart = new Date(y, m - 1, d);
-          targetStart.setHours(bizHour, bizMin, 0, 0);
-          const targetEnd = new Date(targetStart);
-          targetEnd.setDate(targetEnd.getDate() + 1);
-          query = query.gte('created_at', targetStart.toISOString()).lt('created_at', targetEnd.toISOString());
-        } else if (filterMode === 'month' && filterMonth) {
-          const [year, month] = filterMonth.split('-');
-          const targetStart = new Date(parseInt(year), parseInt(month) - 1, 1);
-          targetStart.setHours(bizHour, bizMin, 0, 0);
-          const targetEnd = new Date(parseInt(year), parseInt(month), 1);
-          targetEnd.setHours(bizHour, bizMin, 0, 0);
-          query = query.gte('created_at', targetStart.toISOString()).lt('created_at', targetEnd.toISOString());
-        }
-
-        return query.order('created_at', { ascending: false });
-      };
-
-      // 🌟 2. ใช้ Loop ทยอยดึงข้อมูลทีละ 1000 รายการ จนกว่าจะหมด
-      let allData: Order[] = [];
-      let from = 0;
-      const limit = 1000;
-      let fetchMore = true;
-
-      while (fetchMore) {
-        const { data } = await buildQuery().range(from, from + limit - 1);
-        
-        if (data && data.length > 0) {
-          allData = [...allData, ...data];
-          from += limit;
-          // ถ้ารอบนี้ดึงมาได้ไม่ถึง 1000 แสดงว่าหมดแล้ว ให้หยุด Loop
-          if (data.length < limit) {
-            fetchMore = false;
-          }
-        } else {
-          fetchMore = false;
-        }
-      }
-
-      setHistoricalOrders(allData);
-    };
-
-    fetchHistoricalOrders();
-  }, [filterMode, filterDate, filterMonth, businessDayStart]);
-
-  // 🌟 คำนวณจำนวนออเดอร์โดยตรง (ถอด useMemo ออกเพื่อแก้ React Compiler Warning)
-  let todaysCompletedOrdersCount = 0;
-  const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-
-  if (filterMode === 'yesterday') {
-    const shiftStart = new Date(currentTime);
-    if (currentTime.getHours() < bizHour || (currentTime.getHours() === bizHour && currentTime.getMinutes() < bizMin)) {
-      shiftStart.setDate(shiftStart.getDate() - 2);
-    } else {
-      shiftStart.setDate(shiftStart.getDate() - 1);
-    }
-    shiftStart.setHours(bizHour, bizMin, 0, 0);
-    const shiftEnd = new Date(shiftStart);
-    shiftEnd.setDate(shiftEnd.getDate() + 1);
-
-    todaysCompletedOrdersCount = (Array.isArray(historicalOrders) ? historicalOrders : []).filter(o => {
-      const d = new Date(o.end_time || o.created_at);
-      return d >= shiftStart && d < shiftEnd;
-    }).length;
-  } else if (filterMode !== 'today') {
-    todaysCompletedOrdersCount = historicalOrders.length;
-  } else {
-    const shiftStart = new Date(currentTime);
-    if (currentTime.getHours() < bizHour || (currentTime.getHours() === bizHour && currentTime.getMinutes() < bizMin)) {
-      shiftStart.setDate(shiftStart.getDate() - 1);
-    }
-    shiftStart.setHours(bizHour, bizMin, 0, 0);
-    const shiftEnd = new Date(shiftStart);
-    shiftEnd.setDate(shiftEnd.getDate() + 1);
-
-    todaysCompletedOrdersCount = (Array.isArray(allCompletedOrders) ? allCompletedOrders : []).filter(o => {
-      const d = new Date(o.end_time || o.created_at);
-      return d >= shiftStart && d < shiftEnd;
-    }).length;
-  }
-
-  useEffect(() => {
-    const fetchPayroll = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const riderId = session.user.id;
-
-      const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-      
-      let targetStart = new Date();
-      let targetEnd = new Date();
-      if (filterMode === 'today') {
-        const now = new Date();
-        targetStart = new Date(now);
-        if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
-          targetStart.setDate(targetStart.getDate() - 1);
-        }
-        targetStart.setHours(bizHour, bizMin, 0, 0);
-        targetEnd = new Date(targetStart);
-        targetEnd.setDate(targetEnd.getDate() + 1);
-      } else if (filterMode === 'yesterday') {
-        const now = new Date();
-        targetStart = new Date(now);
-        if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
-          targetStart.setDate(targetStart.getDate() - 2);
-        } else {
-          targetStart.setDate(targetStart.getDate() - 1);
-        }
-        targetStart.setHours(bizHour, bizMin, 0, 0);
-        targetEnd = new Date(targetStart);
-        targetEnd.setDate(targetEnd.getDate() + 1);
-      } else if (filterMode === 'date' && filterDate) {
-        const [y, m, d] = filterDate.split('-').map(Number);
-        targetStart = new Date(y, m - 1, d);
-        targetStart.setHours(bizHour, bizMin, 0, 0);
-        targetEnd = new Date(targetStart);
-        targetEnd.setDate(targetEnd.getDate() + 1);
-      } else if (filterMode === 'month' && filterMonth) {
-        const [year, month] = filterMonth.split('-');
-        targetStart = new Date(parseInt(year), parseInt(month) - 1, 1);
-        targetStart.setHours(bizHour, bizMin, 0, 0);
-        targetEnd = new Date(parseInt(year), parseInt(month), 1);
-        targetEnd.setHours(bizHour, bizMin, 0, 0);
-      } else if (filterMode === 'all') {
-        targetStart = new Date(2000, 0, 1);
-        targetEnd = new Date(2100, 0, 1);
-      }
-
-      const { data: attendanceData } = await supabase
-        .from('rider_attendance')
-        .select('*')
-        .eq('rider_id', riderId)
-        .gte('check_in', targetStart.toISOString())
-        .lt('check_in', targetEnd.toISOString())
-        .order('check_in', { ascending: false });
-
-      // 🌟 2. ดึงค่า Default Savings และ Hourly Rate มาจากโปรไฟล์ของไรเดอร์
-      const { data: profile } = await supabase.from('profiles').select('default_savings, hourly_rate').eq('id', riderId).maybeSingle();
-      const defaultSavings = profile?.default_savings ?? 50;
-
-      // 🌟 2.1 ดึงข้อมูลงานที่ค้างจ่ายทั้งหมด (ยังไม่จ่าย) มาคำนวณยอดค้างจ่ายรวม
-      const { data: allAttendance } = await supabase
-        .from('rider_attendance')
-        .select('*')
-        .eq('rider_id', riderId)
-        .order('check_in', { ascending: false })
-        .limit(100);
-
-      // คำนวณเรทจริงจากประวัติกะที่เคยได้รับค่าแรง ถ้าในโปรไฟล์ไม่ได้ตั้งไว้หรือเป็นค่าดีฟอลต์ 40
-      let effectiveHourlyRate = profile?.hourly_rate;
-      if (allAttendance && allAttendance.length > 0) {
-        const withRate = allAttendance.find(r => (r.base_pay || 0) > 0 && (r.total_minutes || 0) > 0);
-        if (withRate) {
-          const calcRate = Math.round((withRate.base_pay! / withRate.total_minutes!) * 60);
-          if (calcRate > 0) {
-            effectiveHourlyRate = (profile?.hourly_rate && profile.hourly_rate !== 40) ? profile.hourly_rate : calcRate;
-          }
-        }
-      }
-      const hourlyRate = effectiveHourlyRate || 40;
-      setRiderHourlyRate(hourlyRate);
-      setRiderDefaultSavings(defaultSavings);
-
-      if (allAttendance) {
-        const unpaidList = allAttendance.filter(r => r.payment_status !== 'จ่ายแล้ว');
-        
-        // 🌟 2. นับยอดออเดอร์ค้างจ่ายแบบเหมาทั้งวัน (Business Day) ให้ยอดรวมค้างจ่ายตรงกันเป๊ะ
-        const enrichedUnpaid = await Promise.all(unpaidList.map(async (r) => {
-          let trueCount = r.order_count || 0;
-          
-          if (!trueCount && r.check_in) {
-            const d = new Date(r.check_in);
-            const [bH, bM] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-            const start = new Date(d);
-            if (d.getHours() < bH || (d.getHours() === bH && d.getMinutes() < bM)) {
-              start.setDate(start.getDate() - 1);
-            }
-            start.setHours(bH, bM, 0, 0);
-            const end = new Date(start);
-            end.setDate(end.getDate() + 1);
-
-            const { count } = await supabase
-              .from('orders')
-              .select('*', { count: 'exact', head: true })
-              .eq('rider_id', riderId)
-              .eq('status', 'ส่งแล้ว/เสร็จ')
-              .gte('created_at', start.toISOString())
-              .lt('created_at', end.toISOString());
-            trueCount = count || 0;
-          }
-          
-          return { ...r, actual_orders_count: trueCount };
-        }));
-
-        let unpaidSum = 0;
-        enrichedUnpaid.forEach(r => {
-          const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hourlyRate;
-          const pay = calculateRecordPay(r, rRate, defaultSavings, r.actual_orders_count);
-          unpaidSum += pay.totalPay;
-        });
-        
-        setUnpaidSummary({
-          totalAmount: Math.round(unpaidSum),
-          count: enrichedUnpaid.length
-        });
-      }
-
-      // 🌟 3. ปรับการดึงข้อมูลรายเดือนให้ตรงกับเวลาเปิดร้านเป๊ะๆ
-      const cycle = getCycleDetails(businessDayStart);
-      const { data: monthlyData } = await supabase
-        .from('rider_attendance')
-        .select('diligence_bonus, accumulated_savings, payment_status, total_pay')
-        .eq('rider_id', riderId)
-        .gte('check_in', cycle.startDateStr)
-        .lt('check_in', cycle.endDateStr);
-
-      let mBonus = 0;
-      let mSavings = 0;
-      if (monthlyData) {
-        monthlyData.forEach(r => {
-          mBonus += Number(r.diligence_bonus) || 0;
-          // 🌟 4. ถ้าไม่มีข้อมูลเงินสะสม ให้เอาค่าเริ่มต้นจากโปรไฟล์มาคิด
-          const dailySavings = (r.accumulated_savings === null || r.accumulated_savings === undefined) 
-            ? defaultSavings 
-            : Number(r.accumulated_savings);
-          mSavings += dailySavings;
-        });
-      }
-
-      if (attendanceData && attendanceData.length > 0) {
-        // ✅ แก้บัคที่ 2: เพิ่ม filterMode === 'yesterday' ลงในเงื่อนไขรายวัน
-        if (filterMode === 'today' || filterMode === 'yesterday' || filterMode === 'date') {
-          const dailyData = attendanceData[0];
-          let rate = hourlyRate;
-          if ((dailyData.base_pay || 0) > 0 && (dailyData.total_minutes || 0) > 0) {
-            rate = (dailyData.base_pay / dailyData.total_minutes) * 60;
-          }
-          
-          // ✅ จัดการ Order Count สำหรับโหมดที่ระบุ 1 วัน (รวม yesterday)
-          const ordersCountForDaily = (filterMode === 'today' || filterMode === 'yesterday') 
-            ? todaysCompletedOrdersCount 
-            : (dailyData.order_count || todaysCompletedOrdersCount);
-
-          const payInfo = calculateRecordPay(dailyData, rate, defaultSavings, ordersCountForDaily);
-          setPayrollStats({
-            isWorking: filterMode === 'today' ? !dailyData.check_out : false,
-            checkInTime: dailyData.check_in,
-            hourlyRate: Math.round(rate),
-            monthlyBonus: mBonus,
-            monthlySavings: mSavings,
-            dailyFixedPay: Math.round(payInfo.totalPay),
-            dailyFixedGas: payInfo.gas,
-            dailyFixedMinutes: payInfo.minutes,
-            paymentStatus: dailyData.payment_status || 'ค้างจ่าย',
-            isPaid: dailyData.payment_status === 'จ่ายแล้ว'
-          });
-        } else {
-          let totalPay = 0;
-          let totalGas = 0;
-          let totalMinutes = 0;
-          let allPaid = true;
-          attendanceData.forEach(r => {
-            const rRate = (r.base_pay && r.total_minutes) ? (r.base_pay / r.total_minutes) * 60 : hourlyRate;
-            
-            // ✅ แก้บัคที่ 1: ป้องกันยอด order ทบไปเดือนอื่นๆ ในตอนที่ยังไม่จ่าย 
-            // ให้ใช้ fallback เป็น 0 สำหรับโหมดสรุปรวมหลายๆ วัน
-            const fallbackOrders = 0; // เปลี่ยนเป็น 0 ไปเลย
-            const payInfo = calculateRecordPay(r, rRate, defaultSavings, r.order_count ?? fallbackOrders)
-            totalPay += payInfo.totalPay;
-            totalGas += payInfo.gas;
-            totalMinutes += payInfo.minutes;
-            if (r.payment_status !== 'จ่ายแล้ว') allPaid = false;
-          });
-          setPayrollStats({
-            isWorking: false,
-            checkInTime: null,
-            hourlyRate: hourlyRate,
-            monthlyBonus: mBonus,
-            monthlySavings: mSavings,
-            dailyFixedPay: Math.round(totalPay),
-            dailyFixedGas: totalGas,
-            dailyFixedMinutes: totalMinutes,
-            paymentStatus: allPaid ? 'จ่ายแล้ว' : 'ค้างจ่าย',
-            isPaid: allPaid
-          });
-        }
-      } else {
-        setPayrollStats(prev => ({ 
-          ...prev,
-          isWorking: false, 
-          checkInTime: null, 
-          dailyFixedPay: 0, 
-          dailyFixedGas: 0, 
-          dailyFixedMinutes: 0, 
-          monthlyBonus: mBonus, 
-          monthlySavings: mSavings,
-          paymentStatus: '',
-          isPaid: false
-        }));
-      }
-    };
-    fetchPayroll();
-  }, [businessDayStart, filterMode, filterDate, filterMonth, todaysCompletedOrdersCount]);
-
-  const getFilteredOrders = () => {
-    const sourceOrders = filterMode === 'today' ? allCompletedOrders : historicalOrders;
-    return (Array.isArray(sourceOrders) ? sourceOrders : []).filter(order => {
-      const dateString = order.end_time || order.created_at;
-      if (!dateString) return false;
-      const orderDate = new Date(dateString);
-
-      let timeMatch = true;
-      if (filterMode === 'today') {
-        const now = new Date();
-        const shiftStart = new Date(now);
-        const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-        if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
-          shiftStart.setDate(shiftStart.getDate() - 1);
-        }
-        shiftStart.setHours(bizHour, bizMin, 0, 0);
-
-        const shiftEnd = new Date(shiftStart);
-        shiftEnd.setDate(shiftEnd.getDate() + 1);
-
-        timeMatch = orderDate >= shiftStart && orderDate < shiftEnd;
-
-      } else if (filterMode === 'yesterday') {
-        const now = new Date();
-        const shiftStart = new Date(now);
-        const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-        if (now.getHours() < bizHour || (now.getHours() === bizHour && now.getMinutes() < bizMin)) {
-          shiftStart.setDate(shiftStart.getDate() - 2);
-        } else {
-          shiftStart.setDate(shiftStart.getDate() - 1);
-        }
-        shiftStart.setHours(bizHour, bizMin, 0, 0);
-
-        const shiftEnd = new Date(shiftStart);
-        shiftEnd.setDate(shiftEnd.getDate() + 1);
-
-        timeMatch = orderDate >= shiftStart && orderDate < shiftEnd;
-
-      } else if (filterMode === 'date' && filterDate) {
-        const [y, m, d] = filterDate.split('-').map(Number);
-        const targetStart = new Date(y, m - 1, d);
-        const [bizHour, bizMin] = businessDayStart ? businessDayStart.split(':').map(Number) : [7, 0];
-        targetStart.setHours(bizHour, bizMin, 0, 0);
-        
-        const targetEnd = new Date(targetStart);
-        targetEnd.setDate(targetEnd.getDate() + 1);
-
-        timeMatch = orderDate >= targetStart && orderDate < targetEnd;
-
-      } else if (filterMode === 'month' && filterMonth) {
-        const [year, month] = filterMonth.split('-');
-        timeMatch = orderDate.getFullYear() === parseInt(year) &&
-          orderDate.getMonth() === parseInt(month) - 1;
-      }
-
-      const jobMatch = jobTypeFilter === 'all' ? true : order.job_type === jobTypeFilter;
-
-      return timeMatch && jobMatch;
-    }).sort((a, b) => {
-      const aTime = new Date(a.end_time || a.created_at).getTime();
-      const bTime = new Date(b.end_time || b.created_at).getTime();
-      return bTime - aTime;
-    });
-  };
-
-  const displayOrders = Array.isArray(getFilteredOrders()) ? getFilteredOrders() : [];
-
-
-  const liveMinutes = useMemo(() => {
-    if (payrollStats.isWorking && payrollStats.checkInTime) {
-      return Math.max(0, Math.floor((currentTime.getTime() - new Date(payrollStats.checkInTime).getTime()) / 60000));
-    }
-    return payrollStats.dailyFixedMinutes;
-  }, [payrollStats.isWorking, payrollStats.checkInTime, payrollStats.dailyFixedMinutes, currentTime]);
-
-  const liveGas = useMemo(() => {
-    if (payrollStats.isWorking) {
-      return getAutoGasAllowance(todaysCompletedOrdersCount);
-    }
-    return payrollStats.dailyFixedGas;
-  }, [payrollStats.isWorking, payrollStats.dailyFixedGas, todaysCompletedOrdersCount]);
-
-  const liveTotalPay = useMemo(() => {
-    if (payrollStats.isWorking) {
-      const base = (liveMinutes / 60) * payrollStats.hourlyRate;
-      const gas = liveGas;
-      return Math.max(0, base + gas - riderDefaultSavings);
-    }
-    return payrollStats.dailyFixedPay;
-  }, [payrollStats.isWorking, liveMinutes, payrollStats.hourlyRate, liveGas, riderDefaultSavings, payrollStats.dailyFixedPay]);
-
-  useEffect(() => {
-    if (
-      imageGallery &&
-      galleryRef.current &&
-      imageGallery.startIndex >= 0 &&
-      galleryRef.current.children.length > imageGallery.startIndex
-    ) {
-      const target = galleryRef.current.children[imageGallery.startIndex] as HTMLElement;
-      if (target && typeof target.scrollIntoView === 'function') {
-        target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-      }
-    }
-  }, [imageGallery]);
-
-  const scrollGallery = (direction: 'left' | 'right') => {
-    setImgScale(1);
-    if (galleryRef.current) {
-      const { clientWidth } = galleryRef.current;
-      const scrollAmount = direction === 'left' ? -clientWidth : clientWidth;
-      if (typeof galleryRef.current.scrollBy === 'function') {
-        galleryRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
-      }
-    }
-  };
-
-  const totalCash = displayOrders.filter(o => {
-    if (!o.payment_method) return true;
-    const pm = o.payment_method.trim();
-    if (pm === "โอน" || pm.includes("โอน")) return false;
-    if (pm === "คนละครึ่ง" || pm.includes("คนละครึ่ง") || pm.includes("ครึ่ง")) return false;
-    return true;
-  }).reduce((sum, o) => sum + (o.total_price || 0), 0);
+  const rangeLabel =
+    dash.range === 'today' ? 'วันนี้'
+    : dash.range === 'yesterday' ? 'เมื่อวาน'
+    : dash.range === 'date' && dash.bounds.from ? `วันที่ ${shortDate(dash.bounds.from)}`
+    : dash.range === 'month' && dash.bounds.from ? dash.bounds.from.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })
+    : 'ทั้งหมด';
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-safe animate-in fade-in slide-in-from-bottom-4 duration-300 relative font-sans">
-      
-      <div className="bg-blue-600/95 backdrop-blur-md text-white p-4 shadow-lg sticky top-0 z-30 flex items-center justify-between border-b border-blue-500/50">
-        <div className="flex items-center">
-          <button onClick={onBack} className="mr-3 p-2 hover:bg-white/10 rounded-xl transition-all duration-200 focus:outline-none cursor-pointer active:scale-90">
-            <ArrowLeft size={22} />
-          </button>
-          <h1 className="text-xl font-black flex items-center tracking-tight drop-shadow-sm">
-            <LayoutDashboard className="mr-2" size={20} /> สรุปผลงาน
-          </h1>
-        </div>
-      </div>
-
-      <div className="p-4 sm:p-6 space-y-6 max-w-2xl mx-auto">
-        
-        {/* Profile Card */}
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 flex items-center">
-          <div className="w-14 h-14 bg-linear-to-br from-blue-500 to-indigo-600 text-white rounded-2xl flex items-center justify-center text-2xl font-black shadow-inner mr-4 uppercase">
-            {riderName.charAt(0)}
+    <div className="min-h-screen bg-linear-to-b from-indigo-50 via-slate-50 to-slate-100 pb-safe font-sans animate-in fade-in slide-in-from-bottom-4 duration-300">
+      {/* ===== หัว ===== */}
+      <header className="relative overflow-hidden bg-linear-to-br from-indigo-600 via-violet-600 to-fuchsia-600 text-white rounded-b-4xl shadow-xl shadow-indigo-500/30">
+        <span className="absolute -right-16 -top-20 w-64 h-64 rounded-full bg-white/10" aria-hidden />
+        <span className="absolute -left-10 bottom-0 w-40 h-40 rounded-full bg-white/5" aria-hidden />
+        <div className="relative max-w-2xl mx-auto px-4 pt-4 pb-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <button onClick={onBack} aria-label="ย้อนกลับ" className="p-2 rounded-xl hover:bg-white/15 active:scale-90 transition cursor-pointer">
+              <ArrowLeft size={22} />
+            </button>
+            <h1 className="flex-1 text-lg font-black">สรุปผลงาน</h1>
+            <button
+              onClick={() => dash.reload()}
+              aria-label="รีเฟรช"
+              className="p-2 rounded-xl bg-white/15 hover:bg-white/25 active:scale-90 transition cursor-pointer"
+            >
+              <RefreshCw size={18} className={dash.refreshing ? 'animate-spin' : ''} />
+            </button>
           </div>
-          <div className="flex-1">
-            <h2 className="text-xl font-black text-slate-800 tracking-tight">{riderName}</h2>
-            <div className="text-xs text-slate-500 flex items-center mt-1 font-bold">
-              <div className="w-2 h-2 bg-emerald-400 rounded-full mr-2 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-              ไรเดอร์ประจำร้าน
+
+          <div className="flex items-center gap-3">
+            <div className="w-14 h-14 shrink-0 rounded-2xl bg-white/20 ring-2 ring-white/40 flex items-center justify-center text-2xl font-black uppercase">
+              {riderName.charAt(0)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-xl font-black truncate">{riderName}</div>
+              {s?.working ? (
+                <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-emerald-400/25 px-2.5 py-0.5 text-[11px] font-bold ring-1 ring-emerald-300/50">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" /> กำลังทำงาน · เข้างาน {timeOf(s.working.checkIn)} น.
+                </span>
+              ) : (
+                <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-bold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white/60" /> ไม่ได้อยู่ในกะ
+                </span>
+              )}
+            </div>
+            <div className="text-center rounded-2xl bg-white/15 px-3 py-2 ring-1 ring-white/20">
+              <div className="text-[10px] font-bold text-white/75">งานค้าง</div>
+              <div className="text-xl font-black leading-tight">{activeOrdersCount}</div>
             </div>
           </div>
-          <div className="text-center bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">
-            <div className="text-[10px] text-slate-400 font-black mb-0.5 uppercase tracking-wide">งานค้างอยู่</div>
-            <div className="text-lg font-black text-blue-600">{activeOrdersCount}</div>
-          </div>
-        </div>
 
-        <div className="space-y-3">
-          <div className="flex items-center justify-between px-1">
-            <h3 className="font-black text-slate-700 text-sm flex items-center">
-              <CalendarDays size={16} className="mr-2 text-indigo-500" /> ตัวกรองข้อมูลงานวิ่ง
-            </h3>
-          </div>
-
-          <div className="flex bg-slate-200/60 p-1.5 rounded-xl border border-slate-200 shadow-inner">
-            {[
-              { id: 'today', label: 'วันนี้' },
-              { id: 'yesterday', label: 'เมื่อวาน' },
-              { id: 'date', label: 'ระบุวัน' },
-              { id: 'all', label: 'ทั้งหมด' }
-            ].map(tab => (
+          <div className="flex gap-1 rounded-2xl bg-black/15 p-1">
+            {RANGES.map((r) => (
               <button
-                key={tab.id}
-                onClick={() => setFilterMode(tab.id as FilterMode)}
-                className={`flex-1 py-2 text-[11px] sm:text-xs font-black rounded-lg transition-all duration-300 cursor-pointer ${
-                  filterMode === tab.id 
-                  ? 'bg-white text-indigo-600 shadow-sm' 
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+                key={r.id}
+                onClick={() => { dash.setRange(r.id); setShowCount(50); }}
+                className={`flex-1 rounded-xl py-2 text-[11px] sm:text-xs font-black transition cursor-pointer ${
+                  dash.range === r.id ? 'bg-white text-indigo-700 shadow' : 'text-white/80 hover:bg-white/10'
                 }`}
               >
-                {tab.label}
+                {r.label}
               </button>
             ))}
           </div>
-
-          {filterMode === 'date' && (
-            <div className="animate-in fade-in zoom-in-95 duration-200">
-              <input 
-                type="date" 
-                value={filterDate} 
-                onChange={e => setFilterDate(e.target.value)} 
-                className="w-full bg-white p-3 rounded-xl border border-slate-200 text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-sm cursor-pointer" 
-              />
-            </div>
+          {dash.range === 'date' && (
+            <input type="date" value={dash.date} onChange={(e) => e.target.value && dash.setDate(e.target.value)}
+              className="w-full rounded-xl bg-white/95 px-3 py-2.5 text-sm font-black text-indigo-700 outline-none" />
           )}
-          {filterMode === 'month' && (
-            <div className="animate-in fade-in zoom-in-95 duration-200">
-              <input 
-                type="month" 
-                value={filterMonth} 
-                onChange={e => setFilterMonth(e.target.value)} 
-                className="w-full bg-white p-3 rounded-xl border border-slate-200 text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-sm cursor-pointer" 
-              />
-            </div>
+          {dash.range === 'month' && (
+            <input type="month" value={dash.month} onChange={(e) => e.target.value && dash.setMonth(e.target.value)}
+              className="w-full rounded-xl bg-white/95 px-3 py-2.5 text-sm font-black text-indigo-700 outline-none" />
           )}
-
-          <div className="flex overflow-x-auto gap-2 pb-2 pt-1 hide-scrollbar">
-            {['all', 'ร้าน'].map(type => (
-              <button
-                key={type}
-                onClick={() => setJobTypeFilter(type)}
-                className={`px-4 py-2 text-[11px] font-black rounded-full whitespace-nowrap transition-all duration-200 cursor-pointer border ${
-                  jobTypeFilter === type 
-                  ? 'bg-blue-100 text-blue-700 border-blue-200 shadow-sm' 
-                  : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50 shadow-sm'
-                }`}
-              >
-                {type === 'all' ? 'ทุกประเภทงาน' : type}
-              </button>
-            ))}
-          </div>
         </div>
+      </header>
 
-        {/* 🌟 การ์ดยอดค้างจ่าย (ยังไม่ได้รับเงิน) */}
-        {unpaidSummary.totalAmount > 0 && (
-          <div 
-            onClick={fetchAttendanceHistory}
-            className="bg-linear-to-r from-amber-500/10 via-rose-500/10 to-amber-500/10 border border-amber-300 rounded-3xl p-4 flex items-center justify-between cursor-pointer hover:border-amber-400 transition-all shadow-xs group"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm shadow-amber-500/20 group-hover:scale-105 transition-transform">
-                <Coins size={20} />
-              </div>
-              <div>
-                <div className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                  <span>รายได้ค้างจ่าย (ยังไม่ได้รับเงิน)</span>
-                  <span className="bg-rose-100 text-rose-700 text-[10px] px-2 py-0.5 rounded-full font-black border border-rose-200">
-                    {unpaidSummary.count} กะ/วัน
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500 font-bold mt-0.5">
-                  งานที่ทำแล้วแต่ร้านยังไม่ได้จ่ายเงิน แตะเพื่อดูสลิป
-                </div>
-              </div>
-            </div>
-            <div className="text-right pl-2 shrink-0">
-              <div className="text-xl font-black text-rose-600 tracking-tight">
-                ฿{Math.round(unpaidSummary.totalAmount).toLocaleString()}
-              </div>
-              <div className="text-[10px] font-black text-blue-600 flex items-center justify-end gap-0.5 group-hover:underline">
-                ดูประวัติ <ChevronRight size={12} />
-              </div>
-            </div>
-          </div>
+      <main className={`max-w-2xl mx-auto px-4 py-5 space-y-4 transition-opacity ${dash.refreshing ? 'opacity-60' : ''}`}>
+        {dash.error && (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">{dash.error}</div>
         )}
 
-        <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
-          <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
-            <h3 className="font-black text-slate-700 text-sm flex items-center">
-              <Coins size={18} className="mr-2 text-emerald-500" /> กระเป๋าเงินของฉัน {filterMode === 'today' ? '(วันนี้)' : filterMode === 'yesterday' ? '(เมื่อวาน)' : filterMode === 'date' ? `(วันที่ ${filterDate})` : filterMode === 'month' ? `(เดือน ${filterMonth})` : '(ทั้งหมด)'}
-            </h3>
-            <div className="flex items-center gap-2">
-              <button onClick={fetchAttendanceHistory} className="text-[10px] font-black uppercase text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-md border border-blue-200 transition-colors shadow-sm flex items-center gap-1 cursor-pointer">
-                <Clock size={12} /> ประวัติสลิป
-              </button>
-              {payrollStats.isWorking && filterMode === 'today' ? (
-                <span className="flex items-center gap-1 text-[10px] font-black uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 shadow-sm">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> ทำงานอยู่
-                </span>
-              ) : filterMode === 'today' && !payrollStats.checkInTime ? (
-                <span className="text-[10px] font-black uppercase text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 shadow-sm">
-                  ไม่ได้เข้างาน
-                </span>
-              ) : null}
-            </div>
+        {!s ? (
+          <div className="flex flex-col items-center gap-3 py-24">
+            <Loader2 size={32} className="animate-spin text-indigo-500" />
+            <p className="text-sm font-bold text-indigo-400">กำลังโหลด...</p>
           </div>
+        ) : (
+          <>
+            <EarningsHero s={s} rangeLabel={rangeLabel} />
 
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 text-center flex flex-col justify-center">
-              <div>
-                <div className="flex items-center justify-center gap-1 mb-1">
-                  <span className="text-[10px] font-black text-emerald-600/70 uppercase tracking-wider">
-                    รายได้ {filterMode === 'today' ? 'วันนี้' : filterMode === 'yesterday' ? 'เมื่อวาน' : 'รวม'}
-                  </span>
-                  {(payrollStats.checkInTime || payrollStats.dailyFixedMinutes > 0 || payrollStats.dailyFixedPay > 0) && (
-                    payrollStats.isPaid ? (
-                      <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">จ่ายแล้ว</span>
-                    ) : (
-                      <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 border border-rose-200">
-                        {payrollStats.isWorking ? 'กำลังทำ' : 'ค้างจ่าย'}
-                      </span>
-                    )
-                  )}
-                </div>
-                <div className="text-2xl font-black text-emerald-600 tracking-tighter">฿{Math.round(liveTotalPay).toLocaleString()}</div>
-                {!payrollStats.isPaid && liveTotalPay > 0 && (
-                  <div className="text-[10px] text-amber-600 font-bold mt-1 flex items-center justify-center gap-1">
-                    <AlertCircle size={10} /> รอร้านโอนเงิน
-                  </div>
-                )}
-              </div>
+            {dash.range === 'today' && s.working && <GasProgress count={s.orders.length} />}
+
+            {/* ===== ตัวเลขหลัก ===== */}
+            <div className="grid grid-cols-3 gap-3">
+              <Tile icon={<Package size={16} />} tint="from-sky-500 to-blue-600" label="ส่งสำเร็จ" value={s.orders.length.toLocaleString('th-TH')} unit="ออเดอร์" />
+              <Tile icon={<Clock size={16} />} tint="from-violet-500 to-purple-600" label="เวลาทำงาน" value={fmtMinutes(s.pay.minutes)} small />
+              <Tile icon={<Fuel size={16} />} tint="from-amber-400 to-orange-500" label="ค่าน้ำมัน" value={baht(s.pay.gas)} />
             </div>
 
-            <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 flex flex-col justify-center">
-              <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2">
-                <span className="flex items-center"><Clock size={12} className="mr-1 text-blue-500"/> เวลาทำ</span>
-                <span className="text-blue-700 font-black">{liveMinutes >= 60 ? `${Math.floor(liveMinutes / 60)} ชม. ${liveMinutes % 60} นาที` : `${liveMinutes} นาที`}</span>
-              </div>
-              <div className="flex justify-between items-center text-xs font-bold text-slate-600 mb-2">
-                <span className="flex items-center"><Package size={12} className="mr-1 text-orange-500"/> สำเร็จแล้ว</span>
-                <span className="text-orange-700 font-black">{todaysCompletedOrdersCount} ออเดอร์</span>
-              </div>
-              <div className="flex justify-between items-center text-xs font-bold text-slate-600 border-t border-blue-100 pt-2">
-                <span className="flex items-center"><Fuel size={12} className="mr-1 text-slate-500"/> น้ำมันที่ได้</span>
-                <span className="text-emerald-600 font-black">+ ฿{liveGas.toLocaleString()}</span>
-              </div>
-            </div>
-          </div>
+            <CashCard cash={s.cash} rangeLabel={rangeLabel} />
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex items-center gap-3 bg-amber-50 p-3 rounded-xl border border-amber-100 shadow-sm">
-              <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-500 shrink-0"><Trophy size={14}/></div>
-              <div>
-                <div className="text-[9px] font-black text-amber-600/70 uppercase tracking-wider">โบนัสรอบบิลนี้</div>
-                <div className="text-sm font-black text-amber-700">฿{payrollStats.monthlyBonus.toLocaleString()}</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 bg-indigo-50 p-3 rounded-xl border border-indigo-100 shadow-sm">
-              <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-500 shrink-0"><PiggyBank size={14}/></div>
-              <div>
-                <div className="text-[9px] font-black text-indigo-600/70 uppercase tracking-wider">เงินเก็บรอบบิลนี้</div>
-                <div className="text-sm font-black text-indigo-700">฿{payrollStats.monthlySavings.toLocaleString()}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 flex flex-col gap-3">
-          <div className="flex items-center text-slate-700 font-black text-sm mb-1"><Banknote size={18} className="mr-2 text-rose-500" /> สรุปยอดเงินที่ต้องคืนร้าน</div>
-          <div className="flex gap-3">
-            <div className="flex-1 bg-rose-50 p-4 rounded-2xl border border-rose-100 flex items-center justify-between shadow-sm">
-              <div className="text-[11px] font-black text-rose-600 uppercase tracking-wider">เงินสด (ต้องส่งร้าน)</div>
-              <div className="text-2xl font-black text-rose-700">฿{totalCash.toLocaleString()}</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4">
-          <div className="bg-linear-to-br from-emerald-500 to-teal-600 rounded-3xl p-5 text-white shadow-lg relative overflow-hidden transform transition-all duration-300 hover:-translate-y-1">
-            <CheckCircle2 size={64} className="absolute -right-4 -bottom-4 text-white opacity-20" />
-            <div className="text-emerald-100 text-xs font-bold mb-1 flex items-center tracking-wide"><CheckCircle2 size={14} className="mr-1.5"/> ส่งสำเร็จ</div>
-            <div className="text-4xl font-black tracking-tight">{displayOrders.length} <span className="text-sm font-bold text-emerald-200">ออเดอร์</span></div>
-          </div>
-        </div>
-
-        <div>
-          <h3 className="font-black text-slate-700 mb-3 px-1 text-sm flex items-center justify-between">
-            รายการออเดอร์ที่ตรงเงื่อนไข
-            <span className="text-[10px] font-bold text-slate-400 bg-slate-200/50 px-2 py-0.5 rounded-full uppercase">แตะดูข้อมูล</span>
-          </h3>
-          <div className="space-y-3">
-            {displayOrders.length === 0 ? (
-              <div className="text-center py-12 text-slate-400 bg-white rounded-3xl border border-slate-100 shadow-sm flex flex-col items-center">
-                <Calendar size={32} className="mb-3 opacity-30" />
-                <p className="text-sm font-bold">ไม่มีรายการในหมวดหมู่นี้</p>
-              </div>
-            ) : (
-              displayOrders.map((order, idx) => (
-                <div 
-                  key={order.id} 
-                  onClick={() => setSelectedOrder(order)}
-                  className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex justify-between items-center cursor-pointer hover:border-blue-200 hover:shadow-md active:scale-95 transition-all duration-300 group"
-                >
-                  <div className="flex items-center">
-                    <div className="w-8 h-8 rounded-full bg-slate-50 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors text-slate-400 text-xs font-black flex items-center justify-center mr-3 border border-slate-100 shrink-0">
-                      {displayOrders.length - idx}
-                    </div>
-                    <div>
-                      <div className="font-black text-slate-800 text-sm flex items-center gap-2 group-hover:text-blue-600 transition-colors">
-                        {order.order_number}
-                        <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold uppercase border border-slate-200">
-                          {order.job_type}
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-slate-400 mt-1 flex items-center font-medium">
-                        <span className="font-black text-slate-500 mr-1.5 border-r border-slate-200 pr-1.5">
-                          {new Date(order.created_at).toLocaleDateString('th-TH', { month: 'short', day: 'numeric' })}
-                        </span> 
-                        {order.end_time || order.created_at ? new Date(order.end_time || order.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '-'} น.
-                      </div>
-                    </div>
+            {s.unpaid.total > 0 && (
+              <button
+                onClick={() => setShowHistory(true)}
+                className="w-full text-left relative overflow-hidden rounded-3xl p-4 text-white bg-linear-to-r from-amber-500 to-orange-500 shadow-lg shadow-orange-500/25 active:scale-[0.99] transition cursor-pointer"
+              >
+                <span className="absolute -right-6 -top-8 w-28 h-28 rounded-full bg-white/15" aria-hidden />
+                <div className="relative flex items-center gap-3">
+                  <div className="w-11 h-11 shrink-0 rounded-2xl bg-white/25 flex items-center justify-center"><Coins size={22} /></div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-black">รายได้ที่ยังไม่ได้รับ</div>
+                    <div className="text-[11px] font-semibold text-white/85">{s.unpaid.count} กะที่ร้านยังไม่ได้จ่าย · แตะดูประวัติสลิป</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-sm font-black text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100 shadow-sm flex items-center">
-                      สำเร็จ
-                    </div>
+                    <div className="text-2xl font-black tabular-nums">{baht(s.unpaid.total)}</div>
+                    <ChevronRight size={16} className="ml-auto" />
                   </div>
                 </div>
-              ))
+              </button>
             )}
-          </div>
-        </div>
-      </div>
+
+            {/* ===== รอบบิลเดือน + ประวัติรายวัน ===== */}
+            <CycleCard dash={dash} onHistory={() => setShowHistory(true)} />
+
+            {/* ===== รายการออเดอร์ ===== */}
+            <section>
+              <div className="flex items-center justify-between px-1 mb-2">
+                <h2 className="text-sm font-black text-slate-800">ออเดอร์ที่ส่งสำเร็จ · {rangeLabel}</h2>
+                <span className="text-[11px] font-bold text-slate-400">{s.orders.length.toLocaleString('th-TH')} รายการ</span>
+              </div>
+              {s.orders.length === 0 ? (
+                <div className="flex flex-col items-center rounded-3xl bg-white py-12 text-slate-400">
+                  <CalendarDays size={32} className="mb-2 opacity-40" />
+                  <p className="text-sm font-bold">ยังไม่มีออเดอร์ในช่วงนี้</p>
+                </div>
+              ) : (
+                <div className="rounded-3xl bg-white shadow-[0_4px_24px_-8px_rgba(79,70,229,0.12)] divide-y divide-slate-100 overflow-hidden">
+                  {s.orders.slice(0, showCount).map((o, i) => {
+                    const chip = PAY_CHIP[payKind(o.payment_method)];
+                    const when = o.end_time || o.created_at;
+                    return (
+                      <button
+                        key={o.id}
+                        onClick={() => openOrder(o.id)}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-indigo-50/50 active:bg-indigo-50 transition cursor-pointer"
+                      >
+                        <span className="w-8 h-8 shrink-0 rounded-full bg-slate-100 text-slate-500 text-[11px] font-black flex items-center justify-center">
+                          {loadingOrderId === o.id ? <Loader2 size={14} className="animate-spin" /> : s.orders.length - i}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-black text-slate-800 text-sm truncate">{o.order_number}</div>
+                          <div className="text-[11px] font-semibold text-slate-400">
+                            {dash.range !== 'today' && dash.range !== 'yesterday' && dash.range !== 'date' && `${shortDate(new Date(when))} · `}
+                            ส่งเสร็จ {timeOf(when)} น.
+                          </div>
+                        </div>
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-black ${chip.cls}`}>
+                          {chip.icon} {chip.label}
+                        </span>
+                        <span className="w-14 text-right text-sm font-black text-slate-900 tabular-nums">{baht(Number(o.total_price) || 0)}</span>
+                      </button>
+                    );
+                  })}
+                  {s.orders.length > showCount && (
+                    <button onClick={() => setShowCount((c) => c + 50)} className="w-full py-3 text-xs font-black text-indigo-600 hover:bg-indigo-50 cursor-pointer">
+                      ดูเพิ่มอีก {Math.min(50, s.orders.length - showCount)} รายการ
+                    </button>
+                  )}
+                </div>
+              )}
+            </section>
+          </>
+        )}
+      </main>
 
       {selectedOrder && (
-        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm">
-          <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col max-h-[90vh]">
-            
-            <div className="bg-blue-600 p-6 flex justify-between items-center text-white shrink-0">
-              <h3 className="font-black flex items-center text-lg tracking-tight">
-                <ClipboardList size={20} className="mr-2"/> รายละเอียดบิล
-              </h3>
-              <button onClick={() => setSelectedOrder(null)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-all cursor-pointer active:scale-90 duration-300"><X size={18} strokeWidth={2} /></button>
-            </div>
-            
-            <div className="p-6 space-y-6 overflow-y-auto hide-scrollbar">
-              <div className="flex justify-between items-end border-b border-slate-100 pb-5">
-                <div>
-                  <div className="text-[10px] font-black text-slate-400 mb-1 tracking-widest uppercase">
-                    เลขที่ออเดอร์ • {new Date(selectedOrder.created_at).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })}
-                  </div>
-                  <div className="text-3xl font-black text-slate-800 tracking-tighter">{selectedOrder.order_number}</div>
-                </div>
-                <div className="text-right mb-1">
-                  <span className="bg-emerald-50 text-emerald-600 text-[10px] font-black px-3 py-1.5 rounded-lg shadow-sm border border-emerald-100">{selectedOrder.status}</span>
-                </div>
-              </div>
-              
-              {selectedOrder.image_url && (
-                <div className="space-y-2">
-                  <div className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center">
-                    <ImageIcon size={14} className="mr-1.5" /> รูปภาพแนบ
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {selectedOrder.image_url.split(',').filter(Boolean).map((imgUrl, i) => (
-                      <div key={i} onClick={() => setImageGallery({ urls: selectedOrder.image_url!.split(',').filter(Boolean), startIndex: i })} className="relative h-32 rounded-2xl overflow-hidden border border-slate-200 cursor-pointer hover:shadow-md transition-all active:scale-95 group/img">
-                        <Image src={mediaUrl(imgUrl)} fill className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500" alt={`Attachment ${i}`} sizes="256px"  />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {selectedOrder.slip_image && (
-                <div className="space-y-2">
-                  <div className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center">
-                    <ImageIcon size={14} className="mr-1.5" /> สลิปโอนเงิน
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {selectedOrder.slip_image.split(',').filter(Boolean).map((imgUrl, i) => (
-                      <div key={i} onClick={() => setImageGallery({ urls: selectedOrder.slip_image!.split(',').filter(Boolean), startIndex: i })} className="relative h-32 rounded-2xl overflow-hidden border border-slate-200 cursor-pointer hover:shadow-md transition-all active:scale-95 group/img">
-                        <Image src={mediaUrl(imgUrl)} fill className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500" alt={`Slip ${i}`} sizes="256px"  />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {selectedOrder.menu && (
-                <div className="space-y-2">
-                  <div className="text-xs font-black text-slate-400 uppercase tracking-wider">รายการเมนู</div>
-                  <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50 text-sm text-slate-800 font-bold whitespace-pre-line leading-relaxed shadow-inner">
-                    {selectedOrder.menu}
-                  </div>
-                </div>
-              )}
-
-              {selectedOrder.details && (
-                <div className="space-y-2">
-                  <div className="text-xs font-black text-slate-400 uppercase tracking-wider">รายละเอียดเพิ่มเติม</div>
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm text-slate-600 font-medium whitespace-pre-line leading-relaxed">
-                    {selectedOrder.details}
-                  </div>
-                </div>
-              )}
-              
-              <div className="space-y-3 text-sm bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">ประเภทงาน:</span><span className="font-black text-slate-700 uppercase px-2.5 py-1 bg-white border border-slate-200 shadow-sm rounded-md">{selectedOrder.job_type}</span></div>
-                <div className="flex justify-between items-center"><span className="text-slate-500 font-medium">ผู้รับผิดชอบ:</span><span className="font-black text-slate-700 bg-white border border-slate-200 shadow-sm px-2.5 py-1 rounded-md">{selectedOrder.rider_name || '-'}</span></div>
-                <div className="flex justify-between items-center pt-2 border-t border-slate-200/60"><span className="text-slate-500 font-medium">ยอดเรียกเก็บ:</span><span className="font-black text-blue-600 text-lg">฿{selectedOrder.total_price}</span></div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-500 font-medium">การชำระเงิน:</span>
-                  <span className={`font-black text-[10px] uppercase px-2.5 py-1 rounded-md ${
-                    selectedOrder.payment_method === 'โอน' ? 'bg-blue-100 text-blue-700' : 
-                    selectedOrder.payment_method === 'คนละครึ่ง' ? 'bg-cyan-100 text-cyan-700' : 
-                    'bg-orange-100 text-orange-600'
-                  }`}>
-                    {selectedOrder.payment_method || 'เงินสด'}
-                  </span>
-                </div>
-              </div>
-
-              {selectedOrder.address && (
-                <div className="space-y-2">
-                  <div className="text-xs font-black text-slate-400 uppercase tracking-wider">สถานที่จัดส่ง</div>
-                  <div className="text-sm font-bold text-slate-800 leading-relaxed bg-red-50/50 border border-red-100 p-4 rounded-2xl flex items-start">
-                    <MapPinned size={18} className="mr-2 mt-0.5 text-red-500 shrink-0" />
-                    {selectedOrder.address}
-                  </div>
-                </div>
-              )}
-            </div>
-            
-            <div className="p-5 pt-0 shrink-0 bg-white border-t border-slate-100 mt-2">
-              <button onClick={() => setSelectedOrder(null)} className="w-full py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-slate-800 transition-all cursor-pointer shadow-lg active:scale-95 uppercase tracking-widest text-sm">
-                ปิดหน้าต่าง
-              </button>
-            </div>
-            
-          </div>
-        </div>
+        <OrderModal order={selectedOrder} onClose={() => setSelectedOrder(null)} onImages={(urls, i) => setImageGallery({ urls, startIndex: i })} />
       )}
-
-      {/* 🌟 Modal: ประวัติรายได้ (สลิปรายวัน & รายเดือน) */}
-      {showHistory && (
-        <div className="fixed inset-0 bg-slate-900/60 z-100 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm">
-          <div className="bg-slate-50 rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 flex flex-col max-h-[90vh]">
-            <div className="bg-blue-600 p-6 flex justify-between items-center text-white shrink-0 shadow-sm">
-              <h3 className="font-black flex items-center text-lg tracking-tight">
-                <Clock size={20} className="mr-2"/> ประวัติสลิปเงินเดือน
-              </h3>
-              <button onClick={() => setShowHistory(false)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-all cursor-pointer active:scale-90 duration-300"><X size={18} strokeWidth={2} /></button>
-            </div>
-            
-            <div className="p-4 space-y-4 flex-1 overflow-hidden flex flex-col">
-              {/* 🌟 Tab Selector */}
-              <div className="flex bg-slate-200/60 p-1.5 rounded-xl border border-slate-200 shadow-inner shrink-0">
-                <button
-                  onClick={() => setHistoryTab('daily')}
-                  className={`flex-1 py-2.5 text-xs font-black rounded-lg transition-all duration-300 cursor-pointer ${
-                    historyTab === 'daily' 
-                    ? 'bg-white text-blue-600 shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
-                  }`}
-                >
-                  สลิปรายวัน
-                </button>
-                <button
-                  onClick={() => setHistoryTab('monthly')}
-                  className={`flex-1 py-2.5 text-xs font-black rounded-lg transition-all duration-300 cursor-pointer ${
-                    historyTab === 'monthly' 
-                    ? 'bg-white text-indigo-600 shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
-                  }`}
-                >
-                  สลิปรายเดือน
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto hide-scrollbar space-y-3">
-                {loadingHistory ? (
-                  <div className="text-center py-10 text-slate-400">กำลังโหลด...</div>
-                ) : historyTab === 'daily' ? (
-                  /* 🌟 รายการประวัติรายวัน */
-                  attendanceHistory.length === 0 ? (
-                    <div className="text-center py-10 text-slate-400 font-bold bg-white rounded-2xl border border-slate-100">ไม่มีประวัติสลิปรายวัน</div>
-                  ) : (
-                    <>
-                      {/* 🌟 กล่องสรุปยอดค้างจ่าย vs ยอดที่จ่ายแล้ว */}
-                      <div className="grid grid-cols-2 gap-2 mb-2">
-                        <div className="bg-rose-50 border border-rose-200 p-3 rounded-2xl">
-                          <div className="text-[10px] font-black text-rose-600/80 uppercase">ค้างจ่าย (ยังไม่ได้รับ)</div>
-                          <div className="text-lg font-black text-rose-700">฿{Math.round(unpaidSummary.totalAmount).toLocaleString()}</div>
-                          <div className="text-[9px] text-rose-500 font-bold mt-0.5">{unpaidSummary.count} กะ/วัน</div>
-                        </div>
-                        <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-2xl">
-                          <div className="text-[10px] font-black text-emerald-600/80 uppercase">ได้รับเงินแล้ว</div>
-                          <div className="text-lg font-black text-emerald-700">
-                            ฿{Math.round(attendanceHistory.filter(r => r.payment_status === 'จ่ายแล้ว').reduce((s, r) => s + (r.total_pay || 0), 0)).toLocaleString()}
-                          </div>
-                          <div className="text-[9px] text-emerald-500 font-bold mt-0.5">
-                            {attendanceHistory.filter(r => r.payment_status === 'จ่ายแล้ว').length} กะ/วัน
-                          </div>
-                        </div>
-                      </div>
-
-                      {attendanceHistory.map(record => {
-                        const isPaid = record.payment_status === 'จ่ายแล้ว';
-                        const rRate = (record.base_pay && record.total_minutes) ? (record.base_pay / record.total_minutes) * 60 : riderHourlyRate;
-                        
-                        // 🌟 แก้บรรทัดนี้ ลบ as any ออก และเรียกใช้งานได้เลยตรงๆ
-                        const actualCount = record.actual_orders_count || record.order_count || 0;
-                        const payInfo = calculateRecordPay(record, rRate, riderDefaultSavings, actualCount);
-
-                        return (
-                          <div key={record.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-                            <div className="flex justify-between items-center mb-2">
-                              <div className="text-xs font-black text-slate-600">
-                                {new Date(record.check_in).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
-                              </div>
-                              <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase border ${isPaid ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}>
-                                {isPaid ? 'จ่ายแล้ว' : (record.payment_status || 'ค้างจ่าย')}
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl mb-2">
-                              <div>
-                                <div className="text-[10px] font-bold text-slate-500">
-                                  {isPaid ? 'ยอดเงินที่ได้รับ' : 'ยอดเงินที่ทำงาน (ยังไม่จ่าย)'}
-                                </div>
-                                <div className="text-[10px] text-slate-400 font-bold mt-0.5">
-                                  {payInfo.minutes >= 60 ? `${Math.floor(payInfo.minutes / 60)} ชม. ${payInfo.minutes % 60} นาที` : `${payInfo.minutes} นาที`}
-                                  {payInfo.gas > 0 && ` • ค่าน้ำมัน +฿${payInfo.gas}`}
-                                </div>
-                              </div>
-                              <div className={`text-base font-black ${isPaid ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                ฿{Math.round(payInfo.totalPay).toLocaleString()}
-                              </div>
-                            </div>
-                            {record.payment_slip_url && (
-                              <button onClick={() => setImageGallery({urls: [record.payment_slip_url!], startIndex: 0})} className="w-full mt-1 py-2 bg-blue-50 text-blue-600 text-[10px] font-black rounded-xl border border-blue-100 flex items-center justify-center gap-1.5 cursor-pointer hover:bg-blue-100 transition-colors">
-                                <ImageIcon size={14} /> ดูสลิปโอนเงิน
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </>
-                  )
-                ) : (
-                  /* 🌟 รายการประวัติรายเดือน */
-                  monthlyHistory.length === 0 ? (
-                    <div className="text-center py-10 text-slate-400 font-bold bg-white rounded-2xl border border-slate-100">ไม่มีประวัติสลิปรายเดือน</div>
-                  ) : (
-                    monthlyHistory.map(record => (
-                      <div key={record.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
-                        <div className="absolute top-0 left-0 bottom-0 w-1.5 bg-indigo-500"></div>
-                        <div className="flex justify-between items-center mb-2 ml-2">
-                          <div className="text-xs font-black text-indigo-700 flex items-center gap-1.5">
-                            <Landmark size={14}/> รอบเดือน: {record.month_key}
-                          </div>
-                          <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase border ${record.status === 'จ่ายแล้ว' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-600 border-rose-200'}`}>
-                            {record.status}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 ml-2 mb-3 mt-3">
-                          <div className="bg-amber-50 p-2 rounded-xl border border-amber-100">
-                            <div className="text-[9px] font-bold text-amber-600/70 uppercase">เงินโบนัสสะสม</div>
-                            <div className="text-xs font-black text-amber-600">฿{record.total_bonus.toLocaleString()}</div>
-                          </div>
-                          <div className="bg-indigo-50 p-2 rounded-xl border border-indigo-100">
-                            <div className="text-[9px] font-bold text-indigo-600/70 uppercase">เงินเก็บสะสม</div>
-                            <div className="text-xs font-black text-indigo-600">฿{record.total_savings.toLocaleString()}</div>
-                          </div>
-                        </div>
-                        <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl mb-2 ml-2 border border-slate-100">
-                          <div className="text-xs font-bold text-slate-500">ยอดเงินเดือนสุทธิ</div>
-                          <div className="text-lg font-black text-indigo-600">฿{(record.total_amount || 0).toLocaleString()}</div>
-                        </div>
-                        {record.slip_url && (
-                          <button onClick={() => setImageGallery({urls: [record.slip_url!], startIndex: 0})} className="w-full mt-2 ml-1 py-2 bg-indigo-50 text-indigo-700 text-xs font-black rounded-xl border border-indigo-200 flex items-center justify-center gap-1.5 cursor-pointer hover:bg-indigo-100 transition-colors shadow-sm">
-                            <ImageIcon size={14} /> ดูสลิปเงินเดือน
-                          </button>
-                        )}
-                      </div>
-                    ))
-                  )
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+      {showHistory && dash.riderId && dash.profile && (
+        <HistoryModal
+          riderId={dash.riderId}
+          profile={dash.profile}
+          biz={dash.biz}
+          onClose={() => setShowHistory(false)}
+          onImage={(url) => setImageGallery({ urls: [url], startIndex: 0 })}
+        />
       )}
-
-      {imageGallery && (
-        <div className="fixed inset-0 z-400 bg-black/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200" onClick={() => { setImageGallery(null); setImgScale(1); }}>
-          <div className="absolute top-0 left-0 right-0 p-5 flex justify-between items-center z-50 text-white pointer-events-none">
-            <span className="font-bold text-xs bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm">แตะ 2 ครั้งเพื่อซูม / ใช้ปุ่มลูกศรเลื่อน</span>
-            <button type="button" onClick={() => { setImageGallery(null); setImgScale(1); }} className="p-2.5 bg-white/10 hover:bg-white/20 rounded-full transition-colors active:scale-90 pointer-events-auto cursor-pointer">
-              <X size={20} strokeWidth={2.5} />
-            </button>
-          </div>
-          
-          {imageGallery.urls.length > 1 && (
-            <>
-              <button onClick={(e) => { e.stopPropagation(); scrollGallery('left'); }} className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-50 transition-all cursor-pointer hidden md:block">
-                <ChevronLeft size={24} />
-              </button>
-              <button onClick={(e) => { e.stopPropagation(); scrollGallery('right'); }} className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-50 transition-all cursor-pointer hidden md:block">
-                <ChevronRight size={24} />
-              </button>
-            </>
-          )}
-          
-          <div ref={galleryRef} className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory hide-scrollbar">
-            {imageGallery.urls.map((url, i) => (
-              <div key={i} className={`w-full h-full shrink-0 snap-center p-2 flex overflow-auto ${imgScale > 1 ? 'items-start justify-start' : 'items-center justify-center'}`} onClick={(e) => e.stopPropagation()}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img 
-                  src={mediaUrl(url)} 
-                  className={`transition-all duration-300 origin-center cursor-zoom-in shadow-2xl rounded-lg ${imgScale > 1 ? 'm-auto' : ''}`}
-                  style={{ 
-   width: imgScale > 1 ? `${imgScale * 100}%` : '100%', 
-   height: imgScale > 1 ? 'auto' : '100%',
-   objectFit: 'contain',
-   maxWidth: imgScale > 1 ? 'none' : '100%' 
- }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    setImgScale(prev => prev === 1 ? 2.5 : 1);
-                  }}
-                  alt={`Gallery ${i}`} 
-                />
-              </div>
-            ))}
-          </div>
-
-          <div className="absolute bottom-10 left-1/2 transform -translate-x-1/2 flex items-center gap-6 bg-slate-800/80 px-6 py-3 rounded-full backdrop-blur-md shadow-2xl z-50" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setImgScale(prev => Math.max(1, prev - 0.5))} className={`p-2 rounded-full transition-all cursor-pointer ${imgScale <= 1 ? 'text-slate-500 cursor-not-allowed' : 'text-white hover:bg-white/20'}`} disabled={imgScale <= 1}>
-              <ZoomOut size={24} />
-            </button>
-            <span className="text-white font-black text-sm w-12 text-center">{Math.round(imgScale * 100)}%</span>
-            <button onClick={() => setImgScale(prev => Math.min(4, prev + 0.5))} className={`p-2 rounded-full transition-all cursor-pointer ${imgScale >= 4 ? 'text-slate-500 cursor-not-allowed' : 'text-white hover:bg-white/20'}`} disabled={imgScale >= 4}>
-              <ZoomIn size={24} />
-            </button>
-          </div>
-        </div>
-      )}
+      {imageGallery && <Gallery gallery={imageGallery} onClose={() => setImageGallery(null)} />}
 
       <style>{`
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+type Summary = NonNullable<ReturnType<typeof useRiderDashboard>['summary']>;
+
+function EarningsHero({ s, rangeLabel }: { s: Summary; rangeLabel: string }) {
+  const p = s.pay;
+  const hasShift = s.shifts.length > 0;
+  const status = s.working ? { t: 'กำลังทำงาน', c: 'bg-white/25' }
+    : p.allPaid ? { t: 'จ่ายแล้ว', c: 'bg-white text-emerald-700' }
+    : p.anyPaid ? { t: 'จ่ายบางส่วน', c: 'bg-amber-300 text-amber-900' }
+    : { t: 'รอร้านโอน', c: 'bg-amber-300 text-amber-900' };
+  const calc = p.basePay + p.gas + p.bonus - p.savings;
+  const adjusted = hasShift && Math.abs(calc - p.total) > 1;
+
+  return (
+    <section className="relative overflow-hidden rounded-3xl p-5 text-white bg-linear-to-br from-emerald-500 via-teal-500 to-cyan-600 shadow-xl shadow-teal-500/30">
+      <span className="absolute -right-12 -top-14 w-44 h-44 rounded-full bg-white/10" aria-hidden />
+      <span className="absolute right-10 -bottom-16 w-32 h-32 rounded-full bg-white/10" aria-hidden />
+      <div className="relative">
+        <div className="flex items-center justify-between gap-2">
+          <p className="flex items-center gap-2 text-sm font-bold text-white/85"><Wallet size={16} /> รายได้ {rangeLabel}</p>
+          {hasShift && <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-black ${status.c}`}>{status.t}</span>}
+        </div>
+        <div className="mt-2 text-5xl font-black tracking-tight tabular-nums drop-shadow-sm">{baht(p.total)}</div>
+        {!hasShift ? (
+          <p className="mt-2 text-xs font-semibold text-white/80">ไม่มีการเข้างานในช่วงนี้</p>
+        ) : (
+          <>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <Piece label={`ค่าแรง ${fmtMinutes(p.minutes)}`} sub={`ชม.ละ ${baht(p.rate)}`} value={baht(p.basePay)} />
+              <Piece label="ค่าน้ำมัน" value={`+${baht(p.gas)}`} />
+              <Piece label="โบนัสขยัน" value={`+${baht(p.bonus)}`} />
+              <Piece label="หักเงินเก็บ" value={`−${baht(p.savings)}`} />
+            </div>
+            {adjusted && (
+              <p className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-white/85">
+                <AlertCircle size={12} /> ร้านปรับยอดจ่ายจริงเอง ยอดรวมจึงไม่เท่ากับผลบวกข้างบน
+              </p>
+            )}
+            {s.working && (
+              <p className="mt-2 text-[11px] font-semibold text-white/80">* ยอดระหว่างกะ อัปเดตทุก 30 วินาที ยอดจริงขึ้นกับร้านกดจ่าย</p>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function Piece({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-2xl bg-white/15 px-3 py-2 ring-1 ring-white/20 min-w-0">
+      <div className="text-[11px] font-semibold text-white/80 truncate">{label}</div>
+      <div className="text-base font-black tabular-nums">{value}</div>
+      {sub && <div className="text-[10px] font-semibold text-white/70">{sub}</div>}
+    </div>
+  );
+}
+
+/** แถบความคืบหน้าค่าน้ำมันขั้นถัดไป (เฉพาะวันนี้ระหว่างกะ) */
+function GasProgress({ count }: { count: number }) {
+  const current = getAutoGasAllowance(count);
+  const tiers = [...GAS_TIERS].reverse(); // น้อย → มาก
+  const idx = tiers.findIndex((t) => t.amount === current);
+  const next = tiers[idx + 1];
+  const from = tiers[idx].min;
+  const pct = next ? Math.min(100, ((count - from) / (next.min - from)) * 100) : 100;
+  return (
+    <section className="rounded-3xl bg-white p-4 shadow-[0_4px_24px_-8px_rgba(245,158,11,0.3)]">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 shrink-0 rounded-2xl bg-linear-to-br from-amber-400 to-orange-500 text-white flex items-center justify-center"><Fuel size={18} /></div>
+        <div className="flex-1 min-w-0">
+          {next ? (
+            <p className="text-sm font-black text-slate-800">
+              ส่งอีก <span className="text-orange-600">{next.min - count}</span> ออเดอร์ ค่าน้ำมันขึ้นเป็น <span className="text-orange-600">{baht(next.amount)}</span>
+            </p>
+          ) : (
+            <p className="text-sm font-black text-slate-800">ได้ค่าน้ำมันขั้นสูงสุดแล้ว 🎉</p>
+          )}
+          <p className="text-[11px] font-semibold text-slate-400">ตอนนี้ {count} ออเดอร์ · ได้ {baht(current)}</p>
+        </div>
+      </div>
+      <div className="mt-3 h-2.5 rounded-full bg-amber-100 overflow-hidden">
+        <div className="h-full rounded-full bg-linear-to-r from-amber-400 to-orange-500 transition-all duration-700" style={{ width: `${pct}%` }} />
+      </div>
+    </section>
+  );
+}
+
+function Tile({ icon, tint, label, value, unit, small }: { icon: ReactNode; tint: string; label: string; value: string; unit?: string; small?: boolean }) {
+  return (
+    <div className="rounded-3xl bg-white p-3 shadow-[0_4px_24px_-8px_rgba(79,70,229,0.15)] min-w-0">
+      <div className={`w-8 h-8 rounded-xl bg-linear-to-br ${tint} text-white flex items-center justify-center mb-2`}>{icon}</div>
+      <div className="text-[11px] font-bold text-slate-500">{label}</div>
+      <div className={`${small ? 'text-sm' : 'text-xl'} font-black text-slate-900 tabular-nums leading-tight`}>{value}</div>
+      {unit && <div className="text-[10px] font-semibold text-slate-400">{unit}</div>}
+    </div>
+  );
+}
+
+function CashCard({ cash, rangeLabel }: { cash: Summary['cash']; rangeLabel: string }) {
+  const pct = cash.total ? (cash.handed / cash.total) * 100 : 0;
+  return (
+    <section className="rounded-3xl bg-white p-4 shadow-[0_4px_24px_-8px_rgba(244,63,94,0.25)]">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 shrink-0 rounded-2xl bg-linear-to-br from-rose-500 to-pink-600 text-white flex items-center justify-center"><Banknote size={18} /></div>
+        <div className="flex-1">
+          <h2 className="text-sm font-black text-slate-800">เงินสดที่ต้องส่งร้าน</h2>
+          <p className="text-[11px] font-semibold text-slate-400">เก็บจากลูกค้า {rangeLabel} {baht(cash.total)}</p>
+        </div>
+        <div className="text-right">
+          <div className={`text-2xl font-black tabular-nums ${cash.pending > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{baht(cash.pending)}</div>
+          <div className="text-[10px] font-bold text-slate-400">{cash.pending > 0 ? 'ยังค้างส่ง' : cash.total > 0 ? 'ส่งครบแล้ว ✓' : ''}</div>
+        </div>
+      </div>
+      {cash.total > 0 && (
+        <>
+          <div className="mt-3 h-2 rounded-full bg-rose-100 overflow-hidden">
+            <div className="h-full rounded-full bg-linear-to-r from-emerald-400 to-teal-500" style={{ width: `${pct}%` }} />
+          </div>
+          <p className="mt-1.5 text-[11px] font-semibold text-slate-500">ร้านรับแล้ว {baht(cash.handed)}</p>
+        </>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+type Dash = ReturnType<typeof useRiderDashboard>;
+
+/** รอบบิลเดือน: สรุป + รายการทุกวันที่เข้างาน (ให้ไรเดอร์ตรวจสอบ/โต้แย้งได้) */
+function CycleCard({ dash, onHistory }: { dash: Dash; onHistory: () => void }) {
+  const c = dash.cycle;
+  const [open, setOpen] = useState(false);
+  const lastDay = c ? new Date(c.end.getTime() - 86400000) : null;
+  const statusChip = (pay: RecordPay, rec: AttendanceRecord) =>
+    pay.isPaid ? { t: 'จ่ายแล้ว', c: 'bg-emerald-100 text-emerald-700' }
+    : pay.isWorking ? { t: 'กำลังทำงาน', c: 'bg-sky-100 text-sky-700' }
+    : { t: rec.payment_status || 'ค้างจ่าย', c: 'bg-amber-100 text-amber-800' };
+
+  return (
+    <section className="rounded-3xl bg-white shadow-[0_4px_24px_-8px_rgba(79,70,229,0.15)] overflow-hidden">
+      {/* หัว + เลื่อนรอบ */}
+      <div className="flex items-center gap-2 bg-linear-to-r from-indigo-50 to-violet-50 px-4 py-3">
+        <button
+          onClick={() => { dash.setCycleOffset((o) => o - 1); setOpen(true); }}
+          aria-label="รอบก่อนหน้า"
+          className="p-1.5 rounded-lg bg-white text-indigo-600 shadow-sm hover:bg-indigo-100 cursor-pointer active:scale-90"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <div className="flex-1 text-center">
+          <h2 className="text-sm font-black text-slate-800">{c?.isCurrent ? 'รอบบิลเดือนนี้' : 'รอบบิลย้อนหลัง'}</h2>
+          {c && lastDay && (
+            <p className="text-[11px] font-bold text-indigo-500">
+              {shortDate(c.start)} – {lastDay.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+            </p>
+          )}
+        </div>
+        <button
+          onClick={() => dash.setCycleOffset((o) => Math.min(0, o + 1))}
+          disabled={dash.cycleOffset >= 0}
+          aria-label="รอบถัดไป"
+          className="p-1.5 rounded-lg bg-white text-indigo-600 shadow-sm hover:bg-indigo-100 cursor-pointer active:scale-90 disabled:opacity-30 disabled:cursor-default"
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+
+      {!c || c.loading ? (
+        <div className="py-8 flex justify-center"><Loader2 size={22} className="animate-spin text-indigo-400" /></div>
+      ) : (
+        <div className="p-4 space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-2xl bg-slate-50 p-2.5 text-center">
+              <div className="text-[10px] font-bold text-slate-500">เข้างาน</div>
+              <div className="text-lg font-black text-slate-900 tabular-nums">{c.workDays} <span className="text-xs">วัน</span></div>
+              {c.shifts > c.workDays && <div className="text-[10px] font-semibold text-violet-600">{c.shifts} กะ (มีควบกะ)</div>}
+            </div>
+            <div className="rounded-2xl bg-amber-50 p-2.5 text-center">
+              <div className="text-[10px] font-bold text-amber-700 flex items-center justify-center gap-1"><Trophy size={11} /> โบนัสสะสม</div>
+              <div className="text-lg font-black text-slate-900 tabular-nums">{baht(c.bonus)}</div>
+            </div>
+            <div className="rounded-2xl bg-indigo-50 p-2.5 text-center">
+              <div className="text-[10px] font-bold text-indigo-700 flex items-center justify-center gap-1"><PiggyBank size={11} /> เงินเก็บสะสม</div>
+              <div className="text-lg font-black text-slate-900 tabular-nums">{baht(c.savings)}</div>
+            </div>
+          </div>
+
+          {c.monthly && (
+            <div className="flex items-center justify-between rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-bold">
+              <span className="flex items-center gap-1.5 text-emerald-700"><Landmark size={13} /> สลิปรายเดือน: {c.monthly.status}</span>
+              <span className="text-slate-900 tabular-nums">{baht(c.monthly.total_amount || 0)}</span>
+            </div>
+          )}
+
+          <button
+            onClick={() => setOpen((v) => !v)}
+            className="w-full flex items-center justify-center gap-1.5 rounded-2xl border border-indigo-100 py-2.5 text-xs font-black text-indigo-600 hover:bg-indigo-50 cursor-pointer"
+          >
+            <CalendarDays size={14} /> {open ? 'ซ่อนรายวัน' : `ดูรายวัน (${c.shifts} กะ)`}
+            <ChevronRight size={14} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
+          </button>
+
+          {open && (
+            <div className="space-y-2">
+              <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500 leading-relaxed">
+                ร้านหักเงินเก็บวันละ {baht(c.defaultSavings)} (วันที่ควบกะหักครั้งเดียว) · วันที่ร้านจ่ายแล้วแสดงตามยอดที่ร้านบันทึก
+                · ถ้าตัวเลขไม่ตรงกับที่ทำงานจริง แจ้งแอดมินพร้อมวันที่ได้เลย
+              </p>
+              {c.days.length === 0 ? (
+                <p className="py-6 text-center text-sm font-bold text-slate-400">ยังไม่มีวันเข้างานในรอบนี้</p>
+              ) : (
+                c.days.map(({ record, pay }) => {
+                  const st = statusChip(pay, record);
+                  return (
+                    <div key={record.id} className="rounded-2xl border border-slate-100 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-xs font-black text-slate-800">
+                            {new Date(record.check_in).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short' })}
+                          </span>
+                          {pay.extraShift && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-black text-violet-700">กะควบ</span>}
+                        </div>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${st.c}`}>{st.t}</span>
+                      </div>
+                      <div className="mt-1 text-[11px] font-semibold text-slate-500">
+                        เข้า {timeOf(record.check_in)} – ออก {record.check_out ? timeOf(record.check_out) : '…'} น. · {fmtMinutes(pay.minutes)} · {pay.orders} ออเดอร์
+                      </div>
+                      <div className="mt-2 grid grid-cols-4 gap-1 text-center">
+                        <div className="rounded-lg bg-slate-50 py-1">
+                          <div className="text-[9px] font-bold text-slate-400">ค่าแรง+น้ำมัน</div>
+                          <div className="text-[11px] font-black text-slate-700 tabular-nums">{baht(pay.basePay + pay.gas)}</div>
+                        </div>
+                        <div className="rounded-lg bg-amber-50 py-1">
+                          <div className="text-[9px] font-bold text-amber-700">โบนัส</div>
+                          <div className="text-[11px] font-black text-slate-700 tabular-nums">+{baht(pay.bonus)}</div>
+                        </div>
+                        <div className="rounded-lg bg-indigo-50 py-1">
+                          <div className="text-[9px] font-bold text-indigo-700">หักเก็บ</div>
+                          <div className="text-[11px] font-black text-slate-700 tabular-nums">−{baht(pay.savings)}</div>
+                        </div>
+                        <div className="rounded-lg bg-emerald-50 py-1">
+                          <div className="text-[9px] font-bold text-emerald-700">ได้รับ</div>
+                          <div className="text-[11px] font-black text-slate-900 tabular-nums">{baht(pay.total)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+              {c.days.length > 0 && (
+                <div className="grid grid-cols-3 gap-2 rounded-2xl bg-slate-900 p-3 text-center text-white">
+                  <div><div className="text-[10px] font-bold text-white/60">รวมโบนัส</div><div className="text-sm font-black tabular-nums">{baht(c.bonus)}</div></div>
+                  <div><div className="text-[10px] font-bold text-white/60">รวมหักเก็บ</div><div className="text-sm font-black tabular-nums">{baht(c.savings)}</div></div>
+                  <div><div className="text-[10px] font-bold text-white/60">รวมรายวัน</div><div className="text-sm font-black tabular-nums">{baht(c.total)}</div></div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <button onClick={onHistory} className="w-full flex items-center justify-center gap-1 rounded-2xl bg-indigo-50 py-2.5 text-xs font-black text-indigo-600 hover:bg-indigo-100 cursor-pointer">
+            <Clock size={13} /> ประวัติสลิปทั้งหมด
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+function ModalShell({ title, icon, onClose, children, wide }: { title: string; icon: ReactNode; onClose: () => void; children: ReactNode; wide?: boolean }) {
+  return (
+    <div className="fixed inset-0 z-100 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={onClose}>
+      <div
+        className={`bg-slate-50 rounded-4xl shadow-2xl w-full ${wide ? 'max-w-md' : 'max-w-sm'} overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-300`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="relative overflow-hidden bg-linear-to-r from-indigo-600 to-violet-600 px-5 py-4 flex items-center justify-between text-white shrink-0">
+          <span className="absolute -right-8 -top-10 w-28 h-28 rounded-full bg-white/10" aria-hidden />
+          <h3 className="relative flex items-center gap-2 text-base font-black">{icon} {title}</h3>
+          <button onClick={onClose} aria-label="ปิด" className="relative p-2 rounded-full bg-white/15 hover:bg-white/25 cursor-pointer active:scale-90 transition"><X size={18} /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function OrderModal({ order, onClose, onImages }: { order: Order; onClose: () => void; onImages: (urls: string[], i: number) => void }) {
+  const chip = PAY_CHIP[payKind(order.payment_method ?? null)];
+  const imgs = (order.image_url || '').split(',').filter(Boolean);
+  const slips = (order.slip_image || '').split(',').filter(Boolean);
+  return (
+    <ModalShell title="รายละเอียดบิล" icon={<ClipboardList size={18} />} onClose={onClose}>
+      <div className="p-5 space-y-4 overflow-y-auto hide-scrollbar">
+        <div className="flex items-end justify-between">
+          <div>
+            <div className="text-[11px] font-bold text-slate-400">
+              {new Date(order.created_at).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })}
+            </div>
+            <div className="text-3xl font-black text-slate-900 tracking-tight">{order.order_number}</div>
+          </div>
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-black text-emerald-700">
+            <CheckCircle2 size={12} /> {order.status}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-2xl bg-white p-3">
+            <div className="text-[11px] font-bold text-slate-400">ยอดเรียกเก็บ</div>
+            <div className="text-xl font-black text-indigo-600 tabular-nums">{baht(Number(order.total_price) || 0)}</div>
+            {!!order.delivery_fee && <div className="text-[10px] font-semibold text-slate-400">รวมค่าส่ง {baht(order.delivery_fee)}</div>}
+          </div>
+          <div className="rounded-2xl bg-white p-3">
+            <div className="text-[11px] font-bold text-slate-400">ชำระเงิน</div>
+            <span className={`mt-1 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-black ${chip.cls}`}>{chip.icon} {chip.label}</span>
+          </div>
+        </div>
+
+        {order.menu && (
+          <div>
+            <div className="text-[11px] font-black text-slate-400 mb-1">รายการเมนู</div>
+            <div className="rounded-2xl bg-white p-3 text-sm font-bold text-slate-800 whitespace-pre-line leading-relaxed">{order.menu}</div>
+          </div>
+        )}
+        {order.details && (
+          <div>
+            <div className="text-[11px] font-black text-slate-400 mb-1">รายละเอียดเพิ่มเติม</div>
+            <div className="rounded-2xl bg-white p-3 text-sm text-slate-600 whitespace-pre-line leading-relaxed">{order.details}</div>
+          </div>
+        )}
+        {order.address && (
+          <div>
+            <div className="text-[11px] font-black text-slate-400 mb-1">สถานที่จัดส่ง</div>
+            <div className="rounded-2xl bg-rose-50 p-3 text-sm font-bold text-slate-800 flex gap-2">
+              <MapPinned size={16} className="text-rose-500 shrink-0 mt-0.5" /> {order.address}
+            </div>
+          </div>
+        )}
+        {[{ label: 'รูปภาพแนบ', urls: imgs }, { label: 'สลิปโอนเงิน', urls: slips }].map(({ label, urls }) =>
+          urls.length ? (
+            <div key={label}>
+              <div className="text-[11px] font-black text-slate-400 mb-1 flex items-center gap-1"><ImageIcon size={12} /> {label}</div>
+              <div className="grid grid-cols-2 gap-2">
+                {urls.map((u, i) => (
+                  <button key={i} onClick={() => onImages(urls, i)} className="relative h-28 rounded-2xl overflow-hidden ring-1 ring-slate-200 cursor-pointer active:scale-95 transition">
+                    <Image src={mediaUrl(u)} fill className="object-cover" alt={`${label} ${i + 1}`} sizes="200px" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null,
+        )}
+      </div>
+      <div className="p-4 pt-0 shrink-0">
+        <button onClick={onClose} className="w-full py-3.5 rounded-2xl bg-slate-900 text-white font-black text-sm hover:bg-slate-800 active:scale-95 transition cursor-pointer">ปิด</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function HistoryModal({
+  riderId, profile, biz, onClose, onImage,
+}: {
+  riderId: string;
+  profile: Parameters<typeof fetchPayHistory>[1];
+  biz: Parameters<typeof fetchPayHistory>[2];
+  onClose: () => void;
+  onImage: (url: string) => void;
+}) {
+  const [tab, setTab] = useState<'daily' | 'monthly'>('daily');
+  const [data, setData] = useState<{ daily: { record: AttendanceRecord; pay: RecordPay }[]; monthly: MonthlyPaymentRecord[] } | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetchPayHistory(riderId, profile, biz)
+      .then((d) => alive && setData(d))
+      .catch(() => alive && setFailed(true));
+    return () => { alive = false; };
+  }, [riderId, profile, biz]);
+
+  const unpaid = data?.daily.filter((x) => !x.pay.isPaid) ?? [];
+  const paid = data?.daily.filter((x) => x.pay.isPaid) ?? [];
+
+  return (
+    <ModalShell title="ประวัติสลิปเงินเดือน" icon={<Clock size={18} />} onClose={onClose} wide>
+      <div className="p-4 flex flex-col gap-3 overflow-hidden flex-1">
+        <div className="flex gap-1 rounded-2xl bg-slate-200/70 p-1 shrink-0">
+          {(['daily', 'monthly'] as const).map((t) => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`flex-1 rounded-xl py-2 text-xs font-black transition cursor-pointer ${tab === t ? 'bg-white text-indigo-700 shadow' : 'text-slate-500'}`}>
+              {t === 'daily' ? 'สลิปรายวัน' : 'สลิปรายเดือน'}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 overflow-y-auto hide-scrollbar space-y-2.5">
+          {failed ? (
+            <p className="py-10 text-center text-sm font-bold text-rose-500">โหลดไม่สำเร็จ</p>
+          ) : !data ? (
+            <div className="py-10 flex justify-center"><Loader2 size={24} className="animate-spin text-indigo-400" /></div>
+          ) : tab === 'daily' ? (
+            data.daily.length === 0 ? (
+              <p className="py-10 text-center text-sm font-bold text-slate-400">ยังไม่มีประวัติ</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-2xl bg-linear-to-br from-amber-400 to-orange-500 p-3 text-white">
+                    <div className="text-[11px] font-bold text-white/85">ยังไม่ได้รับ</div>
+                    <div className="text-lg font-black tabular-nums">{baht(unpaid.reduce((a, x) => a + x.pay.total, 0))}</div>
+                    <div className="text-[10px] font-semibold text-white/80">{unpaid.length} กะ</div>
+                  </div>
+                  <div className="rounded-2xl bg-linear-to-br from-emerald-500 to-teal-500 p-3 text-white">
+                    <div className="text-[11px] font-bold text-white/85">ได้รับแล้ว (60 กะล่าสุด)</div>
+                    <div className="text-lg font-black tabular-nums">{baht(paid.reduce((a, x) => a + x.pay.total, 0))}</div>
+                    <div className="text-[10px] font-semibold text-white/80">{paid.length} กะ</div>
+                  </div>
+                </div>
+                {data.daily.map(({ record, pay }) => (
+                  <div key={record.id} className="rounded-2xl bg-white p-3.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs font-black text-slate-700">
+                        {new Date(record.check_in).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', year: '2-digit' })}
+                        <span className="font-semibold text-slate-400">{timeOf(record.check_in)} น.</span>
+                        {pay.extraShift && (
+                          <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-black text-violet-700">กะควบ</span>
+                        )}
+                      </div>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
+                        pay.isPaid ? 'bg-emerald-100 text-emerald-700' : pay.isWorking ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {pay.isPaid ? 'จ่ายแล้ว' : pay.isWorking ? 'กำลังทำงาน' : record.payment_status || 'ค้างจ่าย'}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-end justify-between">
+                      <div className="text-[11px] font-semibold text-slate-400 leading-relaxed">
+                        {fmtMinutes(pay.minutes)} · {pay.orders} ออเดอร์
+                        <br />ค่าน้ำมัน +{baht(pay.gas)}{pay.bonus > 0 && ` · โบนัส +${baht(pay.bonus)}`} · หักเก็บ −{baht(pay.savings)}
+                      </div>
+                      <div className={`text-lg font-black tabular-nums ${pay.isPaid ? 'text-emerald-600' : 'text-amber-600'}`}>{baht(pay.total)}</div>
+                    </div>
+                    {record.payment_slip_url && (
+                      <button onClick={() => onImage(record.payment_slip_url!)} className="mt-2 w-full rounded-xl bg-indigo-50 py-2 text-[11px] font-black text-indigo-600 flex items-center justify-center gap-1.5 hover:bg-indigo-100 cursor-pointer">
+                        <ImageIcon size={13} /> ดูสลิปโอนเงิน
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </>
+            )
+          ) : data.monthly.length === 0 ? (
+            <p className="py-10 text-center text-sm font-bold text-slate-400">ยังไม่มีสลิปรายเดือน</p>
+          ) : (
+            data.monthly.map((m) => (
+              <div key={m.id} className="rounded-2xl bg-white p-3.5 border-l-4 border-indigo-500">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-black text-indigo-700 flex items-center gap-1.5"><Landmark size={14} /> รอบเดือน {m.month_key}</div>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${m.status === 'จ่ายแล้ว' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>{m.status}</span>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-xl bg-amber-50 py-1.5"><div className="text-[10px] font-bold text-amber-700">โบนัส</div><div className="text-xs font-black">{baht(m.total_bonus || 0)}</div></div>
+                  <div className="rounded-xl bg-indigo-50 py-1.5"><div className="text-[10px] font-bold text-indigo-700">เงินเก็บ</div><div className="text-xs font-black">{baht(m.total_savings || 0)}</div></div>
+                  <div className="rounded-xl bg-emerald-50 py-1.5"><div className="text-[10px] font-bold text-emerald-700">สุทธิ</div><div className="text-xs font-black">{baht(m.total_amount || 0)}</div></div>
+                </div>
+                {m.slip_url && (
+                  <button onClick={() => onImage(m.slip_url!)} className="mt-2 w-full rounded-xl bg-indigo-50 py-2 text-[11px] font-black text-indigo-600 flex items-center justify-center gap-1.5 hover:bg-indigo-100 cursor-pointer">
+                    <ImageIcon size={13} /> ดูสลิปเงินเดือน
+                  </button>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function Gallery({ gallery, onClose }: { gallery: { urls: string[]; startIndex: number }; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    const el = ref.current?.children[gallery.startIndex] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [gallery]);
+  const scroll = (dir: -1 | 1) => {
+    setScale(1);
+    ref.current?.scrollBy({ left: dir * ref.current.clientWidth, behavior: 'smooth' });
+  };
+  return (
+    <div className="fixed inset-0 z-400 bg-black/95 backdrop-blur-xl flex flex-col animate-in fade-in duration-200" onClick={onClose}>
+      <div className="absolute top-0 inset-x-0 p-5 flex justify-between items-center z-50 text-white pointer-events-none">
+        <span className="text-xs font-bold bg-white/20 px-3 py-1.5 rounded-full">แตะ 2 ครั้งเพื่อซูม</span>
+        <button onClick={onClose} aria-label="ปิด" className="p-2.5 bg-white/10 hover:bg-white/20 rounded-full pointer-events-auto cursor-pointer"><X size={20} /></button>
+      </div>
+      {gallery.urls.length > 1 && (
+        <>
+          <button onClick={(e) => { e.stopPropagation(); scroll(-1); }} className="hidden md:block absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-50 cursor-pointer"><ChevronLeft size={24} /></button>
+          <button onClick={(e) => { e.stopPropagation(); scroll(1); }} className="hidden md:block absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-50 cursor-pointer"><ChevronRight size={24} /></button>
+        </>
+      )}
+      <div ref={ref} className="flex-1 w-full flex overflow-x-auto snap-x snap-mandatory hide-scrollbar">
+        {gallery.urls.map((url, i) => (
+          <div key={i} className={`w-full h-full shrink-0 snap-center p-2 flex overflow-auto ${scale > 1 ? 'items-start justify-start' : 'items-center justify-center'}`} onClick={(e) => e.stopPropagation()}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={mediaUrl(url)}
+              alt={`รูป ${i + 1}`}
+              className={`rounded-lg shadow-2xl transition-all duration-300 cursor-zoom-in ${scale > 1 ? 'm-auto' : ''}`}
+              style={{ width: scale > 1 ? `${scale * 100}%` : '100%', height: scale > 1 ? 'auto' : '100%', objectFit: 'contain', maxWidth: scale > 1 ? 'none' : '100%' }}
+              onDoubleClick={() => setScale((p) => (p === 1 ? 2.5 : 1))}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-6 bg-slate-800/80 px-6 py-3 rounded-full z-50" onClick={(e) => e.stopPropagation()}>
+        <button onClick={() => setScale((p) => Math.max(1, p - 0.5))} disabled={scale <= 1} className="p-2 rounded-full text-white disabled:text-slate-500 cursor-pointer"><ZoomOut size={24} /></button>
+        <span className="text-white font-black text-sm w-12 text-center">{Math.round(scale * 100)}%</span>
+        <button onClick={() => setScale((p) => Math.min(4, p + 0.5))} disabled={scale >= 4} className="p-2 rounded-full text-white disabled:text-slate-500 cursor-pointer"><ZoomIn size={24} /></button>
+      </div>
     </div>
   );
 }

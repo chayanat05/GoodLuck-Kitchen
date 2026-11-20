@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { mediaUrl } from "@/lib/media";
 import { uploadMedia } from "@/lib/mediaUpload";
+import { defaultSavingsFor, findExtraShifts } from "@/lib/riderPay";
 import { 
   ArrowLeft, Calendar, Loader2, CheckCircle2, AlertTriangle, 
   Search, Edit3, X, DollarSign, Trophy, User, ImagePlus, Check,
@@ -170,7 +171,9 @@ export default function MonthlyPayrollPage() {
     } else if (attendanceData) {
       const summaryMap: Record<string, MonthlySummary> = {};
       const typedAttendanceData = attendanceData as unknown as RawAttendance[];
-      
+      // ควบกะ: วันเดียวกันหลายกะ หักเงินเก็บครั้งเดียว (กติกาเดียวกับหน้า /payroll และแดชบอร์ดไรเดอร์)
+      const extraShifts = findExtraShifts(typedAttendanceData, { h: bizHour, m: bizMin || 0 });
+
       typedAttendanceData.forEach((record) => {
         const rId = record.rider_id;
         if (!summaryMap[rId]) {
@@ -188,9 +191,15 @@ export default function MonthlyPayrollPage() {
         }
         
         const profileData = Array.isArray(record.profiles) ? record.profiles[0] : record.profiles;
-        const dailySavings = (record.accumulated_savings === null || record.accumulated_savings === undefined) 
-          ? (profileData?.default_savings ?? 50) 
-          : Number(record.accumulated_savings);
+        // เงินเก็บรายวัน — สูตรเดียวกับหน้าจ่ายรายวัน (/payroll):
+        // จ่ายแล้ว/บันทึกยอดแล้ว → ใช้ค่าที่บันทึก, ยังไม่จ่ายและยังไม่กำหนด (0/ว่าง) → ค่าเริ่มต้นของพนักงาน (กะควบ = 0)
+        const settled = record.payment_status === 'จ่ายแล้ว' || (Number(record.total_pay) || 0) > 0;
+        const storedSavings = record.accumulated_savings == null ? null : Number(record.accumulated_savings);
+        const dailySavings = settled
+          ? (storedSavings || 0)
+          : (!storedSavings
+              ? defaultSavingsFor(profileData?.default_savings, extraShifts.has(record.id))
+              : storedSavings);
           
         summaryMap[rId].total_bonus += (Number(record.diligence_bonus) || 0);
         summaryMap[rId].total_savings += dailySavings; 

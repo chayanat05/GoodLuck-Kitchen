@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { useBusinessDayStart } from "@/hooks/useBusinessDayStart";
 import {
   ORDER_COLS,
   bizDateOf,
@@ -37,7 +38,8 @@ async function fetchOrders(from: Date | null, to: Date | null, branchId: string 
 }
 
 export function useDashboard({ branchId, enabled }: { branchId: string | null; enabled: boolean }) {
-  const [bizStartText, setBizStartText] = useState("06:00");
+  // เวลาตัดรอบจากหน้าตั้งค่าแอดมิน อัปเดตเองเมื่อแอดมินเปลี่ยน → ทุกตัวเลขคำนวณใหม่ทันที
+  const bizStartText = useBusinessDayStart();
   const biz = useMemo(() => parseBizStart(bizStartText), [bizStartText]);
 
   const [range, setRange] = useState<RangeKey>("today");
@@ -51,25 +53,6 @@ export function useDashboard({ branchId, enabled }: { branchId: string | null; e
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // โหลดเวลาตัดรอบวันทำการ
-  useEffect(() => {
-    if (!enabled) return;
-    void supabase
-      .from("store_settings")
-      .select("business_day_start")
-      .eq("id", 1)
-      .single()
-      .then(({ data }) => {
-        const s = data?.business_day_start as string | undefined;
-        if (!s) return;
-        setBizStartText(s);
-        const d = toDateInput(bizDateOf(new Date(), parseBizStart(s)));
-        setSingleDate(d);
-        setCustomStart(d);
-        setCustomEnd(d);
-      });
-  }, [enabled]);
 
   const resolved = useMemo(
     () => resolveRange(range, biz, { singleDate, customStart, customEnd, now: new Date(loadedAt) }),
